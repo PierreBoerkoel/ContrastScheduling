@@ -171,6 +171,7 @@ export default function AvailabilityPage() {
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
@@ -216,6 +217,7 @@ export default function AvailabilityPage() {
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
