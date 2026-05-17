@@ -75,6 +75,14 @@ export async function PUT(request: Request) {
   const name = user?.fullName ?? [user?.firstName, user?.lastName].filter(Boolean).join(' ') ?? ''
   if (!name) return NextResponse.json({ error: 'Could not determine your name' }, { status: 400 })
 
+  const targetDate = shiftId.split('|')[0]
+  const alreadyOnDay = schedule.assignments.some(
+    (a) => a.shiftId !== shiftId && a.shiftId.startsWith(targetDate + '|') && a.residentName?.toLowerCase() === name.toLowerCase()
+  )
+  if (alreadyOnDay) {
+    return NextResponse.json({ error: 'You are already scheduled on this day' }, { status: 409 })
+  }
+
   schedule.assignments[idx] = { shiftId, residentName: name }
   await setSchedule(schedule)
   return NextResponse.json(schedule)

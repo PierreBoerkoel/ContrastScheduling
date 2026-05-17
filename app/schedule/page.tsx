@@ -31,6 +31,7 @@ export default function SchedulePage() {
 
   // Claim unassigned shift
   const [claimingShiftId, setClaimingShiftId] = useState<string | null>(null)
+  const [claimError, setClaimError] = useState<{ shiftId: string; message: string } | null>(null)
 
   // Swap — request flow
   const [requestingShiftId, setRequestingShiftId] = useState<string | null>(null)
@@ -80,13 +81,19 @@ export default function SchedulePage() {
 
   async function claimShift(shiftId: string) {
     setClaimingShiftId(shiftId)
+    setClaimError(null)
     try {
-      await fetch('/api/schedule', {
+      const res = await fetch('/api/schedule', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shiftId }),
       })
-      await fetchAll()
+      if (!res.ok) {
+        const data = await res.json()
+        setClaimError({ shiftId, message: data.error ?? 'Could not take shift' })
+      } else {
+        await fetchAll()
+      }
     } finally {
       setClaimingShiftId(null)
     }
@@ -245,13 +252,18 @@ export default function SchedulePage() {
                           )}
                         </>
                       ) : (
-                        <button
-                          onClick={() => claimShift(shift.id)}
-                          disabled={isClaiming}
-                          className="text-xs text-blue-600 hover:text-blue-700 font-medium border border-blue-200 hover:border-blue-400 rounded px-2 py-0.5 transition-colors disabled:opacity-40"
-                        >
-                          {isClaiming ? 'Taking…' : 'Take shift'}
-                        </button>
+                        <div className="space-y-0.5">
+                          <button
+                            onClick={() => claimShift(shift.id)}
+                            disabled={isClaiming}
+                            className="text-xs text-blue-600 hover:text-blue-700 font-medium border border-blue-200 hover:border-blue-400 rounded px-2 py-0.5 transition-colors disabled:opacity-40"
+                          >
+                            {isClaiming ? 'Taking…' : 'Take shift'}
+                          </button>
+                          {claimError?.shiftId === shift.id && (
+                            <p className="text-xs text-red-500">{claimError.message}</p>
+                          )}
+                        </div>
                       )}
                     </td>
                   )
