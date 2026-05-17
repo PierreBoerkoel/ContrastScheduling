@@ -247,7 +247,7 @@ export default function AdminPage() {
             )}
           </button>
           <button onClick={() => setTab('users')} className={tabClass('users')}>
-            Users
+            Residents
             {users.length > 0 && (
               <span className="ml-1.5 bg-slate-100 text-slate-600 text-xs px-1.5 py-0.5 rounded-full">
                 {users.length}
@@ -555,7 +555,7 @@ export default function AdminPage() {
             <>
               <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
                 <h2 className="text-sm font-semibold text-slate-700">
-                  {users.length} user{users.length !== 1 ? 's' : ''}
+                  {users.length} resident{users.length !== 1 ? 's' : ''}
                 </h2>
               </div>
               <table className="w-full text-sm">
