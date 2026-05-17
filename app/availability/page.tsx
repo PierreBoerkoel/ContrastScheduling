@@ -49,6 +49,20 @@ export default function AvailabilityPage() {
     })
   }
 
+  function toggleAllOnDay(date: string) {
+    const shiftsOnDay = byDate[date] ?? []
+    const allSelected = shiftsOnDay.every((s) => selected.has(s.id))
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (allSelected) {
+        shiftsOnDay.forEach((s) => next.delete(s.id))
+      } else {
+        shiftsOnDay.forEach((s) => next.add(s.id))
+      }
+      return next
+    })
+  }
+
   async function handleSubmit() {
     setSubmitting(true)
     setError('')
@@ -130,53 +144,62 @@ export default function AvailabilityPage() {
           No shifts have been set up yet. Check back once the admin has created the scheduling period.
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="text-left px-4 py-3 font-medium text-slate-600">Date</th>
-                  {CLINICS.map((clinic) => (
-                    <th key={clinic} className="text-center px-3 py-3 font-medium text-slate-600 whitespace-nowrap">
-                      {clinic}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedDates.map((date) => {
-                  const shiftsOnDay = byDate[date]
-                  return (
-                    <tr key={date} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                      <td className="px-4 py-3 text-slate-700 whitespace-nowrap">
-                        {formatDate(date)}
-                      </td>
-                      {CLINICS.map((clinic: ClinicName) => {
-                        const shift = shiftsOnDay.find((s) => s.clinic === clinic)
-                        if (!shift) {
-                          return (
-                            <td key={clinic} className="text-center px-3 py-3 text-slate-200">
-                              —
-                            </td>
-                          )
-                        }
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-slate-100">
+                <th className="text-left px-4 py-3 font-medium text-slate-600 bg-slate-50 whitespace-nowrap">Date</th>
+                <th className="text-center px-3 py-3 font-medium text-slate-500 bg-slate-50 whitespace-nowrap">All</th>
+                {CLINICS.map((clinic) => (
+                  <th key={clinic} className="text-center px-3 py-3 font-medium text-slate-600 whitespace-nowrap bg-slate-50">
+                    {clinic}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedDates.map((date) => {
+                const shiftsOnDay = byDate[date]
+                const allSelected = shiftsOnDay.every((s) => selected.has(s.id))
+                return (
+                  <tr key={date} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                    <td className="px-4 py-3 text-slate-700 whitespace-nowrap">
+                      {formatDate(date)}
+                    </td>
+                    <td className="text-center px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={() => toggleAllOnDay(date)}
+                        className="w-4 h-4 accent-blue-600 cursor-pointer"
+                        title="Select all clinics for this day"
+                      />
+                    </td>
+                    {CLINICS.map((clinic: ClinicName) => {
+                      const shift = shiftsOnDay.find((s) => s.clinic === clinic)
+                      if (!shift) {
                         return (
-                          <td key={clinic} className="text-center px-3 py-3">
-                            <input
-                              type="checkbox"
-                              checked={selected.has(shift.id)}
-                              onChange={() => toggleShift(shift.id)}
-                              className="w-4 h-4 accent-blue-600 cursor-pointer"
-                            />
+                          <td key={clinic} className="text-center px-3 py-3 text-slate-200">
+                            —
                           </td>
                         )
-                      })}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                      }
+                      return (
+                        <td key={clinic} className="text-center px-3 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(shift.id)}
+                            onChange={() => toggleShift(shift.id)}
+                            className="w-4 h-4 accent-blue-600 cursor-pointer"
+                          />
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
