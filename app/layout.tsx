@@ -29,6 +29,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </Link>
               <nav className="flex items-center gap-6 text-sm font-medium">
                 <Show when="signed-in">
+                  <Link href="/profile" className="text-slate-600 hover:text-blue-600 transition-colors">
+                    My Profile
+                  </Link>
                   <Link href="/availability" className="text-slate-600 hover:text-blue-600 transition-colors">
                     Submit Availability
                   </Link>
