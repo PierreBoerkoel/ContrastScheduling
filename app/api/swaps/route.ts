@@ -22,11 +22,11 @@ export async function POST(request: Request) {
   const { requestorShiftId } = (await request.json()) as { requestorShiftId: string }
 
   const schedule = await getSchedule()
-  if (!schedule?.isPublished) {
+  if (!(schedule?.publishedAssignments?.length)) {
     return NextResponse.json({ error: 'No published schedule' }, { status: 400 })
   }
 
-  const assignment = schedule.assignments.find((a) => a.shiftId === requestorShiftId)
+  const assignment = schedule.publishedAssignments.find((a) => a.shiftId === requestorShiftId)
   if (assignment?.residentName?.toLowerCase() !== requestorName.toLowerCase()) {
     return NextResponse.json({ error: 'You are not assigned to that shift' }, { status: 400 })
   }

@@ -47,18 +47,18 @@ export async function PATCH(
       'Unknown'
 
     const schedule = await getSchedule()
-    if (!schedule) {
+    if (!schedule?.publishedAssignments?.length) {
       return NextResponse.json({ error: 'No schedule found' }, { status: 400 })
     }
 
-    const acceptorAssignment = schedule.assignments.find((a) => a.shiftId === acceptorShiftId)
+    const published = schedule.publishedAssignments
+
+    const acceptorAssignment = published.find((a) => a.shiftId === acceptorShiftId)
     if (acceptorAssignment?.residentName?.toLowerCase() !== acceptorName.toLowerCase()) {
       return NextResponse.json({ error: 'You are not assigned to that shift' }, { status: 400 })
     }
 
-    const requestorAssignment = schedule.assignments.find(
-      (a) => a.shiftId === swapReq.requestorShiftId
-    )
+    const requestorAssignment = published.find((a) => a.shiftId === swapReq.requestorShiftId)
     if (requestorAssignment?.residentName?.toLowerCase() !== swapReq.requestorName.toLowerCase()) {
       return NextResponse.json(
         { error: 'The requestor is no longer assigned to that shift' },
@@ -66,13 +66,49 @@ export async function PATCH(
       )
     }
 
-    const newAssignments = schedule.assignments.map((a) => {
+    // Same-day conflict checks: after the swap each person must still have at most one shift per day
+    const requestorDate = swapReq.requestorShiftId.split('|')[0]
+    const acceptorDate = acceptorShiftId.split('|')[0]
+
+    // Acceptor would gain requestorDate — check they don't already have another shift that day
+    const acceptorDayConflict = published.some(
+      (a) =>
+        a.residentName?.toLowerCase() === acceptorName.toLowerCase() &&
+        a.shiftId.startsWith(requestorDate + '|') &&
+        a.shiftId !== acceptorShiftId // the shift they're giving up doesn't count
+    )
+    if (acceptorDayConflict) {
+      return NextResponse.json(
+        { error: 'You are already scheduled on the same day as the shift you would receive' },
+        { status: 409 }
+      )
+    }
+
+    // Requestor would gain acceptorDate — check they don't already have another shift that day
+    const requestorDayConflict = published.some(
+      (a) =>
+        a.residentName?.toLowerCase() === swapReq.requestorName.toLowerCase() &&
+        a.shiftId.startsWith(acceptorDate + '|') &&
+        a.shiftId !== swapReq.requestorShiftId // the shift they're giving up doesn't count
+    )
+    if (requestorDayConflict) {
+      return NextResponse.json(
+        { error: 'The requestor is already scheduled on the same day as the shift they would receive' },
+        { status: 409 }
+      )
+    }
+
+    const swap = (a: typeof published[number]) => {
       if (a.shiftId === swapReq.requestorShiftId) return { ...a, residentName: acceptorName }
       if (a.shiftId === acceptorShiftId) return { ...a, residentName: swapReq.requestorName }
       return a
-    })
+    }
 
-    await setSchedule({ ...schedule, assignments: newAssignments })
+    await setSchedule({
+      ...schedule,
+      assignments: schedule.assignments.map(swap),
+      publishedAssignments: published.map(swap),
+    })
 
     return NextResponse.json(
       await updateSwapRequest(id, {
