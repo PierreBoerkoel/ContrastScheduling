@@ -5,6 +5,13 @@ import { useUser } from '@clerk/nextjs'
 import type { Shift, ClinicName, Schedule } from '@/lib/types'
 import { CLINICS } from '@/lib/types'
 
+const CLINIC_ABBR: Record<string, string> = {
+  'BC Cancer Agency': 'BCCA',
+  'INITIO Medical Imaging': 'INITIO',
+  'UBC Hospital': 'UBC',
+  "BC Women's Hospital": 'BCWH',
+}
+
 function formatDate(dateStr: string) {
   return new Intl.DateTimeFormat('en-CA', {
     weekday: 'long',
@@ -152,7 +159,7 @@ export default function AvailabilityPage() {
                 <th className="text-center px-3 py-3 font-medium text-slate-500 bg-slate-50 whitespace-nowrap"></th>
                 {CLINICS.map((clinic) => (
                   <th key={clinic} className="text-center px-3 py-3 font-medium text-slate-600 whitespace-nowrap bg-slate-50">
-                    {clinic}
+                    {CLINIC_ABBR[clinic] ?? clinic}
                   </th>
                 ))}
               </tr>
