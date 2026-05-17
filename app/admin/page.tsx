@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useUser } from '@clerk/nextjs'
 import type { Shift, AvailabilitySubmission, Schedule, ClinicName, SwapRequest } from '@/lib/types'
 import { CLINICS } from '@/lib/types'
 
@@ -32,6 +33,9 @@ function datesInRange(start: string, end: string): string[] {
 }
 
 export default function AdminPage() {
+  const { user, isLoaded } = useUser()
+  const isAdmin = user?.publicMetadata?.role === 'admin'
+
   const [tab, setTab] = useState<Tab>('shifts')
 
   // Shift setup state
@@ -171,6 +175,20 @@ export default function AdminPage() {
   }
 
   const dateRange = startDate && endDate && startDate <= endDate ? datesInRange(startDate, endDate) : []
+
+  if (!isLoaded) return null
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16 text-center">
+        <div className="text-5xl mb-4">🔒</div>
+        <h2 className="text-xl font-bold text-slate-700 mb-2">Admin access required</h2>
+        <p className="text-slate-400 text-sm">
+          Your account does not have admin privileges. Contact the site administrator to request access.
+        </p>
+      </div>
+    )
+  }
 
   const tabClass = (t: Tab) =>
     `px-4 py-2 text-sm font-medium rounded-lg transition-colors ${

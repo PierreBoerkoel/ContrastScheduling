@@ -1,14 +1,19 @@
 import { NextResponse } from 'next/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { getSwapRequests, updateSwapRequest, getSchedule, setSchedule } from '@/lib/db'
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { userId, sessionClaims } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const isAdmin = sessionClaims?.metadata?.role === 'admin'
+
   const { id } = await params
-  const { action, acceptorName, acceptorShiftId } = (await request.json()) as {
+  const { action, acceptorShiftId } = (await request.json()) as {
     action: 'accept' | 'cancel'
-    acceptorName?: string
     acceptorShiftId?: string
   }
 
@@ -22,13 +27,24 @@ export async function PATCH(
   }
 
   if (action === 'cancel') {
+    // Only the requestor or an admin can cancel
+    const requestorUserId = (swapReq as { requestorUserId?: string }).requestorUserId
+    if (!isAdmin && requestorUserId && requestorUserId !== userId) {
+      return NextResponse.json({ error: 'You can only cancel your own requests' }, { status: 403 })
+    }
     return NextResponse.json(await updateSwapRequest(id, { status: 'cancelled' }))
   }
 
   if (action === 'accept') {
-    if (!acceptorName?.trim() || !acceptorShiftId) {
-      return NextResponse.json({ error: 'Acceptor name and shift are required' }, { status: 400 })
+    if (!acceptorShiftId) {
+      return NextResponse.json({ error: 'Acceptor shift is required' }, { status: 400 })
     }
+
+    const user = await currentUser()
+    const acceptorName =
+      user?.fullName ??
+      [user?.firstName, user?.lastName].filter(Boolean).join(' ') ??
+      'Unknown'
 
     const schedule = await getSchedule()
     if (!schedule) {
@@ -36,7 +52,7 @@ export async function PATCH(
     }
 
     const acceptorAssignment = schedule.assignments.find((a) => a.shiftId === acceptorShiftId)
-    if (acceptorAssignment?.residentName?.toLowerCase() !== acceptorName.trim().toLowerCase()) {
+    if (acceptorAssignment?.residentName?.toLowerCase() !== acceptorName.toLowerCase()) {
       return NextResponse.json({ error: 'You are not assigned to that shift' }, { status: 400 })
     }
 
@@ -51,7 +67,7 @@ export async function PATCH(
     }
 
     const newAssignments = schedule.assignments.map((a) => {
-      if (a.shiftId === swapReq.requestorShiftId) return { ...a, residentName: acceptorName.trim() }
+      if (a.shiftId === swapReq.requestorShiftId) return { ...a, residentName: acceptorName }
       if (a.shiftId === acceptorShiftId) return { ...a, residentName: swapReq.requestorName }
       return a
     })
@@ -61,7 +77,7 @@ export async function PATCH(
     return NextResponse.json(
       await updateSwapRequest(id, {
         status: 'accepted',
-        acceptorName: acceptorName.trim(),
+        acceptorName,
         acceptorShiftId,
         acceptedAt: new Date().toISOString(),
       })

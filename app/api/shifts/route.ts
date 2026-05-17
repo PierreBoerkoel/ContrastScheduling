@@ -1,12 +1,25 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import { getShifts, setShifts } from '@/lib/db'
 import type { ClinicName, Shift } from '@/lib/types'
 
+async function requireAdmin() {
+  const { userId, sessionClaims } = await auth()
+  if (!userId) return false
+  return sessionClaims?.metadata?.role === 'admin'
+}
+
 export async function GET() {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return NextResponse.json(await getShifts())
 }
 
 export async function POST(request: Request) {
+  if (!await requireAdmin()) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  }
+
   const { startDate, endDate, activeClinics } = (await request.json()) as {
     startDate: string
     endDate: string
@@ -30,6 +43,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE() {
+  if (!await requireAdmin()) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  }
   await setShifts([])
   return NextResponse.json({ ok: true })
 }

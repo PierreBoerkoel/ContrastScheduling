@@ -12,15 +12,11 @@ export async function initDb(): Promise<void> {
   await sql`
     CREATE TABLE IF NOT EXISTS availability_submissions (
       id                  TEXT PRIMARY KEY,
+      user_id             TEXT UNIQUE,
       resident_name       TEXT NOT NULL,
       submitted_at        TIMESTAMPTZ NOT NULL,
       available_shift_ids TEXT[] NOT NULL DEFAULT '{}'
     )
-  `
-  // Unique index for case-insensitive resident name lookups
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS submissions_name_lower_idx
-    ON availability_submissions (LOWER(resident_name))
   `
   await sql`
     CREATE TABLE IF NOT EXISTS schedule (
@@ -34,15 +30,23 @@ export async function initDb(): Promise<void> {
   `
   await sql`
     CREATE TABLE IF NOT EXISTS swap_requests (
-      id                TEXT PRIMARY KEY,
-      requested_at      TIMESTAMPTZ NOT NULL,
-      status            TEXT NOT NULL DEFAULT 'pending',
-      requestor_name    TEXT NOT NULL,
-      requestor_shift_id TEXT NOT NULL,
-      acceptor_name     TEXT,
-      acceptor_shift_id TEXT,
-      accepted_at       TIMESTAMPTZ
+      id                  TEXT PRIMARY KEY,
+      requested_at        TIMESTAMPTZ NOT NULL,
+      status              TEXT NOT NULL DEFAULT 'pending',
+      requestor_user_id   TEXT,
+      requestor_name      TEXT NOT NULL,
+      requestor_shift_id  TEXT NOT NULL,
+      acceptor_name       TEXT,
+      acceptor_shift_id   TEXT,
+      accepted_at         TIMESTAMPTZ
     )
+  `
+  // Add columns to existing tables if upgrading from the pre-auth schema
+  await sql`ALTER TABLE availability_submissions ADD COLUMN IF NOT EXISTS user_id TEXT`
+  await sql`ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS requestor_user_id TEXT`
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS submissions_user_id_idx
+    ON availability_submissions (user_id) WHERE user_id IS NOT NULL
   `
 }
 
@@ -86,9 +90,11 @@ export async function getSubmissions(): Promise<AvailabilitySubmission[]> {
   }))
 }
 
-export async function upsertSubmission(submission: AvailabilitySubmission): Promise<void> {
+export async function upsertSubmission(
+  submission: AvailabilitySubmission & { userId: string }
+): Promise<void> {
   const { rows } = await sql`
-    SELECT id FROM availability_submissions WHERE LOWER(resident_name) = LOWER(${submission.residentName})
+    SELECT id FROM availability_submissions WHERE user_id = ${submission.userId}
   `
   if (rows.length > 0) {
     await sql`
@@ -97,12 +103,12 @@ export async function upsertSubmission(submission: AvailabilitySubmission): Prom
         resident_name       = ${submission.residentName},
         submitted_at        = ${submission.submittedAt},
         available_shift_ids = ${submission.availableShiftIds as unknown as string}
-      WHERE LOWER(resident_name) = LOWER(${submission.residentName})
+      WHERE user_id = ${submission.userId}
     `
   } else {
     await sql`
-      INSERT INTO availability_submissions (id, resident_name, submitted_at, available_shift_ids)
-      VALUES (${submission.id}, ${submission.residentName}, ${submission.submittedAt}, ${submission.availableShiftIds as unknown as string})
+      INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids)
+      VALUES (${submission.id}, ${submission.userId}, ${submission.residentName}, ${submission.submittedAt}, ${submission.availableShiftIds as unknown as string})
     `
   }
 }
@@ -157,10 +163,12 @@ export async function getSwapRequests(): Promise<SwapRequest[]> {
   }))
 }
 
-export async function addSwapRequest(req: SwapRequest): Promise<void> {
+export async function addSwapRequest(
+  req: SwapRequest & { requestorUserId: string }
+): Promise<void> {
   await sql`
-    INSERT INTO swap_requests (id, requested_at, status, requestor_name, requestor_shift_id)
-    VALUES (${req.id}, ${req.requestedAt}, ${req.status}, ${req.requestorName}, ${req.requestorShiftId})
+    INSERT INTO swap_requests (id, requested_at, status, requestor_user_id, requestor_name, requestor_shift_id)
+    VALUES (${req.id}, ${req.requestedAt}, ${req.status}, ${req.requestorUserId}, ${req.requestorName}, ${req.requestorShiftId})
   `
 }
 

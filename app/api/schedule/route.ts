@@ -1,13 +1,26 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 import { getShifts, getSubmissions, getSchedule, setSchedule } from '@/lib/db'
 import { generateSchedule } from '@/lib/scheduler'
 import type { Schedule, ShiftAssignment } from '@/lib/types'
 
+async function requireAdmin() {
+  const { userId, sessionClaims } = await auth()
+  if (!userId) return false
+  return sessionClaims?.metadata?.role === 'admin'
+}
+
 export async function GET() {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return NextResponse.json(await getSchedule())
 }
 
 export async function POST(request: Request) {
+  if (!await requireAdmin()) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  }
+
   const { action } = (await request.json()) as { action: 'generate' | 'publish' }
 
   if (action === 'generate') {
@@ -41,6 +54,10 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  if (!await requireAdmin()) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  }
+
   const { shiftId, residentName } = (await request.json()) as {
     shiftId: string
     residentName: string | null

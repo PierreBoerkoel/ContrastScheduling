@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useUser } from '@clerk/nextjs'
 import type { Shift, Schedule, SwapRequest } from '@/lib/types'
 import { CLINICS } from '@/lib/types'
 
@@ -20,22 +21,21 @@ function formatDateTime(iso: string) {
 }
 
 export default function SchedulePage() {
+  const { user } = useUser()
+  const myName = user?.fullName ?? [user?.firstName, user?.lastName].filter(Boolean).join(' ') ?? ''
+
   const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [shifts, setShifts] = useState<Shift[]>([])
   const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([])
   const [loading, setLoading] = useState(true)
 
   // Swap — request flow
-  const [swapName, setSwapName] = useState('')
-  const [swapNameConfirmed, setSwapNameConfirmed] = useState(false)
   const [requestingShiftId, setRequestingShiftId] = useState<string | null>(null)
   const [submittingRequest, setSubmittingRequest] = useState(false)
   const [requestError, setRequestError] = useState('')
 
   // Swap — accept flow
   const [acceptingId, setAcceptingId] = useState<string | null>(null)
-  const [acceptorName, setAcceptorName] = useState('')
-  const [acceptorNameConfirmed, setAcceptorNameConfirmed] = useState(false)
   const [acceptingShiftId, setAcceptingShiftId] = useState<string | null>(null)
   const [submittingAccept, setSubmittingAccept] = useState(false)
   const [acceptError, setAcceptError] = useState('')
@@ -62,10 +62,10 @@ export default function SchedulePage() {
 
   const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
 
-  function myShifts(name: string) {
-    if (!schedule) return []
+  function myShifts() {
+    if (!schedule || !myName) return []
     return schedule.assignments.filter(
-      (a) => a.residentName?.toLowerCase() === name.toLowerCase()
+      (a) => a.residentName?.toLowerCase() === myName.toLowerCase()
     )
   }
 
@@ -83,15 +83,13 @@ export default function SchedulePage() {
       const res = await fetch('/api/swaps', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestorName: swapName.trim(), requestorShiftId: requestingShiftId }),
+        body: JSON.stringify({ requestorShiftId: requestingShiftId }),
       })
       if (!res.ok) {
         const data = await res.json()
         setRequestError(data.error ?? 'Request failed')
       } else {
         setRequestingShiftId(null)
-        setSwapNameConfirmed(false)
-        setSwapName('')
         await fetchAll()
       }
     } finally {
@@ -100,26 +98,20 @@ export default function SchedulePage() {
   }
 
   async function acceptSwap() {
-    if (!acceptingId || !acceptorName.trim() || !acceptingShiftId) return
+    if (!acceptingId || !acceptingShiftId) return
     setSubmittingAccept(true)
     setAcceptError('')
     try {
       const res = await fetch(`/api/swaps/${acceptingId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'accept',
-          acceptorName: acceptorName.trim(),
-          acceptorShiftId: acceptingShiftId,
-        }),
+        body: JSON.stringify({ action: 'accept', acceptorShiftId: acceptingShiftId }),
       })
       if (!res.ok) {
         const data = await res.json()
         setAcceptError(data.error ?? 'Accept failed')
       } else {
         setAcceptingId(null)
-        setAcceptorName('')
-        setAcceptorNameConfirmed(false)
         setAcceptingShiftId(null)
         await fetchAll()
       }
@@ -250,100 +242,63 @@ export default function SchedulePage() {
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
           <h2 className="text-base font-semibold text-slate-700">Request a Shift Swap</h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Enter your name to see your assigned shifts, then select one to offer for swap.
+            Select one of your assigned shifts to offer for swap.
           </p>
         </div>
         <div className="p-5">
-          {!swapNameConfirmed ? (
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={swapName}
-                onChange={(e) => setSwapName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && swapName.trim() && setSwapNameConfirmed(true)}
-                placeholder="Your full name"
-                className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                onClick={() => setSwapNameConfirmed(true)}
-                disabled={!swapName.trim()}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
-              >
-                Look up my shifts
-              </button>
-            </div>
+          {myShifts().length === 0 ? (
+            <p className="text-sm text-slate-400">You have no assigned shifts.</p>
           ) : (
-            <>
-              <div className="flex items-center gap-2 mb-4 text-sm text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                Showing shifts for <strong>{swapName.trim()}</strong>
+            <div className="space-y-2">
+              {myShifts().map((a) => {
+                const alreadyPending = pendingSwaps.some((r) => r.requestorShiftId === a.shiftId)
+                return (
+                  <div
+                    key={a.shiftId}
+                    className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-2.5"
+                  >
+                    <span className="text-sm text-slate-700">{shiftLabel(a.shiftId)}</span>
+                    {alreadyPending ? (
+                      <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full">
+                        Swap requested
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => { setRequestingShiftId(a.shiftId); setRequestError('') }}
+                        className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Request swap
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {requestingShiftId && (
+            <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <p className="text-sm text-amber-800 mb-3">
+                Post a swap request for <strong>{shiftLabel(requestingShiftId)}</strong>?
+                Anyone can accept by offering one of their shifts in return.
+              </p>
+              <div className="flex gap-2">
                 <button
-                  onClick={() => { setSwapNameConfirmed(false); setSwapName(''); setRequestingShiftId(null); setRequestError('') }}
-                  className="ml-auto text-blue-400 underline text-xs"
+                  onClick={requestSwap}
+                  disabled={submittingRequest}
+                  className="bg-amber-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-40 transition-colors"
                 >
-                  Change
+                  {submittingRequest ? 'Submitting…' : 'Confirm request'}
+                </button>
+                <button
+                  onClick={() => { setRequestingShiftId(null); setRequestError('') }}
+                  className="text-sm text-slate-500 px-3 py-2 rounded-lg hover:bg-slate-100"
+                >
+                  Cancel
                 </button>
               </div>
-
-              {myShifts(swapName).length === 0 ? (
-                <p className="text-sm text-slate-400">No shifts assigned to that name.</p>
-              ) : (
-                <div className="space-y-2">
-                  {myShifts(swapName).map((a) => {
-                    const alreadyPending = pendingSwaps.some(
-                      (r) =>
-                        r.requestorShiftId === a.shiftId &&
-                        r.requestorName.toLowerCase() === swapName.trim().toLowerCase()
-                    )
-                    return (
-                      <div
-                        key={a.shiftId}
-                        className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-2.5"
-                      >
-                        <span className="text-sm text-slate-700">{shiftLabel(a.shiftId)}</span>
-                        {alreadyPending ? (
-                          <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full">
-                            Swap requested
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => { setRequestingShiftId(a.shiftId); setRequestError('') }}
-                            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                          >
-                            Request swap
-                          </button>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {requestingShiftId && (
-                <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
-                  <p className="text-sm text-amber-800 mb-3">
-                    Post a swap request for{' '}
-                    <strong>{shiftLabel(requestingShiftId)}</strong>?
-                    Anyone can accept by offering one of their shifts in return.
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={requestSwap}
-                      disabled={submittingRequest}
-                      className="bg-amber-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-40 transition-colors"
-                    >
-                      {submittingRequest ? 'Submitting…' : 'Confirm request'}
-                    </button>
-                    <button
-                      onClick={() => { setRequestingShiftId(null); setRequestError('') }}
-                      className="text-sm text-slate-500 px-3 py-2 rounded-lg hover:bg-slate-100"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  {requestError && <p className="mt-2 text-sm text-red-500">{requestError}</p>}
-                </div>
-              )}
-            </>
+              {requestError && <p className="mt-2 text-sm text-red-500">{requestError}</p>}
+            </div>
           )}
         </div>
       </div>
@@ -375,87 +330,59 @@ export default function SchedulePage() {
 
                 {acceptingId === req.id ? (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
-                    {!acceptorNameConfirmed ? (
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={acceptorName}
-                          onChange={(e) => setAcceptorName(e.target.value)}
-                          onKeyDown={(e) =>
-                            e.key === 'Enter' && acceptorName.trim() && setAcceptorNameConfirmed(true)
-                          }
-                          placeholder="Your full name"
-                          className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                        />
-                        <button
-                          onClick={() => setAcceptorNameConfirmed(true)}
-                          disabled={!acceptorName.trim()}
-                          className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40"
-                        >
-                          Continue
-                        </button>
-                      </div>
+                    <p className="text-sm text-green-800">
+                      Select one of your shifts to offer in return:
+                    </p>
+                    {myShifts().filter((a) => a.shiftId !== req.requestorShiftId).length === 0 ? (
+                      <p className="text-sm text-slate-400">You have no other shifts to offer.</p>
                     ) : (
-                      <>
-                        <p className="text-sm text-green-800">
-                          Select one of <strong>{acceptorName.trim()}</strong>&apos;s shifts to offer in return:
-                        </p>
-                        {myShifts(acceptorName).length === 0 ? (
-                          <p className="text-sm text-slate-400">No shifts found for that name.</p>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {myShifts(acceptorName)
-                              .filter((a) => a.shiftId !== req.requestorShiftId)
-                              .map((a) => (
-                                <label
-                                  key={a.shiftId}
-                                  className="flex items-center gap-3 cursor-pointer rounded-lg border border-slate-200 px-3 py-2 hover:bg-green-50"
-                                >
-                                  <input
-                                    type="radio"
-                                    name={`accept-${req.id}`}
-                                    value={a.shiftId}
-                                    checked={acceptingShiftId === a.shiftId}
-                                    onChange={() => setAcceptingShiftId(a.shiftId)}
-                                    className="accent-green-600"
-                                  />
-                                  <span className="text-sm text-slate-700">{shiftLabel(a.shiftId)}</span>
-                                </label>
-                              ))}
-                          </div>
-                        )}
-                        <div className="flex gap-2 pt-1">
-                          <button
-                            onClick={acceptSwap}
-                            disabled={!acceptingShiftId || submittingAccept}
-                            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
-                          >
-                            {submittingAccept ? 'Accepting…' : 'Confirm swap'}
-                          </button>
-                          <button
-                            onClick={() => {
-                              setAcceptingId(null)
-                              setAcceptorName('')
-                              setAcceptorNameConfirmed(false)
-                              setAcceptingShiftId(null)
-                              setAcceptError('')
-                            }}
-                            className="text-sm text-slate-500 px-3 py-2 rounded-lg hover:bg-slate-100"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                        {acceptError && <p className="text-sm text-red-500">{acceptError}</p>}
-                      </>
+                      <div className="space-y-1.5">
+                        {myShifts()
+                          .filter((a) => a.shiftId !== req.requestorShiftId)
+                          .map((a) => (
+                            <label
+                              key={a.shiftId}
+                              className="flex items-center gap-3 cursor-pointer rounded-lg border border-slate-200 px-3 py-2 hover:bg-green-50"
+                            >
+                              <input
+                                type="radio"
+                                name={`accept-${req.id}`}
+                                value={a.shiftId}
+                                checked={acceptingShiftId === a.shiftId}
+                                onChange={() => setAcceptingShiftId(a.shiftId)}
+                                className="accent-green-600"
+                              />
+                              <span className="text-sm text-slate-700">{shiftLabel(a.shiftId)}</span>
+                            </label>
+                          ))}
+                      </div>
                     )}
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={acceptSwap}
+                        disabled={!acceptingShiftId || submittingAccept}
+                        className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
+                      >
+                        {submittingAccept ? 'Accepting…' : 'Confirm swap'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setAcceptingId(null)
+                          setAcceptingShiftId(null)
+                          setAcceptError('')
+                        }}
+                        className="text-sm text-slate-500 px-3 py-2 rounded-lg hover:bg-slate-100"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {acceptError && <p className="text-sm text-red-500">{acceptError}</p>}
                   </div>
                 ) : (
                   <div className="flex gap-2">
                     <button
                       onClick={() => {
                         setAcceptingId(req.id)
-                        setAcceptorName('')
-                        setAcceptorNameConfirmed(false)
                         setAcceptingShiftId(null)
                         setAcceptError('')
                       }}

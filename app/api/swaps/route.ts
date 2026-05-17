@@ -1,20 +1,25 @@
 import { NextResponse } from 'next/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { getSwapRequests, addSwapRequest, getSchedule } from '@/lib/db'
 import type { SwapRequest } from '@/lib/types'
 
 export async function GET() {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   return NextResponse.json(await getSwapRequests())
 }
 
 export async function POST(request: Request) {
-  const { requestorName, requestorShiftId } = (await request.json()) as {
-    requestorName: string
-    requestorShiftId: string
-  }
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  if (!requestorName?.trim()) {
-    return NextResponse.json({ error: 'Name is required' }, { status: 400 })
-  }
+  const user = await currentUser()
+  const requestorName =
+    user?.fullName ??
+    [user?.firstName, user?.lastName].filter(Boolean).join(' ') ??
+    'Unknown'
+
+  const { requestorShiftId } = (await request.json()) as { requestorShiftId: string }
 
   const schedule = await getSchedule()
   if (!schedule?.isPublished) {
@@ -22,7 +27,7 @@ export async function POST(request: Request) {
   }
 
   const assignment = schedule.assignments.find((a) => a.shiftId === requestorShiftId)
-  if (assignment?.residentName?.toLowerCase() !== requestorName.trim().toLowerCase()) {
+  if (assignment?.residentName?.toLowerCase() !== requestorName.toLowerCase()) {
     return NextResponse.json({ error: 'You are not assigned to that shift' }, { status: 400 })
   }
 
@@ -40,13 +45,13 @@ export async function POST(request: Request) {
     id: crypto.randomUUID(),
     requestedAt: new Date().toISOString(),
     status: 'pending',
-    requestorName: requestorName.trim(),
+    requestorName,
     requestorShiftId,
     acceptorName: null,
     acceptorShiftId: null,
     acceptedAt: null,
   }
 
-  await addSwapRequest(req)
+  await addSwapRequest({ ...req, requestorUserId: userId })
   return NextResponse.json(req, { status: 201 })
 }
