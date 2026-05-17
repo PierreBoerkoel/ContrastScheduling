@@ -153,8 +153,9 @@ export default function SchedulePage() {
     await fetchAll()
   }
 
-  // Grouped schedule data
-  const byDate = shifts.reduce<Record<string, Shift[]>>((acc, s) => {
+  // Only show shifts that are part of the published schedule
+  const publishedShiftIds = new Set((schedule?.assignments ?? []).map((a) => a.shiftId))
+  const byDate = shifts.filter((s) => publishedShiftIds.has(s.id)).reduce<Record<string, Shift[]>>((acc, s) => {
     ;(acc[s.date] ??= []).push(s)
     return acc
   }, {})
