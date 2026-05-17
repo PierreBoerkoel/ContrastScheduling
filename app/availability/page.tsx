@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, ClinicName } from '@/lib/types'
+import type { Shift, ClinicName, Schedule } from '@/lib/types'
 import { CLINICS } from '@/lib/types'
 
 function formatDate(dateStr: string) {
@@ -18,6 +18,7 @@ function formatDate(dateStr: string) {
 export default function AvailabilityPage() {
   const { user, isLoaded } = useUser()
   const [shifts, setShifts] = useState<Shift[]>([])
+  const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -28,9 +29,10 @@ export default function AvailabilityPage() {
     Promise.all([
       fetch('/api/shifts').then((r) => r.json()),
       fetch('/api/availability').then((r) => r.json()),
-    ]).then(([shiftList, submissions]: [Shift[], { residentName: string; availableShiftIds: string[] }[]]) => {
+      fetch('/api/schedule').then((r) => r.json()),
+    ]).then(([shiftList, submissions, sched]: [Shift[], { residentName: string; availableShiftIds: string[] }[], Schedule]) => {
       setShifts(shiftList)
-      // Pre-populate from any existing submission for this user
+      setSchedule(sched)
       const existing = submissions.find(
         (s) => s.residentName?.toLowerCase() === (user?.fullName ?? '').toLowerCase()
       )
@@ -73,6 +75,19 @@ export default function AvailabilityPage() {
   const sortedDates = Object.keys(byDate).sort()
 
   if (!isLoaded) return null
+
+  if (!loading && schedule?.isPublished) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16 text-center">
+        <div className="text-5xl mb-4">🔒</div>
+        <h2 className="text-xl font-bold text-slate-700 mb-2">Availability locked</h2>
+        <p className="text-slate-400 text-sm">
+          The schedule has been published. Availability submissions are closed for this period.
+          Contact the admin if you need to make changes.
+        </p>
+      </div>
+    )
+  }
 
   if (submitted) {
     return (
