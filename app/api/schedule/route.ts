@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { getShifts, getSubmissions, getSchedule, setSchedule } from '@/lib/db'
 import { generateSchedule } from '@/lib/scheduler'
 import type { Schedule, ShiftAssignment } from '@/lib/types'
@@ -51,6 +51,34 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+}
+
+export async function PUT(request: Request) {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { shiftId } = (await request.json()) as { shiftId: string }
+
+  const schedule = await getSchedule()
+  if (!schedule?.isPublished) {
+    return NextResponse.json({ error: 'No published schedule' }, { status: 400 })
+  }
+
+  const idx = schedule.assignments.findIndex((a: ShiftAssignment) => a.shiftId === shiftId)
+  if (idx < 0) {
+    return NextResponse.json({ error: 'Shift not in schedule' }, { status: 404 })
+  }
+  if (schedule.assignments[idx].residentName !== null) {
+    return NextResponse.json({ error: 'Shift is already assigned' }, { status: 409 })
+  }
+
+  const user = await currentUser()
+  const name = user?.fullName ?? [user?.firstName, user?.lastName].filter(Boolean).join(' ') ?? ''
+  if (!name) return NextResponse.json({ error: 'Could not determine your name' }, { status: 400 })
+
+  schedule.assignments[idx] = { shiftId, residentName: name }
+  await setSchedule(schedule)
+  return NextResponse.json(schedule)
 }
 
 export async function PATCH(request: Request) {

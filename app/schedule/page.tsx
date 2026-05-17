@@ -29,6 +29,9 @@ export default function SchedulePage() {
   const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Claim unassigned shift
+  const [claimingShiftId, setClaimingShiftId] = useState<string | null>(null)
+
   // Swap — request flow
   const [requestingShiftId, setRequestingShiftId] = useState<string | null>(null)
   const [submittingRequest, setSubmittingRequest] = useState(false)
@@ -73,6 +76,20 @@ export default function SchedulePage() {
     const s = shiftById[shiftId]
     if (!s) return shiftId
     return `${formatDate(s.date)} — ${s.clinic}`
+  }
+
+  async function claimShift(shiftId: string) {
+    setClaimingShiftId(shiftId)
+    try {
+      await fetch('/api/schedule', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shiftId }),
+      })
+      await fetchAll()
+    } finally {
+      setClaimingShiftId(null)
+    }
   }
 
   async function requestSwap() {
@@ -215,17 +232,26 @@ export default function SchedulePage() {
                   if (!shift) return <td key={clinic} className="px-4 py-3 text-slate-200">—</td>
                   const resident = assignmentMap[shift.id]
                   const hasPendingSwap = pendingSwaps.some((r) => r.requestorShiftId === shift.id)
+                  const isClaiming = claimingShiftId === shift.id
                   return (
                     <td key={clinic} className="px-4 py-3">
                       {resident ? (
-                        <span className="font-medium text-slate-800">{resident}</span>
+                        <>
+                          <span className="font-medium text-slate-800">{resident}</span>
+                          {hasPendingSwap && (
+                            <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
+                              swap pending
+                            </span>
+                          )}
+                        </>
                       ) : (
-                        <span className="text-red-400 text-xs italic">Unassigned</span>
-                      )}
-                      {hasPendingSwap && (
-                        <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
-                          swap pending
-                        </span>
+                        <button
+                          onClick={() => claimShift(shift.id)}
+                          disabled={isClaiming}
+                          className="text-xs text-blue-600 hover:text-blue-700 font-medium border border-blue-200 hover:border-blue-400 rounded px-2 py-0.5 transition-colors disabled:opacity-40"
+                        >
+                          {isClaiming ? 'Taking…' : 'Take shift'}
+                        </button>
                       )}
                     </td>
                   )
