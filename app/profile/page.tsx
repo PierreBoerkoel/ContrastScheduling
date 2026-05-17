@@ -35,8 +35,15 @@ function daysInMonth(year: number, month: number): Date[] {
   return days
 }
 
+const CLINIC_ABBR: Record<string, string> = {
+  'BC Cancer Agency': 'BCCA',
+  'INITIO Medical Imaging': 'INITIO',
+  'UBC Hospital': 'UBC',
+  "BC Women's Hospital": 'BCWH',
+}
+
 function clinicAbbr(clinic: string) {
-  return clinic.split(' ').map((w) => w[0]).join('')
+  return CLINIC_ABBR[clinic] ?? clinic
 }
 
 function nextDayStr(dateStr: string) {
