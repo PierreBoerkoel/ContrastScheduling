@@ -120,8 +120,11 @@ export default function ProfilePage() {
   const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
   const myShifts: Shift[] = (schedule?.assignments ?? [])
     .filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase())
-    .map((a) => shiftById[a.shiftId])
-    .filter(Boolean) as Shift[]
+    .map((a) => {
+      if (shiftById[a.shiftId]) return shiftById[a.shiftId]
+      const [date, clinic] = a.shiftId.split('|')
+      return { id: a.shiftId, date, clinic } as Shift
+    })
 
   const upcoming = myShifts.filter((s) => s.date >= today).sort((a, b) => a.date.localeCompare(b.date))
   const completed = myShifts.filter((s) => s.date < today).sort((a, b) => b.date.localeCompare(a.date))

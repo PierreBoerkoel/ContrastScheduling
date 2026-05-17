@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, Schedule, SwapRequest } from '@/lib/types'
+import type { Shift, Schedule, SwapRequest, ClinicName } from '@/lib/types'
 import { CLINICS } from '@/lib/types'
 
 function formatDate(dateStr: string) {
@@ -81,8 +81,9 @@ export default function SchedulePage() {
 
   function shiftLabel(shiftId: string) {
     const s = shiftById[shiftId]
-    if (!s) return shiftId
-    return `${formatDate(s.date)} — ${s.clinic}`
+    if (s) return `${formatDate(s.date)} — ${s.clinic}`
+    const [date, clinic] = shiftId.split('|')
+    return `${formatDate(date)} — ${clinic}`
   }
 
   async function claimShift(shiftId: string) {
@@ -153,12 +154,15 @@ export default function SchedulePage() {
     await fetchAll()
   }
 
-  // Only show shifts that are part of the published schedule
-  const publishedShiftIds = new Set((schedule?.assignments ?? []).map((a) => a.shiftId))
-  const byDate = shifts.filter((s) => publishedShiftIds.has(s.id)).reduce<Record<string, Shift[]>>((acc, s) => {
-    ;(acc[s.date] ??= []).push(s)
-    return acc
-  }, {})
+  // Build display from published schedule assignments.
+  // Shift IDs encode date|clinic so we can reconstruct shift objects even if
+  // the shifts table has been replaced with a new period.
+  const byDate: Record<string, Shift[]> = {}
+  for (const a of (schedule?.assignments ?? [])) {
+    const [date, clinic] = a.shiftId.split('|')
+    const shift = shiftById[a.shiftId] ?? { id: a.shiftId, date, clinic: clinic as ClinicName }
+    ;(byDate[date] ??= []).push(shift)
+  }
   const sortedDates = Object.keys(byDate).sort()
 
   const counts: Record<string, number> = {}
