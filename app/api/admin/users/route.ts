@@ -25,6 +25,17 @@ export async function GET() {
   )
 }
 
+export async function PATCH(request: Request) {
+  if (!await requireAdmin()) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  }
+
+  const { userId: targetId, role } = (await request.json()) as { userId: string; role: string }
+  const client = await clerkClient()
+  await client.users.updateUserMetadata(targetId, { publicMetadata: { role } })
+  return NextResponse.json({ ok: true })
+}
+
 export async function DELETE(request: Request) {
   if (!await requireAdmin()) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })

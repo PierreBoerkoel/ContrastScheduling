@@ -62,6 +62,7 @@ export default function AdminPage() {
   // Users
   const [users, setUsers] = useState<ClerkUser[]>([])
   const [removingUserId, setRemovingUserId] = useState<string | null>(null)
+  const [promotingUserId, setPromotingUserId] = useState<string | null>(null)
 
   // Schedule interaction
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null)
@@ -203,6 +204,20 @@ export default function AdminPage() {
         </p>
       </div>
     )
+  }
+
+  async function setRole(userId: string, role: string) {
+    setPromotingUserId(userId)
+    try {
+      await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, role }),
+      })
+      await fetchData()
+    } finally {
+      setPromotingUserId(null)
+    }
   }
 
   async function removeUser(userId: string) {
@@ -595,13 +610,26 @@ export default function AdminPage() {
                         </td>
                         <td className="px-4 py-3 text-right">
                           {u.id !== user?.id && (
-                            <button
-                              onClick={() => removeUser(u.id)}
-                              disabled={removingUserId === u.id}
-                              className="text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
-                            >
-                              {removingUserId === u.id ? 'Removing…' : 'Remove'}
-                            </button>
+                            <div className="flex items-center justify-end gap-3">
+                              <button
+                                onClick={() => setRole(u.id, u.role === 'admin' ? 'resident' : 'admin')}
+                                disabled={promotingUserId === u.id}
+                                className="text-xs text-blue-500 hover:text-blue-700 transition-colors disabled:opacity-40"
+                              >
+                                {promotingUserId === u.id
+                                  ? '…'
+                                  : u.role === 'admin'
+                                  ? 'Demote'
+                                  : 'Make admin'}
+                              </button>
+                              <button
+                                onClick={() => removeUser(u.id)}
+                                disabled={removingUserId === u.id}
+                                className="text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                              >
+                                {removingUserId === u.id ? 'Removing…' : 'Remove'}
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
