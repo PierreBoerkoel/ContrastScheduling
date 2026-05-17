@@ -26,10 +26,11 @@ export interface ShiftAssignment {
 }
 
 export interface Schedule {
-  generatedAt: string
+  generatedAt: string | null
   publishedAt: string | null
   isPublished: boolean
-  assignments: ShiftAssignment[]
+  assignments: ShiftAssignment[]        // current draft (admin preview)
+  publishedAssignments: ShiftAssignment[] // accumulated published schedule (user-facing)
 }
 
 export interface SwapRequest {

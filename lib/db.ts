@@ -20,14 +20,16 @@ export async function initDb(): Promise<void> {
   `
   await sql`
     CREATE TABLE IF NOT EXISTS schedule (
-      singleton    INTEGER PRIMARY KEY DEFAULT 1,
-      generated_at TIMESTAMPTZ,
-      published_at TIMESTAMPTZ,
-      is_published BOOLEAN NOT NULL DEFAULT FALSE,
-      assignments  JSONB NOT NULL DEFAULT '[]'::jsonb,
+      singleton             INTEGER PRIMARY KEY DEFAULT 1,
+      generated_at          TIMESTAMPTZ,
+      published_at          TIMESTAMPTZ,
+      is_published          BOOLEAN NOT NULL DEFAULT FALSE,
+      assignments           JSONB NOT NULL DEFAULT '[]'::jsonb,
+      published_assignments JSONB NOT NULL DEFAULT '[]'::jsonb,
       CONSTRAINT schedule_singleton CHECK (singleton = 1)
     )
   `
+  await sql`ALTER TABLE schedule ADD COLUMN IF NOT EXISTS published_assignments JSONB NOT NULL DEFAULT '[]'::jsonb`
   await sql`
     CREATE TABLE IF NOT EXISTS swap_requests (
       id                  TEXT PRIMARY KEY,
@@ -117,7 +119,8 @@ export async function upsertSubmission(
 
 export async function getSchedule(): Promise<Schedule | null> {
   const { rows } = await sql`
-    SELECT generated_at, published_at, is_published, assignments FROM schedule WHERE singleton = 1
+    SELECT generated_at, published_at, is_published, assignments, published_assignments
+    FROM schedule WHERE singleton = 1
   `
   if (rows.length === 0) return null
   const r = rows[0]
@@ -126,19 +129,22 @@ export async function getSchedule(): Promise<Schedule | null> {
     publishedAt: r.published_at,
     isPublished: r.is_published,
     assignments: r.assignments as ShiftAssignment[],
+    publishedAssignments: (r.published_assignments ?? []) as ShiftAssignment[],
   }
 }
 
 export async function setSchedule(schedule: Schedule): Promise<void> {
   const assignmentsJson = JSON.stringify(schedule.assignments)
+  const publishedAssignmentsJson = JSON.stringify(schedule.publishedAssignments)
   await sql`
-    INSERT INTO schedule (singleton, generated_at, published_at, is_published, assignments)
-    VALUES (1, ${schedule.generatedAt}, ${schedule.publishedAt}, ${schedule.isPublished}, ${assignmentsJson}::jsonb)
+    INSERT INTO schedule (singleton, generated_at, published_at, is_published, assignments, published_assignments)
+    VALUES (1, ${schedule.generatedAt}, ${schedule.publishedAt}, ${schedule.isPublished}, ${assignmentsJson}::jsonb, ${publishedAssignmentsJson}::jsonb)
     ON CONFLICT (singleton) DO UPDATE SET
-      generated_at = EXCLUDED.generated_at,
-      published_at = EXCLUDED.published_at,
-      is_published = EXCLUDED.is_published,
-      assignments  = EXCLUDED.assignments
+      generated_at          = EXCLUDED.generated_at,
+      published_at          = EXCLUDED.published_at,
+      is_published          = EXCLUDED.is_published,
+      assignments           = EXCLUDED.assignments,
+      published_assignments = EXCLUDED.published_assignments
   `
 }
 

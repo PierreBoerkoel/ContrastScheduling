@@ -23,13 +23,14 @@ export async function POST(request: Request) {
   const { action } = (await request.json()) as { action: 'generate' | 'publish' }
 
   if (action === 'generate') {
-    const [shifts, submissions] = await Promise.all([getShifts(), getSubmissions()])
+    const [shifts, submissions, existing] = await Promise.all([getShifts(), getSubmissions(), getSchedule()])
     const assignments = generateSchedule(shifts, submissions)
     const schedule: Schedule = {
       generatedAt: new Date().toISOString(),
-      publishedAt: null,
+      publishedAt: existing?.publishedAt ?? null,
       isPublished: false,
       assignments,
+      publishedAssignments: existing?.publishedAssignments ?? [],
     }
     await setSchedule(schedule)
     return NextResponse.json(schedule)
@@ -40,10 +41,15 @@ export async function POST(request: Request) {
     if (!schedule) {
       return NextResponse.json({ error: 'No schedule to publish' }, { status: 400 })
     }
+    // Merge draft into existing published assignments: draft overrides for same shiftId
+    const mergedMap = new Map<string, typeof schedule.assignments[number]>()
+    for (const a of schedule.publishedAssignments) mergedMap.set(a.shiftId, a)
+    for (const a of schedule.assignments) mergedMap.set(a.shiftId, a)
     const published: Schedule = {
       ...schedule,
       publishedAt: new Date().toISOString(),
       isPublished: true,
+      publishedAssignments: Array.from(mergedMap.values()),
     }
     await setSchedule(published)
     return NextResponse.json(published)
@@ -84,6 +90,9 @@ export async function PUT(request: Request) {
   }
 
   schedule.assignments[idx] = { shiftId, residentName: name }
+  // Also update publishedAssignments so the claim is immediately visible
+  const pubIdx = schedule.publishedAssignments.findIndex((a) => a.shiftId === shiftId)
+  if (pubIdx >= 0) schedule.publishedAssignments[pubIdx] = { shiftId, residentName: name }
   await setSchedule(schedule)
   return NextResponse.json(schedule)
 }
@@ -111,6 +120,7 @@ export async function PATCH(request: Request) {
   schedule.assignments[idx] = { shiftId, residentName }
   schedule.isPublished = false
   schedule.publishedAt = null
+  // publishedAssignments unchanged — admin must re-publish to make edit live
   await setSchedule(schedule)
   return NextResponse.json(schedule)
 }

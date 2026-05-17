@@ -57,24 +57,24 @@ export default function SchedulePage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  // Helpers
+  // User-facing pages always use publishedAssignments (the accumulated published schedule)
+  const published = schedule?.publishedAssignments ?? []
+
   const assignmentMap: Record<string, string | null> = {}
-  if (schedule) {
-    for (const a of schedule.assignments) assignmentMap[a.shiftId] = a.residentName
-  }
+  for (const a of published) assignmentMap[a.shiftId] = a.residentName
 
   const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
 
   // Dates the current user is already assigned to
   const myAssignedDates = new Set(
-    schedule?.assignments
+    published
       .filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase())
-      .map((a) => a.shiftId.split('|')[0]) ?? []
+      .map((a) => a.shiftId.split('|')[0])
   )
 
   function myShifts() {
-    if (!schedule || !myName) return []
-    return schedule.assignments.filter(
+    if (!myName) return []
+    return published.filter(
       (a) => a.residentName?.toLowerCase() === myName.toLowerCase()
     )
   }
@@ -154,11 +154,8 @@ export default function SchedulePage() {
     await fetchAll()
   }
 
-  // Build display from published schedule assignments.
-  // Shift IDs encode date|clinic so we can reconstruct shift objects even if
-  // the shifts table has been replaced with a new period.
   const byDate: Record<string, Shift[]> = {}
-  for (const a of (schedule?.assignments ?? [])) {
+  for (const a of published) {
     const [date, clinic] = a.shiftId.split('|')
     const shift = shiftById[a.shiftId] ?? { id: a.shiftId, date, clinic: clinic as ClinicName }
     ;(byDate[date] ??= []).push(shift)
@@ -166,10 +163,8 @@ export default function SchedulePage() {
   const sortedDates = Object.keys(byDate).sort()
 
   const counts: Record<string, number> = {}
-  if (schedule) {
-    for (const a of schedule.assignments) {
-      if (a.residentName) counts[a.residentName] = (counts[a.residentName] ?? 0) + 1
-    }
+  for (const a of published) {
+    if (a.residentName) counts[a.residentName] = (counts[a.residentName] ?? 0) + 1
   }
 
   const pendingSwaps = swapRequests.filter((r) => r.status === 'pending')
@@ -178,7 +173,7 @@ export default function SchedulePage() {
     return <div className="max-w-4xl mx-auto px-4 py-16 text-slate-400 text-sm">Loading…</div>
   }
 
-  if (!schedule?.isPublished) {
+  if (published.length === 0) {
     return (
       <div className="max-w-xl mx-auto px-4 py-16 text-center">
         <div className="text-5xl mb-4">📋</div>
@@ -197,7 +192,7 @@ export default function SchedulePage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-800 mb-1">Published Schedule</h1>
         <p className="text-xs text-slate-400">
-          Published {formatDateTime(schedule.publishedAt!)}
+          Published {schedule?.publishedAt ? formatDateTime(schedule.publishedAt) : ''}
         </p>
       </div>
 

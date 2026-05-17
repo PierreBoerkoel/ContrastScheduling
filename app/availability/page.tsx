@@ -100,8 +100,8 @@ export default function AvailabilityPage() {
 
   if (!isLoaded) return null
 
-  const publishedIds = new Set((schedule?.assignments ?? []).map((a) => a.shiftId))
-  const isLocked = !loading && !!schedule?.isPublished && shifts.some((s) => publishedIds.has(s.id))
+  const publishedIds = new Set((schedule?.publishedAssignments ?? []).map((a) => a.shiftId))
+  const isLocked = !loading && publishedIds.size > 0 && shifts.some((s) => publishedIds.has(s.id))
 
   if (isLocked) {
     return (

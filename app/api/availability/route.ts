@@ -23,8 +23,8 @@ export async function POST(request: Request) {
   const { availableShiftIds } = (await request.json()) as { availableShiftIds: string[] }
 
   const schedule = await getSchedule()
-  if (schedule?.isPublished && availableShiftIds.length > 0) {
-    const publishedIds = new Set(schedule.assignments.map((a) => a.shiftId))
+  if (availableShiftIds.length > 0 && (schedule?.publishedAssignments?.length ?? 0) > 0) {
+    const publishedIds = new Set(schedule!.publishedAssignments.map((a) => a.shiftId))
     const overlap = availableShiftIds.some((id) => publishedIds.has(id))
     if (overlap) {
       return NextResponse.json(

@@ -115,7 +115,7 @@ export default function ProfilePage() {
       fetch('/api/schedule').then((r) => r.json()),
     ]).then(([shiftList, sched]) => {
       setShifts(Array.isArray(shiftList) ? shiftList : [])
-      setSchedule(sched?.isPublished ? sched : null)
+      setSchedule(sched?.publishedAssignments?.length ? sched : null)
       setLoading(false)
     })
   }, [])
@@ -125,7 +125,7 @@ export default function ProfilePage() {
   const today = new Date().toISOString().split('T')[0]
 
   const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
-  const myShifts: Shift[] = (schedule?.assignments ?? [])
+  const myShifts: Shift[] = (schedule?.publishedAssignments ?? [])
     .filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase())
     .map((a) => {
       if (shiftById[a.shiftId]) return shiftById[a.shiftId]
