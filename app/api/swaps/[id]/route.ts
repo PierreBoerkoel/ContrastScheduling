@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getSwapRequests, updateSwapRequest, getSchedule, setSchedule } from '@/lib/store'
+import { getSwapRequests, updateSwapRequest, getSchedule, setSchedule } from '@/lib/db'
 
 export async function PATCH(
   request: Request,
@@ -12,7 +12,8 @@ export async function PATCH(
     acceptorShiftId?: string
   }
 
-  const swapReq = getSwapRequests().find((r) => r.id === id)
+  const swapReqs = await getSwapRequests()
+  const swapReq = swapReqs.find((r) => r.id === id)
   if (!swapReq) {
     return NextResponse.json({ error: 'Swap request not found' }, { status: 404 })
   }
@@ -21,8 +22,7 @@ export async function PATCH(
   }
 
   if (action === 'cancel') {
-    const updated = updateSwapRequest(id, { status: 'cancelled' })
-    return NextResponse.json(updated)
+    return NextResponse.json(await updateSwapRequest(id, { status: 'cancelled' }))
   }
 
   if (action === 'accept') {
@@ -30,55 +30,42 @@ export async function PATCH(
       return NextResponse.json({ error: 'Acceptor name and shift are required' }, { status: 400 })
     }
 
-    const schedule = getSchedule()
+    const schedule = await getSchedule()
     if (!schedule) {
       return NextResponse.json({ error: 'No schedule found' }, { status: 400 })
     }
 
-    // Verify acceptor is assigned to acceptorShiftId
     const acceptorAssignment = schedule.assignments.find((a) => a.shiftId === acceptorShiftId)
     if (acceptorAssignment?.residentName?.toLowerCase() !== acceptorName.trim().toLowerCase()) {
-      return NextResponse.json(
-        { error: 'You are not assigned to that shift' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'You are not assigned to that shift' }, { status: 400 })
     }
 
-    // Verify requestor is still assigned to their shift
     const requestorAssignment = schedule.assignments.find(
       (a) => a.shiftId === swapReq.requestorShiftId
     )
-    if (
-      requestorAssignment?.residentName?.toLowerCase() !==
-      swapReq.requestorName.toLowerCase()
-    ) {
+    if (requestorAssignment?.residentName?.toLowerCase() !== swapReq.requestorName.toLowerCase()) {
       return NextResponse.json(
         { error: 'The requestor is no longer assigned to that shift' },
         { status: 409 }
       )
     }
 
-    // Execute the swap in the schedule
     const newAssignments = schedule.assignments.map((a) => {
-      if (a.shiftId === swapReq.requestorShiftId) {
-        return { ...a, residentName: acceptorName.trim() }
-      }
-      if (a.shiftId === acceptorShiftId) {
-        return { ...a, residentName: swapReq.requestorName }
-      }
+      if (a.shiftId === swapReq.requestorShiftId) return { ...a, residentName: acceptorName.trim() }
+      if (a.shiftId === acceptorShiftId) return { ...a, residentName: swapReq.requestorName }
       return a
     })
 
-    setSchedule({ ...schedule, assignments: newAssignments })
+    await setSchedule({ ...schedule, assignments: newAssignments })
 
-    const updated = updateSwapRequest(id, {
-      status: 'accepted',
-      acceptorName: acceptorName.trim(),
-      acceptorShiftId,
-      acceptedAt: new Date().toISOString(),
-    })
-
-    return NextResponse.json(updated)
+    return NextResponse.json(
+      await updateSwapRequest(id, {
+        status: 'accepted',
+        acceptorName: acceptorName.trim(),
+        acceptorShiftId,
+        acceptedAt: new Date().toISOString(),
+      })
+    )
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })

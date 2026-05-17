@@ -1,16 +1,15 @@
 import { NextResponse } from 'next/server'
-import { getShifts, setShifts } from '@/lib/store'
+import { getShifts, setShifts } from '@/lib/db'
 import type { ClinicName, Shift } from '@/lib/types'
 
 export async function GET() {
-  return NextResponse.json(getShifts())
+  return NextResponse.json(await getShifts())
 }
 
 export async function POST(request: Request) {
   const { startDate, endDate, activeClinics } = (await request.json()) as {
     startDate: string
     endDate: string
-    // date string → list of clinics active that day
     activeClinics: Record<string, ClinicName[]>
   }
 
@@ -20,18 +19,17 @@ export async function POST(request: Request) {
 
   while (current <= end) {
     const dateStr = current.toISOString().split('T')[0]
-    const clinicsForDay = activeClinics[dateStr] ?? []
-    for (const clinic of clinicsForDay) {
+    for (const clinic of activeClinics[dateStr] ?? []) {
       shifts.push({ id: `${dateStr}|${clinic}`, date: dateStr, clinic })
     }
     current.setUTCDate(current.getUTCDate() + 1)
   }
 
-  setShifts(shifts)
+  await setShifts(shifts)
   return NextResponse.json(shifts)
 }
 
 export async function DELETE() {
-  setShifts([])
+  await setShifts([])
   return NextResponse.json({ ok: true })
 }

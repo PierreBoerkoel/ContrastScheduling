@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { getSubmissions, upsertSubmission } from '@/lib/store'
+import { getSubmissions, upsertSubmission } from '@/lib/db'
 import type { AvailabilitySubmission } from '@/lib/types'
 
 export async function GET() {
-  return NextResponse.json(getSubmissions())
+  return NextResponse.json(await getSubmissions())
 }
 
 export async function POST(request: Request) {
@@ -23,6 +23,6 @@ export async function POST(request: Request) {
     availableShiftIds,
   }
 
-  upsertSubmission(submission)
+  await upsertSubmission(submission)
   return NextResponse.json(submission)
 }

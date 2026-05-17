@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { getSwapRequests, addSwapRequest, getSchedule } from '@/lib/store'
+import { getSwapRequests, addSwapRequest, getSchedule } from '@/lib/db'
 import type { SwapRequest } from '@/lib/types'
 
 export async function GET() {
-  return NextResponse.json(getSwapRequests())
+  return NextResponse.json(await getSwapRequests())
 }
 
 export async function POST(request: Request) {
@@ -16,22 +16,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   }
 
-  const schedule = getSchedule()
+  const schedule = await getSchedule()
   if (!schedule?.isPublished) {
     return NextResponse.json({ error: 'No published schedule' }, { status: 400 })
   }
 
-  // Verify the requestor is actually assigned to that shift
   const assignment = schedule.assignments.find((a) => a.shiftId === requestorShiftId)
   if (assignment?.residentName?.toLowerCase() !== requestorName.trim().toLowerCase()) {
-    return NextResponse.json(
-      { error: 'You are not assigned to that shift' },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: 'You are not assigned to that shift' }, { status: 400 })
   }
 
-  // Check for an existing pending request for the same shift
-  const existing = getSwapRequests().find(
+  const existing = (await getSwapRequests()).find(
     (r) => r.requestorShiftId === requestorShiftId && r.status === 'pending'
   )
   if (existing) {
@@ -52,6 +47,6 @@ export async function POST(request: Request) {
     acceptedAt: null,
   }
 
-  addSwapRequest(req)
+  await addSwapRequest(req)
   return NextResponse.json(req, { status: 201 })
 }
