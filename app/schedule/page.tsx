@@ -215,10 +215,9 @@ export default function SchedulePage() {
       </div>
 
       {/* Schedule grid */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto overflow-y-auto max-h-[70vh]">
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="border-b border-slate-100 bg-slate-50">
               <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Date</th>
               {CLINICS.map((clinic) => (
@@ -272,7 +271,6 @@ export default function SchedulePage() {
             ))}
           </tbody>
         </table>
-        </div>
       </div>
 
       {/* ── REQUEST A SWAP ── */}

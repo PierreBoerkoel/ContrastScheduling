@@ -149,7 +149,7 @@ export default function AvailabilityPage() {
             <thead className="sticky top-0 z-10">
               <tr className="border-b border-slate-100">
                 <th className="text-left px-4 py-3 font-medium text-slate-600 bg-slate-50 whitespace-nowrap">Date</th>
-                <th className="text-center px-3 py-3 font-medium text-slate-500 bg-slate-50 whitespace-nowrap">All</th>
+                <th className="text-center px-3 py-3 font-medium text-slate-500 bg-slate-50 whitespace-nowrap"></th>
                 {CLINICS.map((clinic) => (
                   <th key={clinic} className="text-center px-3 py-3 font-medium text-slate-600 whitespace-nowrap bg-slate-50">
                     {clinic}
@@ -167,13 +167,12 @@ export default function AvailabilityPage() {
                       {formatDate(date)}
                     </td>
                     <td className="text-center px-3 py-3">
-                      <input
-                        type="checkbox"
-                        checked={allSelected}
-                        onChange={() => toggleAllOnDay(date)}
-                        className="w-4 h-4 accent-blue-600 cursor-pointer"
-                        title="Select all clinics for this day"
-                      />
+                      <button
+                        onClick={() => toggleAllOnDay(date)}
+                        className="text-xs font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                      >
+                        {allSelected ? 'Deselect' : 'Select all'}
+                      </button>
                     </td>
                     {CLINICS.map((clinic: ClinicName) => {
                       const shift = shiftsOnDay.find((s) => s.clinic === clinic)
