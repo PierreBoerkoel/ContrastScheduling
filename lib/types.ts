@@ -2,6 +2,7 @@ export const CLINICS = [
   'BC Cancer Agency',
   'INITIO Medical Imaging',
   'UBC Hospital',
+  "BC Women's Hospital",
 ] as const
 
 export type ClinicName = (typeof CLINICS)[number]

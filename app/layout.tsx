@@ -37,7 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </header>
         <main className="flex-1">{children}</main>
         <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-400">
-          BC Cancer Agency &middot; INITIO Medical Imaging &middot; UBC Hospital
+          BC Cancer Agency &middot; INITIO Medical Imaging &middot; UBC Hospital &middot; BC Women&apos;s Hospital
         </footer>
       </body>
     </html>
