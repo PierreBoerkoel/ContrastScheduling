@@ -7,6 +7,7 @@ import {
   SignInButton,
   UserButton,
 } from '@clerk/nextjs'
+import OnboardingGuard from './components/OnboardingGuard'
 import './globals.css'
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
@@ -52,7 +53,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </nav>
             </div>
           </header>
-          <main className="flex-1">{children}</main>
+          <main className="flex-1">
+            <OnboardingGuard>{children}</OnboardingGuard>
+          </main>
           <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-400">
             BC Cancer Agency &middot; INITIO Medical Imaging &middot; UBC Hospital &middot; BC Women&apos;s Hospital
           </footer>
