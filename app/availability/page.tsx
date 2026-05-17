@@ -144,7 +144,7 @@ export default function AvailabilityPage() {
           No shifts have been set up yet. Check back once the admin has created the scheduling period.
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto overflow-y-auto max-h-[70vh]">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10">
               <tr className="border-b border-slate-100">
