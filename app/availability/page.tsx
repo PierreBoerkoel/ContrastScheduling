@@ -76,7 +76,10 @@ export default function AvailabilityPage() {
 
   if (!isLoaded) return null
 
-  if (!loading && schedule?.isPublished) {
+  const publishedIds = new Set((schedule?.assignments ?? []).map((a) => a.shiftId))
+  const isLocked = !loading && !!schedule?.isPublished && shifts.some((s) => publishedIds.has(s.id))
+
+  if (isLocked) {
     return (
       <div className="max-w-xl mx-auto px-4 py-16 text-center">
         <div className="text-5xl mb-4">🔒</div>

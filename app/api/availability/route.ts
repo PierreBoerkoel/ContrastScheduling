@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getSubmissions, upsertSubmission, getSchedule } from '@/lib/db'
+import { getSubmissions, upsertSubmission, getSchedule, getShifts } from '@/lib/db'
 import type { AvailabilitySubmission } from '@/lib/types'
 
 export async function GET() {
@@ -20,12 +20,16 @@ export async function POST(request: Request) {
     user?.emailAddresses[0]?.emailAddress ??
     'Unknown'
 
-  const schedule = await getSchedule()
-  if (schedule?.isPublished) {
-    return NextResponse.json(
-      { error: 'The schedule has been published. Availability can no longer be updated.' },
-      { status: 409 }
-    )
+  const [schedule, shifts] = await Promise.all([getSchedule(), getShifts()])
+  if (schedule?.isPublished && shifts.length > 0) {
+    const publishedIds = new Set(schedule.assignments.map((a) => a.shiftId))
+    const overlap = shifts.some((s) => publishedIds.has(s.id))
+    if (overlap) {
+      return NextResponse.json(
+        { error: 'The schedule has been published. Availability can no longer be updated.' },
+        { status: 409 }
+      )
+    }
   }
 
   const { availableShiftIds } = (await request.json()) as { availableShiftIds: string[] }
