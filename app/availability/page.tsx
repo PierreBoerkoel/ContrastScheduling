@@ -79,10 +79,13 @@ export default function AvailabilityPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ availableShiftIds: Array.from(selected) }),
       })
-      if (!res.ok) throw new Error('Submission failed')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? 'Submission failed')
+      }
       setSubmitted(true)
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.')
     } finally {
       setSubmitting(false)
     }

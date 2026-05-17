@@ -20,10 +20,12 @@ export async function POST(request: Request) {
     user?.emailAddresses[0]?.emailAddress ??
     'Unknown'
 
-  const [schedule, shifts] = await Promise.all([getSchedule(), getShifts()])
-  if (schedule?.isPublished && shifts.length > 0) {
+  const { availableShiftIds } = (await request.json()) as { availableShiftIds: string[] }
+
+  const schedule = await getSchedule()
+  if (schedule?.isPublished && availableShiftIds.length > 0) {
     const publishedIds = new Set(schedule.assignments.map((a) => a.shiftId))
-    const overlap = shifts.some((s) => publishedIds.has(s.id))
+    const overlap = availableShiftIds.some((id) => publishedIds.has(id))
     if (overlap) {
       return NextResponse.json(
         { error: 'The schedule has been published. Availability can no longer be updated.' },
@@ -31,8 +33,6 @@ export async function POST(request: Request) {
       )
     }
   }
-
-  const { availableShiftIds } = (await request.json()) as { availableShiftIds: string[] }
 
   const submission: AvailabilitySubmission = {
     id: crypto.randomUUID(),
