@@ -5,7 +5,7 @@ export default function Home() {
     <div className="max-w-3xl mx-auto px-4 py-16">
       <h1 className="text-3xl font-bold text-slate-800 mb-3">Contrast Coverage Scheduling</h1>
       <p className="text-slate-500 mb-12 text-lg">
-        Resident call scheduling for contrast coverage across three clinic locations.
+        Resident call scheduling for contrast coverage across four clinic locations.
       </p>
 
       <div className="grid sm:grid-cols-2 gap-6">
