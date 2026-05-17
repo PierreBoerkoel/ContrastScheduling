@@ -5,7 +5,15 @@ import { useUser } from '@clerk/nextjs'
 import type { Shift, AvailabilitySubmission, Schedule, ClinicName, SwapRequest } from '@/lib/types'
 import { CLINICS } from '@/lib/types'
 
-type Tab = 'shifts' | 'availability' | 'schedule' | 'swaps'
+type Tab = 'shifts' | 'availability' | 'schedule' | 'swaps' | 'users'
+
+interface ClerkUser {
+  id: string
+  fullName: string
+  email: string
+  role: string
+  createdAt: string
+}
 
 function formatDate(dateStr: string) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -51,22 +59,28 @@ export default function AdminPage() {
   const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([])
 
+  // Users
+  const [users, setUsers] = useState<ClerkUser[]>([])
+  const [removingUserId, setRemovingUserId] = useState<string | null>(null)
+
   // Schedule interaction
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [publishing, setPublishing] = useState(false)
 
   const fetchData = useCallback(async () => {
-    const [s, sub, sched, swaps] = await Promise.all([
+    const [s, sub, sched, swaps, userList] = await Promise.all([
       fetch('/api/shifts').then((r) => r.json()),
       fetch('/api/availability').then((r) => r.json()),
       fetch('/api/schedule').then((r) => r.json()),
       fetch('/api/swaps').then((r) => r.json()),
+      fetch('/api/admin/users').then((r) => r.json()),
     ])
     setShifts(s)
     setSubmissions(sub)
     setSchedule(sched)
     setSwapRequests(swaps)
+    setUsers(userList)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
@@ -190,6 +204,20 @@ export default function AdminPage() {
     )
   }
 
+  async function removeUser(userId: string) {
+    setRemovingUserId(userId)
+    try {
+      await fetch('/api/admin/users', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      await fetchData()
+    } finally {
+      setRemovingUserId(null)
+    }
+  }
+
   const tabClass = (t: Tab) =>
     `px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
       tab === t ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
@@ -215,6 +243,14 @@ export default function AdminPage() {
             {swapRequests.filter((r) => r.status === 'pending').length > 0 && (
               <span className="ml-1.5 bg-amber-100 text-amber-700 text-xs px-1.5 py-0.5 rounded-full">
                 {swapRequests.filter((r) => r.status === 'pending').length}
+              </span>
+            )}
+          </button>
+          <button onClick={() => setTab('users')} className={tabClass('users')}>
+            Users
+            {users.length > 0 && (
+              <span className="ml-1.5 bg-slate-100 text-slate-600 text-xs px-1.5 py-0.5 rounded-full">
+                {users.length}
               </span>
             )}
           </button>
@@ -505,6 +541,72 @@ export default function AdminPage() {
                 </table>
                 </div>
               </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── USERS TAB ── */}
+      {tab === 'users' && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          {users.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">No users found.</div>
+          ) : (
+            <>
+              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+                <h2 className="text-sm font-semibold text-slate-700">
+                  {users.length} user{users.length !== 1 ? 's' : ''}
+                </h2>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50">
+                    <th className="text-left px-4 py-3 font-medium text-slate-600">Name</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600">Email</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600">Role</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600">Joined</th>
+                    <th className="px-4 py-3" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {users
+                    .slice()
+                    .sort((a, b) => a.fullName.localeCompare(b.fullName))
+                    .map((u) => (
+                      <tr key={u.id} className="border-b border-slate-100 last:border-0">
+                        <td className="px-4 py-3 font-medium text-slate-800">{u.fullName}</td>
+                        <td className="px-4 py-3 text-slate-500">{u.email}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                              u.role === 'admin'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            {u.role}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-400 text-xs">
+                          {new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium' }).format(
+                            new Date(u.createdAt)
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {u.id !== user?.id && (
+                            <button
+                              onClick={() => removeUser(u.id)}
+                              disabled={removingUserId === u.id}
+                              className="text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                            >
+                              {removingUserId === u.id ? 'Removing…' : 'Remove'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
             </>
           )}
         </div>
