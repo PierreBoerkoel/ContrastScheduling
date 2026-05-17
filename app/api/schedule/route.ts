@@ -5,9 +5,8 @@ import { generateSchedule } from '@/lib/scheduler'
 import type { Schedule, ShiftAssignment } from '@/lib/types'
 
 async function requireAdmin() {
-  const { userId, sessionClaims } = await auth()
-  if (!userId) return false
-  return sessionClaims?.metadata?.role === 'admin'
+  const user = await currentUser()
+  return (user?.publicMetadata as { role?: string })?.role === 'admin'
 }
 
 export async function GET() {

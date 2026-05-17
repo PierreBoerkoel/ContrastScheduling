@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { getShifts, setShifts } from '@/lib/db'
 import type { ClinicName, Shift } from '@/lib/types'
 
 async function requireAdmin() {
-  const { userId, sessionClaims } = await auth()
-  if (!userId) return false
-  return sessionClaims?.metadata?.role === 'admin'
+  const user = await currentUser()
+  return (user?.publicMetadata as { role?: string })?.role === 'admin'
 }
 
 export async function GET() {

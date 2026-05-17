@@ -69,18 +69,19 @@ export default function AdminPage() {
   const [publishing, setPublishing] = useState(false)
 
   const fetchData = useCallback(async () => {
+    const safe = (p: Promise<Response>) => p.then((r) => r.json()).catch(() => null)
     const [s, sub, sched, swaps, userList] = await Promise.all([
-      fetch('/api/shifts').then((r) => r.json()),
-      fetch('/api/availability').then((r) => r.json()),
-      fetch('/api/schedule').then((r) => r.json()),
-      fetch('/api/swaps').then((r) => r.json()),
-      fetch('/api/admin/users').then((r) => r.json()),
+      safe(fetch('/api/shifts')),
+      safe(fetch('/api/availability')),
+      safe(fetch('/api/schedule')),
+      safe(fetch('/api/swaps')),
+      safe(fetch('/api/admin/users')),
     ])
-    setShifts(s)
-    setSubmissions(sub)
-    setSchedule(sched)
-    setSwapRequests(swaps)
-    setUsers(userList)
+    if (Array.isArray(s)) setShifts(s)
+    if (Array.isArray(sub)) setSubmissions(sub)
+    if (sched && typeof sched === 'object' && !sched.error) setSchedule(sched)
+    if (Array.isArray(swaps)) setSwapRequests(swaps)
+    if (Array.isArray(userList)) setUsers(userList)
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])

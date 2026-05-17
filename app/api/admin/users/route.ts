@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
-import { auth, clerkClient } from '@clerk/nextjs/server'
+import { auth, currentUser, clerkClient } from '@clerk/nextjs/server'
 
 async function requireAdmin() {
-  const { userId, sessionClaims } = await auth()
-  if (!userId) return false
-  return sessionClaims?.metadata?.role === 'admin'
+  const user = await currentUser()
+  return (user?.publicMetadata as { role?: string })?.role === 'admin'
 }
 
 export async function GET() {

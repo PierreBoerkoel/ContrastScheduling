@@ -6,10 +6,8 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { userId, sessionClaims } = await auth()
+  const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const isAdmin = sessionClaims?.metadata?.role === 'admin'
 
   const { id } = await params
   const { action, acceptorShiftId } = (await request.json()) as {
@@ -29,6 +27,8 @@ export async function PATCH(
   if (action === 'cancel') {
     // Only the requestor or an admin can cancel
     const requestorUserId = (swapReq as { requestorUserId?: string }).requestorUserId
+    const cancelUser = await currentUser()
+    const isAdmin = (cancelUser?.publicMetadata as { role?: string })?.role === 'admin'
     if (!isAdmin && requestorUserId && requestorUserId !== userId) {
       return NextResponse.json({ error: 'You can only cancel your own requests' }, { status: 403 })
     }
