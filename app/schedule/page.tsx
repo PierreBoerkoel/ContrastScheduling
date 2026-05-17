@@ -31,7 +31,6 @@ export default function SchedulePage() {
 
   // Claim unassigned shift
   const [claimingShiftId, setClaimingShiftId] = useState<string | null>(null)
-  const [claimError, setClaimError] = useState<{ shiftId: string; message: string } | null>(null)
 
   // Swap — request flow
   const [requestingShiftId, setRequestingShiftId] = useState<string | null>(null)
@@ -66,6 +65,13 @@ export default function SchedulePage() {
 
   const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
 
+  // Dates the current user is already assigned to
+  const myAssignedDates = new Set(
+    schedule?.assignments
+      .filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase())
+      .map((a) => a.shiftId.split('|')[0]) ?? []
+  )
+
   function myShifts() {
     if (!schedule || !myName) return []
     return schedule.assignments.filter(
@@ -81,19 +87,13 @@ export default function SchedulePage() {
 
   async function claimShift(shiftId: string) {
     setClaimingShiftId(shiftId)
-    setClaimError(null)
     try {
-      const res = await fetch('/api/schedule', {
+      await fetch('/api/schedule', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shiftId }),
       })
-      if (!res.ok) {
-        const data = await res.json()
-        setClaimError({ shiftId, message: data.error ?? 'Could not take shift' })
-      } else {
-        await fetchAll()
-      }
+      await fetchAll()
     } finally {
       setClaimingShiftId(null)
     }
@@ -240,6 +240,8 @@ export default function SchedulePage() {
                   const resident = assignmentMap[shift.id]
                   const hasPendingSwap = pendingSwaps.some((r) => r.requestorShiftId === shift.id)
                   const isClaiming = claimingShiftId === shift.id
+                  const shiftDate = shift.id.split('|')[0]
+                  const alreadyOnDay = myAssignedDates.has(shiftDate)
                   return (
                     <td key={clinic} className="px-4 py-3">
                       {resident ? (
@@ -252,18 +254,16 @@ export default function SchedulePage() {
                           )}
                         </>
                       ) : (
-                        <div className="space-y-0.5">
-                          <button
-                            onClick={() => claimShift(shift.id)}
-                            disabled={isClaiming}
-                            className="text-xs text-blue-600 hover:text-blue-700 font-medium border border-blue-200 hover:border-blue-400 rounded px-2 py-0.5 transition-colors disabled:opacity-40"
-                          >
-                            {isClaiming ? 'Taking…' : 'Take shift'}
-                          </button>
-                          {claimError?.shiftId === shift.id && (
-                            <p className="text-xs text-red-500">{claimError.message}</p>
-                          )}
-                        </div>
+                        <button
+                          onClick={() => claimShift(shift.id)}
+                          disabled={isClaiming || alreadyOnDay}
+                          title={alreadyOnDay ? 'You are already scheduled on this day' : undefined}
+                          className="text-xs font-medium border rounded px-2 py-0.5 transition-colors disabled:cursor-not-allowed
+                            enabled:text-blue-600 enabled:border-blue-200 enabled:hover:text-blue-700 enabled:hover:border-blue-400
+                            disabled:text-slate-400 disabled:border-slate-200"
+                        >
+                          {isClaiming ? 'Taking…' : 'Take shift'}
+                        </button>
                       )}
                     </td>
                   )
