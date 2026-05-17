@@ -407,10 +407,11 @@ export default function AdminPage() {
               </div>
 
               {/* Schedule grid */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 text-xs text-slate-400">
                   Click a cell to manually reassign. Changes will require re-publishing.
                 </div>
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-100">
@@ -484,6 +485,7 @@ export default function AdminPage() {
                     })}
                   </tbody>
                 </table>
+                </div>
               </div>
             </>
           )}

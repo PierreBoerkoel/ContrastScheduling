@@ -199,7 +199,8 @@ export default function SchedulePage() {
       </div>
 
       {/* Schedule grid */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50">
@@ -241,6 +242,7 @@ export default function SchedulePage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* ── REQUEST A SWAP ── */}
