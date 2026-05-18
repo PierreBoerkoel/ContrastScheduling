@@ -1,5 +1,11 @@
 import { sql, db } from '@vercel/postgres'
-import type { Shift, AvailabilitySubmission, Schedule, SwapRequest, ShiftAssignment } from './types'
+import type { Shift, AvailabilitySubmission, Schedule, SwapRequest, ShiftAssignment, SchedulingPeriod } from './types'
+
+// Run migrations once per Lambda cold-start; all DDL uses IF NOT EXISTS so it is safe to re-run.
+let _ready: Promise<void> | null = null
+export function ensureDb(): Promise<void> {
+  return (_ready ??= initDb())
+}
 
 export async function initDb(): Promise<void> {
   await sql`
@@ -43,29 +49,48 @@ export async function initDb(): Promise<void> {
       accepted_at         TIMESTAMPTZ
     )
   `
+  await sql`
+    CREATE TABLE IF NOT EXISTS scheduling_periods (
+      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name       TEXT NOT NULL,
+      start_date DATE NOT NULL,
+      end_date   DATE NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
   // Add columns to existing tables if upgrading from the pre-auth schema
   await sql`ALTER TABLE availability_submissions ADD COLUMN IF NOT EXISTS user_id TEXT`
   await sql`ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS requestor_user_id TEXT`
+  await sql`ALTER TABLE shifts ADD COLUMN IF NOT EXISTS period_id TEXT`
+  await sql`ALTER TABLE availability_submissions ADD COLUMN IF NOT EXISTS period_id TEXT`
+  // Old single-user index; replaced by composite (user_id, period_id) index below
+  await sql`DROP INDEX IF EXISTS submissions_user_id_idx`
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS submissions_user_id_idx
-    ON availability_submissions (user_id) WHERE user_id IS NOT NULL
+    CREATE UNIQUE INDEX IF NOT EXISTS submissions_user_period_idx
+    ON availability_submissions (user_id, period_id)
+    WHERE user_id IS NOT NULL AND period_id IS NOT NULL
   `
 }
 
 // ── Shifts ────────────────────────────────────────────────────────────────────
 
 export async function getShifts(): Promise<Shift[]> {
-  const { rows } = await sql`SELECT id, date, clinic FROM shifts ORDER BY date, clinic`
-  return rows as Shift[]
+  await ensureDb()
+  const { rows } = await sql`SELECT id, date, clinic, period_id FROM shifts ORDER BY date, clinic`
+  return rows.map((r) => ({ id: r.id, date: r.date, clinic: r.clinic as Shift['clinic'], periodId: r.period_id ?? undefined }))
 }
 
-export async function setShifts(shifts: Shift[]): Promise<void> {
+export async function setShifts(shifts: Shift[], periodId?: string): Promise<void> {
   const client = await db.connect()
   try {
     await client.sql`BEGIN`
-    await client.sql`DELETE FROM shifts`
+    if (periodId) {
+      await client.sql`DELETE FROM shifts WHERE period_id = ${periodId}`
+    } else {
+      await client.sql`DELETE FROM shifts WHERE period_id IS NULL`
+    }
     for (const s of shifts) {
-      await client.sql`INSERT INTO shifts (id, date, clinic) VALUES (${s.id}, ${s.date}, ${s.clinic})`
+      await client.sql`INSERT INTO shifts (id, date, clinic, period_id) VALUES (${s.id}, ${s.date}, ${s.clinic}, ${periodId ?? null})`
     }
     await client.sql`COMMIT`
   } catch (e) {
@@ -79,8 +104,9 @@ export async function setShifts(shifts: Shift[]): Promise<void> {
 // ── Availability submissions ──────────────────────────────────────────────────
 
 export async function getSubmissions(): Promise<AvailabilitySubmission[]> {
+  await ensureDb()
   const { rows } = await sql`
-    SELECT id, resident_name, submitted_at, available_shift_ids
+    SELECT id, resident_name, submitted_at, available_shift_ids, period_id
     FROM availability_submissions
     ORDER BY submitted_at
   `
@@ -89,14 +115,19 @@ export async function getSubmissions(): Promise<AvailabilitySubmission[]> {
     residentName: r.resident_name,
     submittedAt: r.submitted_at,
     availableShiftIds: r.available_shift_ids as string[],
+    periodId: r.period_id ?? undefined,
   }))
 }
 
 export async function upsertSubmission(
   submission: AvailabilitySubmission & { userId: string }
 ): Promise<void> {
+  await ensureDb()
+  const periodId = submission.periodId ?? null
   const { rows } = await sql`
-    SELECT id FROM availability_submissions WHERE user_id = ${submission.userId}
+    SELECT id FROM availability_submissions
+    WHERE user_id = ${submission.userId}
+      AND (period_id = ${periodId} OR (period_id IS NULL AND ${periodId}::TEXT IS NULL))
   `
   if (rows.length > 0) {
     await sql`
@@ -106,11 +137,12 @@ export async function upsertSubmission(
         submitted_at        = ${submission.submittedAt},
         available_shift_ids = ${submission.availableShiftIds as unknown as string}
       WHERE user_id = ${submission.userId}
+        AND (period_id = ${periodId} OR (period_id IS NULL AND ${periodId}::TEXT IS NULL))
     `
   } else {
     await sql`
-      INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids)
-      VALUES (${submission.id}, ${submission.userId}, ${submission.residentName}, ${submission.submittedAt}, ${submission.availableShiftIds as unknown as string})
+      INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids, period_id)
+      VALUES (${submission.id}, ${submission.userId}, ${submission.residentName}, ${submission.submittedAt}, ${submission.availableShiftIds as unknown as string}, ${periodId})
     `
   }
 }
@@ -146,6 +178,56 @@ export async function setSchedule(schedule: Schedule): Promise<void> {
       assignments           = EXCLUDED.assignments,
       published_assignments = EXCLUDED.published_assignments
   `
+}
+
+// ── Scheduling periods ────────────────────────────────────────────────────────
+
+export async function getSchedulingPeriods(): Promise<SchedulingPeriod[]> {
+  const { rows } = await sql`
+    SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date, created_at
+    FROM scheduling_periods
+    ORDER BY start_date
+  `
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    createdAt: r.created_at,
+  }))
+}
+
+export async function addSchedulingPeriod(
+  period: Pick<SchedulingPeriod, 'name' | 'startDate' | 'endDate'>
+): Promise<SchedulingPeriod> {
+  const { rows } = await sql`
+    INSERT INTO scheduling_periods (name, start_date, end_date)
+    VALUES (${period.name}, ${period.startDate}, ${period.endDate})
+    RETURNING id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date, created_at
+  `
+  const r = rows[0]
+  return { id: r.id, name: r.name, startDate: r.start_date, endDate: r.end_date, createdAt: r.created_at }
+}
+
+export async function deleteSchedulingPeriod(id: string): Promise<void> {
+  await sql`DELETE FROM scheduling_periods WHERE id = ${id}`
+}
+
+export async function findPeriodByName(name: string): Promise<SchedulingPeriod | null> {
+  const { rows } = await sql`
+    SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date, created_at
+    FROM scheduling_periods WHERE name = ${name} LIMIT 1
+  `
+  if (rows.length === 0) return null
+  const r = rows[0]
+  return { id: r.id, name: r.name, startDate: r.start_date, endDate: r.end_date, createdAt: r.created_at }
+}
+
+export async function updateSchedulingPeriod(
+  id: string,
+  patch: Pick<SchedulingPeriod, 'startDate' | 'endDate'>
+): Promise<void> {
+  await sql`UPDATE scheduling_periods SET start_date = ${patch.startDate}, end_date = ${patch.endDate} WHERE id = ${id}`
 }
 
 // ── Swap requests ─────────────────────────────────────────────────────────────

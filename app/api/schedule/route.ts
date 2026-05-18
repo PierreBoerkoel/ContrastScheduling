@@ -20,16 +20,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   }
 
-  const { action } = (await request.json()) as { action: 'generate' | 'publish' }
+  const body = await request.json() as { action: 'generate' | 'publish'; periodId?: string }
+  const { action } = body
 
   if (action === 'generate') {
-    const [shifts, submissions, existing] = await Promise.all([getShifts(), getSubmissions(), getSchedule()])
-    const assignments = generateSchedule(shifts, submissions)
+    const { periodId } = body as { periodId?: string }
+    const [allShifts, allSubmissions, existing] = await Promise.all([getShifts(), getSubmissions(), getSchedule()])
+
+    const shifts = periodId ? allShifts.filter((s) => s.periodId === periodId) : allShifts
+    const submissions = periodId ? allSubmissions.filter((s) => s.periodId === periodId) : allSubmissions
+    const newAssignments = generateSchedule(shifts, submissions)
+
+    // Keep other blocks' draft assignments intact
+    const blockShiftIds = new Set(shifts.map((s) => s.id))
+    const keptAssignments = (existing?.assignments ?? []).filter((a) => !blockShiftIds.has(a.shiftId))
+
     const schedule: Schedule = {
       generatedAt: new Date().toISOString(),
       publishedAt: existing?.publishedAt ?? null,
       isPublished: false,
-      assignments,
+      assignments: [...keptAssignments, ...newAssignments],
       publishedAssignments: existing?.publishedAssignments ?? [],
     }
     await setSchedule(schedule)

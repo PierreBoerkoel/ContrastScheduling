@@ -11,6 +11,7 @@ export interface Shift {
   id: string
   date: string // YYYY-MM-DD
   clinic: ClinicName
+  periodId?: string
 }
 
 export interface AvailabilitySubmission {
@@ -18,6 +19,7 @@ export interface AvailabilitySubmission {
   residentName: string
   submittedAt: string
   availableShiftIds: string[]
+  periodId?: string
 }
 
 export interface ShiftAssignment {
@@ -42,4 +44,12 @@ export interface SwapRequest {
   acceptorName: string | null
   acceptorShiftId: string | null
   acceptedAt: string | null
+}
+
+export interface SchedulingPeriod {
+  id: string
+  name: string
+  startDate: string  // YYYY-MM-DD
+  endDate: string    // YYYY-MM-DD
+  createdAt: string
 }

@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     user?.emailAddresses[0]?.emailAddress ??
     'Unknown'
 
-  const { availableShiftIds } = (await request.json()) as { availableShiftIds: string[] }
+  const { availableShiftIds, periodId } = (await request.json()) as { availableShiftIds: string[]; periodId?: string }
 
   const schedule = await getSchedule()
   if (availableShiftIds.length > 0 && (schedule?.publishedAssignments?.length ?? 0) > 0) {
@@ -39,6 +39,7 @@ export async function POST(request: Request) {
     residentName,
     submittedAt: new Date().toISOString(),
     availableShiftIds,
+    periodId,
   }
 
   await upsertSubmission({ ...submission, userId })

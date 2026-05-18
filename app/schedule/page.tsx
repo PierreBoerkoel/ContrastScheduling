@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, Schedule, SwapRequest, ClinicName } from '@/lib/types'
+import type { Shift, Schedule, SwapRequest, ClinicName, SchedulingPeriod } from '@/lib/types'
 import { CLINICS } from '@/lib/types'
 
 function formatDate(dateStr: string) {
@@ -27,6 +27,8 @@ export default function SchedulePage() {
   const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [shifts, setShifts] = useState<Shift[]>([])
   const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([])
+  const [periods, setPeriods] = useState<SchedulingPeriod[]>([])
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Claim unassigned shift
@@ -44,14 +46,16 @@ export default function SchedulePage() {
   const [acceptError, setAcceptError] = useState('')
 
   const fetchAll = useCallback(async () => {
-    const [sched, shiftList, swaps] = await Promise.all([
+    const [sched, shiftList, swaps, periodList] = await Promise.all([
       fetch('/api/schedule').then((r) => r.json()),
       fetch('/api/shifts').then((r) => r.json()),
       fetch('/api/swaps').then((r) => r.json()),
+      fetch('/api/periods').then((r) => r.json()),
     ])
     setSchedule(sched)
     setShifts(shiftList)
     setSwapRequests(swaps)
+    if (Array.isArray(periodList)) setPeriods(periodList)
     setLoading(false)
   }, [])
 
@@ -60,21 +64,34 @@ export default function SchedulePage() {
   // User-facing pages always use publishedAssignments (the accumulated published schedule)
   const published = schedule?.publishedAssignments ?? []
 
+  const today = new Date().toISOString().split('T')[0]
+  const upcomingPeriods = periods.filter((p) => p.endDate >= today)
+  const effectivePeriodId = selectedPeriodId ?? upcomingPeriods[0]?.id ?? null
+  const selectedPeriod = upcomingPeriods.find((p) => p.id === effectivePeriodId) ?? null
+
+  // Filter published assignments to the selected period (if any periods are defined)
+  const filteredPublished = upcomingPeriods.length > 0 && selectedPeriod
+    ? published.filter((a) => {
+        const date = a.shiftId.split('|')[0]
+        return date >= selectedPeriod.startDate && date <= selectedPeriod.endDate
+      })
+    : published
+
   const assignmentMap: Record<string, string | null> = {}
-  for (const a of published) assignmentMap[a.shiftId] = a.residentName
+  for (const a of filteredPublished) assignmentMap[a.shiftId] = a.residentName
 
   const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
 
-  // Dates the current user is already assigned to
+  // Dates the current user is already assigned to (within the filtered view)
   const myAssignedDates = new Set(
-    published
+    filteredPublished
       .filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase())
       .map((a) => a.shiftId.split('|')[0])
   )
 
   function myShifts() {
     if (!myName) return []
-    return published.filter(
+    return filteredPublished.filter(
       (a) => a.residentName?.toLowerCase() === myName.toLowerCase()
     )
   }
@@ -155,7 +172,7 @@ export default function SchedulePage() {
   }
 
   const byDate: Record<string, Shift[]> = {}
-  for (const a of published) {
+  for (const a of filteredPublished) {
     const [date, clinic] = a.shiftId.split('|')
     const shift = shiftById[a.shiftId] ?? { id: a.shiftId, date, clinic: clinic as ClinicName }
     ;(byDate[date] ??= []).push(shift)
@@ -163,7 +180,7 @@ export default function SchedulePage() {
   const sortedDates = Object.keys(byDate).sort()
 
   const counts: Record<string, number> = {}
-  for (const a of published) {
+  for (const a of filteredPublished) {
     if (a.residentName) counts[a.residentName] = (counts[a.residentName] ?? 0) + 1
   }
 
@@ -186,11 +203,66 @@ export default function SchedulePage() {
     )
   }
 
+  if (upcomingPeriods.length > 0 && filteredPublished.length === 0) {
+    return (
+      <div className="max-w-5xl mx-auto px-4 py-10 space-y-8">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 mb-3">Published Schedule</h1>
+          {upcomingPeriods.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {upcomingPeriods.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedPeriodId(p.id)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                    effectivePeriodId === p.id
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <div>{p.name}</div>
+                  <div className={`text-xs font-normal ${effectivePeriodId === p.id ? 'text-blue-100' : 'text-slate-400'}`}>
+                    {formatDate(p.startDate)} – {formatDate(p.endDate)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="max-w-xl text-center mx-auto py-8">
+          <div className="text-5xl mb-4">📋</div>
+          <h2 className="text-xl font-bold text-slate-700 mb-2">No schedule for this period yet</h2>
+          <p className="text-slate-400 text-sm">The admin hasn&apos;t published a schedule for this period. Check back soon.</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-10 space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-800 mb-1">Published Schedule</h1>
+        <h1 className="text-2xl font-bold text-slate-800 mb-3">Published Schedule</h1>
+        {upcomingPeriods.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            {upcomingPeriods.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedPeriodId(p.id)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border text-left ${
+                  effectivePeriodId === p.id
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <div>{p.name}</div>
+                <div className={`text-xs font-normal ${effectivePeriodId === p.id ? 'text-blue-100' : 'text-slate-400'}`}>
+                  {formatDate(p.startDate)} – {formatDate(p.endDate)}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
         <p className="text-xs text-slate-400">
           Published {schedule?.publishedAt ? formatDateTime(schedule.publishedAt) : ''}
         </p>
