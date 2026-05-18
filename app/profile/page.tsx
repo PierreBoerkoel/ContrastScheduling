@@ -99,6 +99,12 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [showGoogleLinks, setShowGoogleLinks] = useState(false)
 
+  const [editingName, setEditingName] = useState(false)
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [nameSaving, setNameSaving] = useState(false)
+  const [nameError, setNameError] = useState('')
+
   const now = new Date()
   const [calYear, setCalYear] = useState(now.getFullYear())
   const [calMonth, setCalMonth] = useState(now.getMonth())
@@ -113,6 +119,27 @@ export default function ProfilePage() {
       setLoading(false)
     })
   }, [])
+
+  async function saveName() {
+    if (!user) return
+    setNameSaving(true)
+    setNameError('')
+    try {
+      await user.update({ firstName: firstName.trim(), lastName: lastName.trim() })
+      setEditingName(false)
+    } catch (e) {
+      setNameError(e instanceof Error ? e.message : 'Failed to update name')
+    } finally {
+      setNameSaving(false)
+    }
+  }
+
+  function startEditName() {
+    setFirstName(user?.firstName ?? '')
+    setLastName(user?.lastName ?? '')
+    setNameError('')
+    setEditingName(true)
+  }
 
   if (!isLoaded || loading) return null
 
@@ -130,8 +157,11 @@ export default function ProfilePage() {
   const upcoming = myShifts.filter((s) => s.date >= today).sort((a, b) => a.date.localeCompare(b.date))
   const completed = myShifts.filter((s) => s.date < today).sort((a, b) => b.date.localeCompare(a.date))
 
-  const myDateToClinic: Record<string, string> = {}
-  for (const s of myShifts) myDateToClinic[s.date] = s.clinic
+  // Support multiple shifts per date (e.g. BCCA CT + BCCA MRI/PET)
+  const myDateToClinics: Record<string, string[]> = {}
+  for (const s of myShifts) {
+    (myDateToClinics[s.date] ??= []).push(s.clinic)
+  }
 
   function prevMonth() {
     if (calMonth === 0) { setCalYear((y) => y - 1); setCalMonth(11) }
@@ -149,9 +179,49 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-10 space-y-8">
+      {/* ── Header / Name ── */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-800 mb-1">My Profile</h1>
-        <p className="text-slate-500 text-sm">{myName}</p>
+        <h1 className="text-2xl font-bold text-slate-800 mb-2">My Profile</h1>
+        {editingName ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              placeholder="First name"
+              className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <input
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              placeholder="Last name"
+              className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <button
+              onClick={saveName}
+              disabled={nameSaving}
+              className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+            >
+              {nameSaving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              onClick={() => setEditingName(false)}
+              className="text-sm text-slate-500 hover:text-slate-700 px-2 py-1.5"
+            >
+              Cancel
+            </button>
+            {nameError && <span className="text-sm text-red-500">{nameError}</span>}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <p className="text-slate-500 text-sm">{myName}</p>
+            <button
+              onClick={startEditName}
+              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-0.5 transition-colors"
+            >
+              Edit name
+            </button>
+          </div>
+        )}
       </div>
 
       {!schedule ? (
@@ -188,15 +258,16 @@ export default function ProfilePage() {
               {Array.from({ length: firstWeekday }).map((_, i) => <div key={i} />)}
               {monthDays.map((d) => {
                 const dateStr = d.toISOString().split('T')[0]
-                const clinic = myDateToClinic[dateStr]
+                const clinics = myDateToClinics[dateStr] ?? []
+                const hasShift = clinics.length > 0
                 const isToday = dateStr === today
                 const isPast = dateStr < today
                 return (
                   <div
                     key={dateStr}
-                    title={clinic}
+                    title={clinics.join(', ')}
                     className={`aspect-square flex flex-col items-center justify-center rounded-lg text-xs select-none
-                      ${clinic
+                      ${hasShift
                         ? isPast
                           ? 'bg-slate-500 text-white'
                           : 'bg-blue-600 text-white'
@@ -206,8 +277,11 @@ export default function ProfilePage() {
                       }`}
                   >
                     <span className="font-medium">{d.getUTCDate()}</span>
-                    {clinic && (
-                      <span className="text-[9px] leading-tight opacity-80">{clinicAbbr(clinic)}</span>
+                    {clinics.length === 1 && (
+                      <span className="text-[9px] leading-tight opacity-80">{clinicAbbr(clinics[0])}</span>
+                    )}
+                    {clinics.length > 1 && (
+                      <span className="text-[9px] leading-tight opacity-80">{clinics.length} shifts</span>
                     )}
                   </div>
                 )
@@ -263,14 +337,36 @@ export default function ProfilePage() {
                     className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 hover:bg-blue-50 hover:border-blue-200 transition-colors group"
                   >
                     <span className="text-sm text-slate-700">{formatDateShort(s.date)}</span>
-                    <span className="text-xs text-blue-600 group-hover:text-blue-700">{s.clinic} →</span>
+                    <span className="text-xs text-blue-600 group-hover:text-blue-700">{clinicAbbr(s.clinic)} →</span>
                   </a>
                 ))}
               </div>
             )}
           </div>
 
-          {/* ── Completed log ── */}
+          {/* ── Upcoming shifts list ── */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-700">Upcoming Shifts</h2>
+              <span className="text-xs text-slate-400">{upcoming.length} total</span>
+            </div>
+            {upcoming.length === 0 ? (
+              <p className="p-5 text-sm text-slate-400">No upcoming shifts.</p>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {upcoming.map((s) => (
+                  <div key={s.id} className="px-5 py-3 flex items-center justify-between">
+                    <span className="text-sm text-slate-700">{formatDateLong(s.date)}</span>
+                    <span className="text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                      {clinicAbbr(s.clinic)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Completed shifts list ── */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-700">Completed Shifts</h2>
@@ -284,7 +380,7 @@ export default function ProfilePage() {
                   <div key={s.id} className="px-5 py-3 flex items-center justify-between">
                     <span className="text-sm text-slate-500">{formatDateLong(s.date)}</span>
                     <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                      {s.clinic}
+                      {clinicAbbr(s.clinic)}
                     </span>
                   </div>
                 ))}
