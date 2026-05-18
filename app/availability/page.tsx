@@ -69,11 +69,11 @@ export default function AvailabilityPage() {
 
   const publishedIds = new Set((schedule?.publishedAssignments ?? []).map((a) => a.shiftId))
 
-  // Default to first upcoming block whose shifts are not all published (not locked)
+  // Default to first upcoming block that is not published
   const firstUnlockedId = upcomingPeriods.find((p) => {
     const blockShifts = shifts.filter((s) => s.periodId === p.id)
     return !blockShifts.some((s) => publishedIds.has(s.id))
-  })?.id ?? upcomingPeriods[0]?.id ?? null
+  })?.id ?? null
 
   const effectivePeriodId = selectedPeriodId ?? firstUnlockedId
   const selectedPeriod = upcomingPeriods.find((p) => p.id === effectivePeriodId) ?? null
@@ -81,9 +81,6 @@ export default function AvailabilityPage() {
   const visibleShifts = selectedPeriod
     ? shifts.filter((s) => s.periodId === selectedPeriod.id)
     : []
-
-  const isLocked = !loading && selectedPeriod != null && visibleShifts.length > 0 &&
-    visibleShifts.some((s) => publishedIds.has(s.id))
 
   // When the selected block changes, load that block's existing submission
   useEffect(() => {
@@ -153,6 +150,12 @@ export default function AvailabilityPage() {
 
   if (!isLoaded) return null
 
+  const allLocked = !loading && upcomingPeriods.length > 0 &&
+    upcomingPeriods.every((p) => {
+      const bShifts = shifts.filter((s) => s.periodId === p.id)
+      return bShifts.length > 0 && bShifts.some((s) => publishedIds.has(s.id))
+    })
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-10">
       <h1 className="text-2xl font-bold text-slate-800 mb-1">Submit Availability</h1>
@@ -170,15 +173,25 @@ export default function AvailabilityPage() {
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm">
           No upcoming scheduling blocks have been set up yet. Check back once the admin has configured them.
         </div>
+      ) : allLocked ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+          <div className="text-3xl mb-2">🔒</div>
+          <h2 className="text-base font-semibold text-amber-800 mb-1">All upcoming blocks are scheduled</h2>
+          <p className="text-sm text-amber-700">
+            No availability submission is needed right now. Check back once the next block is configured.
+          </p>
+        </div>
       ) : (
         <>
-          {/* Block selector — always visible */}
+          {/* Block selector — only unlocked blocks */}
           <div className="flex items-center gap-2 flex-wrap mb-6">
             <span className="text-sm text-slate-500 mr-1">Block:</span>
-            {upcomingPeriods.map((p) => {
-              const bShifts = shifts.filter((s) => s.periodId === p.id)
-              const bLocked = bShifts.length > 0 && bShifts.some((s) => publishedIds.has(s.id))
-              return (
+            {upcomingPeriods
+              .filter((p) => {
+                const bShifts = shifts.filter((s) => s.periodId === p.id)
+                return !bShifts.some((s) => publishedIds.has(s.id))
+              })
+              .map((p) => (
                 <button
                   key={p.id}
                   onClick={() => setSelectedPeriodId(p.id)}
@@ -188,34 +201,16 @@ export default function AvailabilityPage() {
                       : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <div className="flex items-center gap-1.5">
-                    {p.name}
-                    {bLocked && (
-                      <span className={`text-xs ${effectivePeriodId === p.id ? 'text-blue-200' : 'text-slate-400'}`}>
-                        🔒
-                      </span>
-                    )}
-                  </div>
+                  <div>{p.name}</div>
                   <div className={`text-xs font-normal ${effectivePeriodId === p.id ? 'text-blue-100' : 'text-slate-400'}`}>
                     {formatShortDate(p.startDate)} – {formatShortDate(p.endDate)}
                   </div>
                 </button>
-              )
-            })}
+              ))}
           </div>
 
           {/* Per-block content */}
-          {isLocked ? (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
-              <div className="text-3xl mb-2">🔒</div>
-              <h2 className="text-base font-semibold text-amber-800 mb-1">
-                {selectedPeriod?.name} is locked
-              </h2>
-              <p className="text-sm text-amber-700">
-                The schedule for this block has been published. Select another block above to submit availability.
-              </p>
-            </div>
-          ) : submitted ? (
+          {submitted ? (
             <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
               <div className="text-3xl mb-2">✅</div>
               <h2 className="text-base font-semibold text-green-800 mb-1">Availability submitted!</h2>
