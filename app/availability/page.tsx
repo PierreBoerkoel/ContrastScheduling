@@ -69,10 +69,10 @@ export default function AvailabilityPage() {
 
   const publishedIds = new Set((schedule?.publishedAssignments ?? []).map((a) => a.shiftId))
 
-  // Default to first upcoming block that is NOT locked (has unsubmitted availability)
+  // Default to first upcoming block whose shifts are not all published (not locked)
   const firstUnlockedId = upcomingPeriods.find((p) => {
     const blockShifts = shifts.filter((s) => s.periodId === p.id)
-    return blockShifts.length > 0 && !blockShifts.some((s) => publishedIds.has(s.id))
+    return !blockShifts.some((s) => publishedIds.has(s.id))
   })?.id ?? upcomingPeriods[0]?.id ?? null
 
   const effectivePeriodId = selectedPeriodId ?? firstUnlockedId
