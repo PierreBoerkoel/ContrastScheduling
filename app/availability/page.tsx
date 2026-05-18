@@ -69,11 +69,11 @@ export default function AvailabilityPage() {
 
   const publishedIds = new Set((schedule?.publishedAssignments ?? []).map((a) => a.shiftId))
 
-  // Default to first upcoming block that is not published
+  // Default to first upcoming block that is not published; fall back to first block
   const firstUnlockedId = upcomingPeriods.find((p) => {
     const blockShifts = shifts.filter((s) => s.periodId === p.id)
     return !blockShifts.some((s) => publishedIds.has(s.id))
-  })?.id ?? null
+  })?.id ?? upcomingPeriods[0]?.id ?? null
 
   const effectivePeriodId = selectedPeriodId ?? firstUnlockedId
   const selectedPeriod = upcomingPeriods.find((p) => p.id === effectivePeriodId) ?? null
@@ -81,6 +81,9 @@ export default function AvailabilityPage() {
   const visibleShifts = selectedPeriod
     ? shifts.filter((s) => s.periodId === selectedPeriod.id)
     : []
+
+  const selectedBlockPublished = !loading && visibleShifts.length > 0 &&
+    visibleShifts.some((s) => publishedIds.has(s.id))
 
   // When the selected block changes, load that block's existing submission
   useEffect(() => {
@@ -150,18 +153,12 @@ export default function AvailabilityPage() {
 
   if (!isLoaded) return null
 
-  const allLocked = !loading && upcomingPeriods.length > 0 &&
-    upcomingPeriods.every((p) => {
-      const bShifts = shifts.filter((s) => s.periodId === p.id)
-      return bShifts.length > 0 && bShifts.some((s) => publishedIds.has(s.id))
-    })
-
   return (
     <div className="max-w-3xl mx-auto px-4 py-10">
       <h1 className="text-2xl font-bold text-slate-800 mb-1">Submit Availability</h1>
       <p className="text-slate-500 mb-6 text-sm">
         Select a block, then mark the shifts you are available to cover.
-</p>
+      </p>
 
       <div className="flex items-center gap-2 mb-6 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 text-sm text-blue-800">
         Submitting as <strong>{user?.fullName ?? user?.firstName ?? user?.emailAddresses[0]?.emailAddress}</strong>
@@ -173,25 +170,15 @@ export default function AvailabilityPage() {
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm">
           No upcoming scheduling blocks have been set up yet. Check back once the admin has configured them.
         </div>
-      ) : allLocked ? (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
-          <div className="text-3xl mb-2">🔒</div>
-          <h2 className="text-base font-semibold text-amber-800 mb-1">All upcoming blocks are scheduled</h2>
-          <p className="text-sm text-amber-700">
-            No availability submission is needed right now. Check back once the next block is configured.
-          </p>
-        </div>
       ) : (
         <>
-          {/* Block selector — only unlocked blocks */}
+          {/* Block selector — all configured blocks */}
           <div className="flex items-center gap-2 flex-wrap mb-6">
             <span className="text-sm text-slate-500 mr-1">Block:</span>
-            {upcomingPeriods
-              .filter((p) => {
-                const bShifts = shifts.filter((s) => s.periodId === p.id)
-                return !bShifts.some((s) => publishedIds.has(s.id))
-              })
-              .map((p) => (
+            {upcomingPeriods.map((p) => {
+              const bShifts = shifts.filter((s) => s.periodId === p.id)
+              const bPublished = bShifts.length > 0 && bShifts.some((s) => publishedIds.has(s.id))
+              return (
                 <button
                   key={p.id}
                   onClick={() => setSelectedPeriodId(p.id)}
@@ -201,13 +188,28 @@ export default function AvailabilityPage() {
                       : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <div>{p.name}</div>
+                  <div className="flex items-center gap-1.5">
+                    {p.name}
+                    {bPublished && (
+                      <span className={`text-xs font-normal px-1.5 py-0.5 rounded ${effectivePeriodId === p.id ? 'bg-blue-500 text-blue-100' : 'bg-slate-100 text-slate-500'}`}>
+                        Scheduled
+                      </span>
+                    )}
+                  </div>
                   <div className={`text-xs font-normal ${effectivePeriodId === p.id ? 'text-blue-100' : 'text-slate-400'}`}>
                     {formatShortDate(p.startDate)} – {formatShortDate(p.endDate)}
                   </div>
                 </button>
-              ))}
+              )
+            })}
           </div>
+
+          {selectedBlockPublished && (
+            <div className="mb-4 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm text-slate-600">
+              <span>🗓</span>
+              This block has been scheduled. Your past availability submission is shown below.
+            </div>
+          )}
 
           {/* Per-block content */}
           {submitted ? (
@@ -232,7 +234,9 @@ export default function AvailabilityPage() {
                   <thead className="sticky top-0 z-10">
                     <tr className="border-b border-slate-100">
                       <th className="text-left px-4 py-3 font-medium text-slate-600 bg-slate-50 whitespace-nowrap">Date</th>
-                      <th className="text-center px-3 py-3 font-medium text-slate-500 bg-slate-50 whitespace-nowrap"></th>
+                      {!selectedBlockPublished && (
+                        <th className="text-center px-3 py-3 font-medium text-slate-500 bg-slate-50 whitespace-nowrap"></th>
+                      )}
                       {CLINICS.map((clinic) => (
                         <th key={clinic} className="text-center px-3 py-3 font-medium text-slate-600 whitespace-nowrap bg-slate-50">
                           {CLINIC_ABBR[clinic] ?? clinic}
@@ -249,14 +253,16 @@ export default function AvailabilityPage() {
                           <td className="px-4 py-3 text-slate-700 whitespace-nowrap">
                             {formatDate(date)}
                           </td>
-                          <td className="text-center px-3 py-3">
-                            <button
-                              onClick={() => toggleAllOnDay(date)}
-                              className="text-xs font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap"
-                            >
-                              {allSelected ? 'Deselect' : 'Select all'}
-                            </button>
-                          </td>
+                          {!selectedBlockPublished && (
+                            <td className="text-center px-3 py-3">
+                              <button
+                                onClick={() => toggleAllOnDay(date)}
+                                className="text-xs font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                              >
+                                {allSelected ? 'Deselect' : 'Select all'}
+                              </button>
+                            </td>
+                          )}
                           {CLINICS.map((clinic: ClinicName) => {
                             const shift = shiftsOnDay.find((s) => s.clinic === clinic)
                             if (!shift) {
@@ -268,7 +274,8 @@ export default function AvailabilityPage() {
                                   type="checkbox"
                                   checked={selected.has(shift.id)}
                                   onChange={() => toggleShift(shift.id)}
-                                  className="w-4 h-4 accent-blue-600 cursor-pointer"
+                                  disabled={selectedBlockPublished}
+                                  className="w-4 h-4 accent-blue-600 cursor-pointer disabled:cursor-default disabled:opacity-50"
                                 />
                               </td>
                             )
@@ -283,14 +290,16 @@ export default function AvailabilityPage() {
               <div className="mt-6 flex items-center gap-4">
                 <button
                   onClick={handleSubmit}
-                  disabled={submitting || !effectivePeriodId}
-                  className="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                  disabled={submitting || !effectivePeriodId || selectedBlockPublished}
+                  className="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {submitting ? 'Submitting…' : 'Submit Availability'}
                 </button>
-                <span className="text-sm text-slate-400">
-                  {selected.size} shift{selected.size !== 1 ? 's' : ''} selected
-                </span>
+                {!selectedBlockPublished && (
+                  <span className="text-sm text-slate-400">
+                    {selected.size} shift{selected.size !== 1 ? 's' : ''} selected
+                  </span>
+                )}
                 {error && <span className="text-sm text-red-500">{error}</span>}
               </div>
             </>
