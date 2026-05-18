@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
 import type { Shift, AvailabilitySubmission, Schedule, ClinicName, SwapRequest, SchedulingPeriod } from '@/lib/types'
-import { CLINICS } from '@/lib/types'
+import { CLINICS, CLINIC_ABBR } from '@/lib/types'
 
 type Tab = 'shifts' | 'availability' | 'schedule' | 'swaps' | 'users'
 
@@ -385,7 +385,7 @@ export default function AdminPage() {
                         <th className="text-left px-3 py-2 font-medium text-slate-600">Date</th>
                         {CLINICS.map((c) => (
                           <th key={c} className="text-center px-3 py-2 font-medium text-slate-600 whitespace-nowrap">
-                            {c}
+                            {CLINIC_ABBR[c] ?? c}
                           </th>
                         ))}
                       </tr>
@@ -623,7 +623,7 @@ export default function AdminPage() {
                         <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Date</th>
                         {CLINICS.map((clinic) => (
                           <th key={clinic} className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">
-                            {clinic}
+                            {CLINIC_ABBR[clinic] ?? clinic}
                           </th>
                         ))}
                       </tr>

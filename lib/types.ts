@@ -1,9 +1,18 @@
 export const CLINICS = [
-  'BC Cancer Agency',
+  'BC Cancer Agency CT',
+  'BC Cancer Agency MRI/PET',
   'INITIO Medical Imaging',
   'UBC Hospital',
   "BC Women's Hospital",
 ] as const
+
+export const CLINIC_ABBR: Record<string, string> = {
+  'BC Cancer Agency CT': 'BCCA CT',
+  'BC Cancer Agency MRI/PET': 'BCCA MRI/PET',
+  'INITIO Medical Imaging': 'INITIO',
+  'UBC Hospital': 'UBC',
+  "BC Women's Hospital": 'BCWH',
+}
 
 export type ClinicName = (typeof CLINICS)[number]
 

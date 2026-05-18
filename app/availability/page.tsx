@@ -3,14 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
 import type { Shift, ClinicName, Schedule, AvailabilitySubmission, SchedulingPeriod } from '@/lib/types'
-import { CLINICS } from '@/lib/types'
-
-const CLINIC_ABBR: Record<string, string> = {
-  'BC Cancer Agency': 'BCCA',
-  'INITIO Medical Imaging': 'INITIO',
-  'UBC Hospital': 'UBC',
-  "BC Women's Hospital": 'BCWH',
-}
+import { CLINICS, CLINIC_ABBR } from '@/lib/types'
 
 function formatDate(dateStr: string) {
   return new Intl.DateTimeFormat('en-CA', {

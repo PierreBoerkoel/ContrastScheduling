@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
 import type { Shift, Schedule } from '@/lib/types'
+import { CLINIC_ABBR } from '@/lib/types'
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -33,13 +34,6 @@ function daysInMonth(year: number, month: number): Date[] {
     d.setUTCDate(d.getUTCDate() + 1)
   }
   return days
-}
-
-const CLINIC_ABBR: Record<string, string> = {
-  'BC Cancer Agency': 'BCCA',
-  'INITIO Medical Imaging': 'INITIO',
-  'UBC Hospital': 'UBC',
-  "BC Women's Hospital": 'BCWH',
 }
 
 function clinicAbbr(clinic: string) {

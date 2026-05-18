@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
 import type { Shift, Schedule, SwapRequest, ClinicName, SchedulingPeriod } from '@/lib/types'
-import { CLINICS } from '@/lib/types'
+import { CLINICS, CLINIC_ABBR } from '@/lib/types'
 
 function formatDate(dateStr: string) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -294,7 +294,7 @@ export default function SchedulePage() {
               <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Date</th>
               {CLINICS.map((clinic) => (
                 <th key={clinic} className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">
-                  {clinic}
+                  {CLINIC_ABBR[clinic] ?? clinic}
                 </th>
               ))}
             </tr>
