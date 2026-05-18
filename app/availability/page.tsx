@@ -161,6 +161,7 @@ export default function AvailabilityPage() {
       <h1 className="text-2xl font-bold text-slate-800 mb-1">Submit Availability</h1>
       <p className="text-slate-500 mb-6 text-sm">
         Select a block, then mark the shifts you are available to cover.
+        <span className="ml-2 text-slate-300 text-xs">v5</span>
       </p>
 
       <div className="flex items-center gap-2 mb-6 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 text-sm text-blue-800">
