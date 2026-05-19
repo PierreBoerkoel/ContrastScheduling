@@ -64,9 +64,16 @@ export const SERIES_DIGITS: Record<BillingEntity, number> = {
   BCWHMR: 3,
 }
 
+const ENTITY_LABEL: Record<BillingEntity, string> = {
+  MRCT: 'BCCA_MRCT',
+  PET: 'BCCA_PET',
+  UBCMR: 'UBC_MRI',
+  BCWHMR: 'BCWH_MRI',
+}
+
 export function formatInvoiceNumber(initials: string, entity: BillingEntity, n: number): string {
   const digits = SERIES_DIGITS[entity]
-  return `${initials}${entity}${String(n).padStart(digits, '0')}`
+  return `${initials}_${ENTITY_LABEL[entity]}${String(n).padStart(digits, '0')}`
 }
 
 export function deriveInitials(fullName: string): string {

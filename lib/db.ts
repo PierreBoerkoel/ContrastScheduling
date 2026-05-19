@@ -461,16 +461,22 @@ export async function getInvoiceHistory(userId: string): Promise<InvoiceHistoryR
 
 // ── Invoice sequences ─────────────────────────────────────────────────────────
 
-export async function claimInvoiceNumber(residentName: string, series: string): Promise<number> {
+export async function peekInvoiceNumber(residentName: string, series: string): Promise<number> {
   await ensureDb()
   const { rows } = await sql`
-    INSERT INTO invoice_sequences (resident_name, series, next_number)
-    VALUES (${residentName}, ${series}, 2)
-    ON CONFLICT (resident_name, series) DO UPDATE
-      SET next_number = invoice_sequences.next_number + 1
-    RETURNING next_number - 1 AS claimed
+    SELECT next_number FROM invoice_sequences
+    WHERE resident_name = ${residentName} AND series = ${series}
   `
-  return rows[0].claimed as number
+  return rows.length > 0 ? (rows[0].next_number as number) : 1
+}
+
+export async function setInvoiceSequence(residentName: string, series: string, nextNumber: number): Promise<void> {
+  await ensureDb()
+  await sql`
+    INSERT INTO invoice_sequences (resident_name, series, next_number)
+    VALUES (${residentName}, ${series}, ${nextNumber})
+    ON CONFLICT (resident_name, series) DO UPDATE SET next_number = ${nextNumber}
+  `
 }
 
 // ── Swap requests ─────────────────────────────────────────────────────────────

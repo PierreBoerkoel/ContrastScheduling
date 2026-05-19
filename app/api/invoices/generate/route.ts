@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { claimInvoiceNumber, addInvoiceHistory } from '@/lib/db'
-import { calculateLineItems, deriveInitials, formatInvoiceNumber } from '@/lib/invoices'
+import { setInvoiceSequence, addInvoiceHistory } from '@/lib/db'
+import { calculateLineItems } from '@/lib/invoices'
 import { buildInvoiceDocx } from '@/lib/docx-invoice'
 import type { BillingEntity, CompletedShiftForInvoice, MriPetMode, BillingLineItem } from '@/lib/invoices'
 
 interface GenerateRequest {
   entity: BillingEntity
+  invoiceNumber: string                   // formatted string, possibly edited by resident
   shifts: CompletedShiftForInvoice[]
   modes: Record<string, MriPetMode>       // shiftId → mode, for MRI/PET shifts
   parkingAmounts: Record<string, number>  // shiftId → parking amount
@@ -24,9 +25,9 @@ export async function POST(request: Request) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = (await request.json()) as GenerateRequest
-  const { entity, shifts, modes, parkingAmounts, invoiceDate, from } = body
+  const { entity, invoiceNumber, shifts, modes, parkingAmounts, invoiceDate, from } = body
 
-  if (!entity || !shifts?.length || !from?.name) {
+  if (!entity || !invoiceNumber || !shifts?.length || !from?.name) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
@@ -54,9 +55,11 @@ export async function POST(request: Request) {
   const user = await currentUser()
   const residentName = user?.fullName ?? from.name
 
-  const n = await claimInvoiceNumber(residentName, entity)
-  const initials = deriveInitials(from.name)
-  const invoiceNumber = formatInvoiceNumber(initials, entity, n)
+  // Advance the sequence to one past whatever number the resident used
+  const trailingDigits = /(\d+)$/.exec(invoiceNumber)
+  if (trailingDigits) {
+    await setInvoiceSequence(residentName, entity, parseInt(trailingDigits[1]) + 1)
+  }
 
   const buffer = await buildInvoiceDocx({
     entity,

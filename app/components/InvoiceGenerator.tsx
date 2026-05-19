@@ -55,6 +55,9 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
   const [error, setError] = useState('')
   const [filterMonth, setFilterMonth] = useState<string>(currentYearMonth()) // 'YYYY-MM' or 'all'
   const [history, setHistory] = useState<InvoiceHistoryRecord[]>([])
+  const [invoicePrefix, setInvoicePrefix] = useState('')
+  const [invoiceSeq, setInvoiceSeq] = useState('')
+  const [sequenceLoading, setSequenceLoading] = useState(false)
 
   useEffect(() => {
     fetch('/api/invoices/history')
@@ -62,6 +65,22 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
       .then((data) => { if (Array.isArray(data)) setHistory(data) })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    setSequenceLoading(true)
+    fetch(`/api/invoices/sequence?entity=${activeEntity}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.formatted) {
+          const match = /(\d+)$/.exec(data.formatted)
+          const digits = match?.[0] ?? ''
+          setInvoicePrefix(data.formatted.slice(0, data.formatted.length - digits.length))
+          setInvoiceSeq(digits)
+        }
+      })
+      .catch(() => {})
+      .finally(() => setSequenceLoading(false))
+  }, [activeEntity])
 
   // Map from shiftId → list of invoices it appeared in
   const invoicedShifts = new Map<string, InvoiceHistoryRecord[]>()
@@ -109,12 +128,14 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
 
     setError('')
     setGenerating(true)
+    const invoiceNumber = invoicePrefix + invoiceSeq
     try {
       const res = await fetch('/api/invoices/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           entity: activeEntity,
+          invoiceNumber,
           shifts,
           modes,
           parkingAmounts: activeEntity === 'UBCMR'
@@ -143,11 +164,22 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
       a.download = filename
       a.click()
       URL.revokeObjectURL(url)
-      // Clear selection and refresh history
+      // Clear selection, refresh history and sequence
       setSelected(new Set())
       fetch('/api/invoices/history')
         .then((r) => r.json())
         .then((data) => { if (Array.isArray(data)) setHistory(data) })
+        .catch(() => {})
+      fetch(`/api/invoices/sequence?entity=${activeEntity}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.formatted) {
+            const match = /(\d+)$/.exec(data.formatted)
+            const digits = match?.[0] ?? ''
+            setInvoicePrefix(data.formatted.slice(0, data.formatted.length - digits.length))
+            setInvoiceSeq(digits)
+          }
+        })
         .catch(() => {})
     } catch {
       setError('Network error. Please try again.')
@@ -275,6 +307,23 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
           })}
         </div>
       )}
+
+      {/* Invoice number */}
+      <div className="flex items-center gap-3">
+        <label className="text-sm text-slate-600 whitespace-nowrap">Invoice number:</label>
+        <div className={`flex items-center border border-slate-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-400 font-mono text-sm ${sequenceLoading ? 'opacity-50' : ''}`}>
+          <span className="px-3 py-1.5 text-slate-400 bg-slate-50 border-r border-slate-200 select-none whitespace-nowrap">
+            {sequenceLoading ? '…' : invoicePrefix}
+          </span>
+          <input
+            type="text"
+            value={sequenceLoading ? '' : invoiceSeq}
+            onChange={(e) => setInvoiceSeq(e.target.value)}
+            disabled={sequenceLoading}
+            className="px-2 py-1.5 w-16 focus:outline-none disabled:opacity-50 bg-white"
+          />
+        </div>
+      </div>
 
       {/* Invoice date */}
       <div className="flex items-center gap-3">
