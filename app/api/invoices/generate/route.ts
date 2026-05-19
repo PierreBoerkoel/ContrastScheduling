@@ -3,13 +3,13 @@ import { auth, currentUser } from '@clerk/nextjs/server'
 import { claimInvoiceNumber, addInvoiceHistory } from '@/lib/db'
 import { calculateLineItems, deriveInitials, formatInvoiceNumber } from '@/lib/invoices'
 import { buildInvoiceDocx } from '@/lib/docx-invoice'
-import type { BillingEntity, CompletedShiftForInvoice, MriPetMode } from '@/lib/invoices'
+import type { BillingEntity, CompletedShiftForInvoice, MriPetMode, BillingLineItem } from '@/lib/invoices'
 
 interface GenerateRequest {
   entity: BillingEntity
   shifts: CompletedShiftForInvoice[]
-  modes: Record<string, MriPetMode>  // shiftId → mode, for MRI/PET shifts
-  parkingAmount?: number
+  modes: Record<string, MriPetMode>       // shiftId → mode, for MRI/PET shifts
+  parkingAmounts: Record<string, number>  // shiftId → parking amount
   invoiceDate: string
   from: {
     name: string
@@ -24,19 +24,30 @@ export async function POST(request: Request) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = (await request.json()) as GenerateRequest
-  const { entity, shifts, modes, parkingAmount, invoiceDate, from } = body
+  const { entity, shifts, modes, parkingAmounts, invoiceDate, from } = body
 
   if (!entity || !shifts?.length || !from?.name) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
-  const allLineItems = shifts.flatMap((shift) => {
-    const mode = modes[shift.shiftId] ?? null
-    const byEntity = calculateLineItems(shift, mode)
-    return byEntity[entity]
+  const allLineItems: BillingLineItem[] = shifts.flatMap((shift) => {
+    const items = [...calculateLineItems(shift, modes[shift.shiftId] ?? null)[entity]]
+    const parking = parkingAmounts?.[shift.shiftId] ?? 0
+    if (parking > 0) {
+      items.push({
+        date: shift.date,
+        startTime: '',
+        endTime: '',
+        description: 'Parking / transportation',
+        hours: 0,
+        ratePerHour: 0,
+        amount: parking,
+      })
+    }
+    return items
   })
 
-  if (allLineItems.length === 0 && !parkingAmount) {
+  if (allLineItems.length === 0) {
     return NextResponse.json({ error: 'No billable items for this entity' }, { status: 400 })
   }
 
@@ -53,7 +64,6 @@ export async function POST(request: Request) {
     invoiceDate,
     from,
     lineItems: allLineItems,
-    parkingAmount: parkingAmount ?? 0,
   })
 
   await addInvoiceHistory({

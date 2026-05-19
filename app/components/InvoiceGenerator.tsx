@@ -12,12 +12,11 @@ const ENTITY_LABELS: Record<BillingEntity, string> = {
   BCWHMR: 'BCWH',
 }
 
-const MRI_PET_MODE_LABELS: Record<MriPetMode, string> = {
-  'normal': 'Normal (MRI + PET, no CT shift)',
-  'two-residents': 'CT shift scheduled, separate CT resident',
-  'ct-also': 'CT shift — you are the sole BCCA resident',
-  'mri-down': 'MRI scanner down (PET standalone)',
-  'pet-down': 'PET scanner down (MRI standalone)',
+const MRI_PET_MODE_LABELS: Partial<Record<MriPetMode, string>> = {
+  'normal': 'MRI + PET',
+  'ct-also': 'MRI + PET + CT',
+  'mri-down': 'MRI scanner down',
+  'pet-down': 'PET scanner down',
 }
 
 interface Props {
@@ -50,7 +49,7 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
   const [activeEntity, setActiveEntity] = useState<BillingEntity>('MRCT')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [modes, setModes] = useState<Record<string, MriPetMode>>({})
-  const [parkingAmount, setParkingAmount] = useState('')
+  const [parkingAmounts, setParkingAmounts] = useState<Record<string, string>>({})
   const [invoiceDate, setInvoiceDate] = useState(today)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
@@ -92,6 +91,10 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
     setModes((prev) => ({ ...prev, [shiftId]: mode }))
   }
 
+  function setParking(shiftId: string, value: string) {
+    setParkingAmounts((prev) => ({ ...prev, [shiftId]: value }))
+  }
+
   async function generate() {
     if (!from.name || !from.address || !from.phone || !from.email) {
       onMissingProfile()
@@ -114,7 +117,11 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
           entity: activeEntity,
           shifts,
           modes,
-          parkingAmount: activeEntity === 'UBCMR' && parkingAmount ? parseFloat(parkingAmount) : 0,
+          parkingAmounts: activeEntity === 'UBCMR'
+            ? Object.fromEntries(
+                Object.entries(parkingAmounts).map(([k, v]) => [k, parseFloat(v) || 0])
+              )
+            : {},
           invoiceDate,
           from,
         }),
@@ -248,25 +255,24 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
                     </select>
                   </div>
                 )}
+
+                {activeEntity === 'UBCMR' && isSelected && (
+                  <div className="mt-2 ml-7 flex items-center gap-2">
+                    <label className="text-xs text-slate-500 whitespace-nowrap">Parking / transportation ($):</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={parkingAmounts[shift.shiftId] ?? ''}
+                      onChange={(e) => setParking(shift.shiftId, e.target.value)}
+                      placeholder="0.00"
+                      className="border border-slate-300 rounded-lg px-2 py-1 text-xs w-24 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    />
+                  </div>
+                )}
               </div>
             )
           })}
-        </div>
-      )}
-
-      {/* UBC parking input */}
-      {activeEntity === 'UBCMR' && selectedCount > 0 && (
-        <div className="flex items-center gap-3">
-          <label className="text-sm text-slate-600 whitespace-nowrap">Parking / transportation ($):</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={parkingAmount}
-            onChange={(e) => setParkingAmount(e.target.value)}
-            placeholder="0.00"
-            className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm w-28 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
         </div>
       )}
 

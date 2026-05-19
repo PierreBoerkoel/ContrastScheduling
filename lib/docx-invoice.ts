@@ -25,7 +25,6 @@ export interface InvoiceDocOptions {
     email: string
   }
   lineItems: BillingLineItem[]
-  parkingAmount?: number   // UBC only
 }
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
@@ -107,27 +106,15 @@ function headerRow(): TableRow {
 }
 
 function lineItemRow(lineItem: BillingLineItem): TableRow {
+  const hasTime = !!(lineItem.startTime && lineItem.endTime)
   return new TableRow({
     children: [
       dataCell(formatDate(lineItem.date), 0),
-      dataCell(formatTimeRange(lineItem.startTime, lineItem.endTime), 1),
+      dataCell(hasTime ? formatTimeRange(lineItem.startTime, lineItem.endTime) : '', 1),
       dataCell(lineItem.description, 2),
-      dataCell(lineItem.hours.toFixed(2), 3),
-      dataCell(formatCurrency(lineItem.ratePerHour) + '/hr', 4),
+      dataCell(hasTime ? lineItem.hours.toFixed(2) : '', 3),
+      dataCell(hasTime ? formatCurrency(lineItem.ratePerHour) + '/hr' : '', 4),
       dataCell(formatCurrency(lineItem.amount), 5),
-    ],
-  })
-}
-
-function parkingRow(amount: number): TableRow {
-  return new TableRow({
-    children: [
-      dataCell('', 0),
-      dataCell('', 1),
-      dataCell('Parking / transportation', 2),
-      dataCell('', 3),
-      dataCell('', 4),
-      dataCell(formatCurrency(amount), 5),
     ],
   })
 }
@@ -148,9 +135,7 @@ function emptyPara(after = 200): Paragraph {
 
 export async function buildInvoiceDocx(opts: InvoiceDocOptions): Promise<Buffer> {
   const contact: BillingContact = BILLING_CONTACTS[opts.entity]
-  const subtotal = opts.lineItems.reduce((s, l) => s + l.amount, 0)
-  const parking = opts.parkingAmount ?? 0
-  const total = subtotal + parking
+  const total = opts.lineItems.reduce((s, l) => s + l.amount, 0)
 
   const toLines = [
     contact.name && contact.name.trim() ? contact.name : null,
@@ -163,8 +148,6 @@ export async function buildInvoiceDocx(opts: InvoiceDocOptions): Promise<Buffer>
     headerRow(),
     ...opts.lineItems.map(lineItemRow),
   ]
-
-  if (parking > 0) serviceRows.push(parkingRow(parking))
 
   const doc = new Document({
     sections: [
