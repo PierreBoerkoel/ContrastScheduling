@@ -40,3 +40,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+
+# clerk configuration (can include secrets)
+/.clerk/
+
+# Sample invoice files (private billing data — never commit)
+/*.docx
+/*.xlsx

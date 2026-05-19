@@ -1,0 +1,76 @@
+import { NextResponse } from 'next/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
+import { claimInvoiceNumber, addInvoiceHistory } from '@/lib/db'
+import { calculateLineItems, deriveInitials, formatInvoiceNumber } from '@/lib/invoices'
+import { buildInvoiceDocx } from '@/lib/docx-invoice'
+import type { BillingEntity, CompletedShiftForInvoice, MriPetMode } from '@/lib/invoices'
+
+interface GenerateRequest {
+  entity: BillingEntity
+  shifts: CompletedShiftForInvoice[]
+  modes: Record<string, MriPetMode>  // shiftId → mode, for MRI/PET shifts
+  parkingAmount?: number
+  invoiceDate: string
+  from: {
+    name: string
+    address: string
+    phone: string
+    email: string
+  }
+}
+
+export async function POST(request: Request) {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = (await request.json()) as GenerateRequest
+  const { entity, shifts, modes, parkingAmount, invoiceDate, from } = body
+
+  if (!entity || !shifts?.length || !from?.name) {
+    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+  }
+
+  const allLineItems = shifts.flatMap((shift) => {
+    const mode = modes[shift.shiftId] ?? null
+    const byEntity = calculateLineItems(shift, mode)
+    return byEntity[entity]
+  })
+
+  if (allLineItems.length === 0 && !parkingAmount) {
+    return NextResponse.json({ error: 'No billable items for this entity' }, { status: 400 })
+  }
+
+  const user = await currentUser()
+  const residentName = user?.fullName ?? from.name
+
+  const n = await claimInvoiceNumber(residentName, entity)
+  const initials = deriveInitials(from.name)
+  const invoiceNumber = formatInvoiceNumber(initials, entity, n)
+
+  const buffer = await buildInvoiceDocx({
+    entity,
+    invoiceNumber,
+    invoiceDate,
+    from,
+    lineItems: allLineItems,
+    parkingAmount: parkingAmount ?? 0,
+  })
+
+  await addInvoiceHistory({
+    userId,
+    residentName,
+    invoiceNumber,
+    entity,
+    invoiceDate,
+    shiftIds: shifts.map((s) => s.shiftId),
+  })
+
+  const filename = `${invoiceNumber}.docx`
+
+  return new Response(new Uint8Array(buffer), {
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    },
+  })
+}

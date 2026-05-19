@@ -10,8 +10,10 @@ export function generateSchedule(
 
   // Track total assignments per resident for equalization
   const totalAssignments: Record<string, number> = {}
+  const maxShiftsMap: Record<string, number> = {}
   for (const sub of submissions) {
     totalAssignments[sub.residentName] = 0
+    if (sub.maxShifts && sub.maxShifts > 0) maxShiftsMap[sub.residentName] = sub.maxShifts
   }
 
   // Track who was already assigned on each date (one clinic per resident per day)
@@ -28,7 +30,8 @@ export function generateSchedule(
       .filter(
         (sub) =>
           sub.availableShiftIds.includes(shift.id) &&
-          !assignedOnDate[shift.date].has(sub.residentName)
+          !assignedOnDate[shift.date].has(sub.residentName) &&
+          totalAssignments[sub.residentName] < (maxShiftsMap[sub.residentName] ?? Infinity)
       )
       .map((sub) => sub.residentName)
 

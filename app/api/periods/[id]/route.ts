@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { deleteSchedulingPeriod, setShifts } from '@/lib/db'
+import { deleteSchedulingPeriod, setShifts, getShifts, getSchedule, setSchedule } from '@/lib/db'
 
 export async function DELETE(
   _request: Request,
@@ -15,7 +15,23 @@ export async function DELETE(
   }
 
   const { id } = await params
-  await setShifts([], id)          // delete shifts belonging to this period
+
+  // Collect this period's shift IDs before deleting, so we can scrub the schedule
+  const allShifts = await getShifts()
+  const periodShiftIds = new Set(allShifts.filter((s) => s.periodId === id).map((s) => s.id))
+
+  if (periodShiftIds.size > 0) {
+    const schedule = await getSchedule()
+    if (schedule) {
+      await setSchedule({
+        ...schedule,
+        assignments: schedule.assignments.filter((a) => !periodShiftIds.has(a.shiftId)),
+        publishedAssignments: schedule.publishedAssignments.filter((a) => !periodShiftIds.has(a.shiftId)),
+      })
+    }
+  }
+
+  await setShifts([], id)
   await deleteSchedulingPeriod(id)
   return NextResponse.json({ ok: true })
 }

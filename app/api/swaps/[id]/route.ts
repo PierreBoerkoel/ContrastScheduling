@@ -10,36 +10,31 @@ export async function PATCH(
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
-  const { action, acceptorShiftId } = (await request.json()) as {
+  const { action, swap } = (await request.json()) as {
     action: 'accept' | 'cancel'
-    acceptorShiftId?: string
+    swap?: boolean
   }
 
   const swapReqs = await getSwapRequests()
   const swapReq = swapReqs.find((r) => r.id === id)
   if (!swapReq) {
-    return NextResponse.json({ error: 'Swap request not found' }, { status: 404 })
+    return NextResponse.json({ error: 'Offer not found' }, { status: 404 })
   }
   if (swapReq.status !== 'pending') {
-    return NextResponse.json({ error: 'Swap request is no longer pending' }, { status: 409 })
+    return NextResponse.json({ error: 'This offer is no longer pending' }, { status: 409 })
   }
 
   if (action === 'cancel') {
-    // Only the requestor or an admin can cancel
     const requestorUserId = (swapReq as { requestorUserId?: string }).requestorUserId
     const cancelUser = await currentUser()
     const isAdmin = (cancelUser?.publicMetadata as { role?: string })?.role === 'admin'
     if (!isAdmin && requestorUserId && requestorUserId !== userId) {
-      return NextResponse.json({ error: 'You can only cancel your own requests' }, { status: 403 })
+      return NextResponse.json({ error: 'You can only withdraw your own offers' }, { status: 403 })
     }
     return NextResponse.json(await updateSwapRequest(id, { status: 'cancelled' }))
   }
 
   if (action === 'accept') {
-    if (!acceptorShiftId) {
-      return NextResponse.json({ error: 'Acceptor shift is required' }, { status: 400 })
-    }
-
     const user = await currentUser()
     const acceptorName =
       user?.fullName ??
@@ -53,68 +48,48 @@ export async function PATCH(
 
     const published = schedule.publishedAssignments
 
-    const acceptorAssignment = published.find((a) => a.shiftId === acceptorShiftId)
-    if (acceptorAssignment?.residentName?.toLowerCase() !== acceptorName.toLowerCase()) {
-      return NextResponse.json({ error: 'You are not assigned to that shift' }, { status: 400 })
-    }
-
     const requestorAssignment = published.find((a) => a.shiftId === swapReq.requestorShiftId)
     if (requestorAssignment?.residentName?.toLowerCase() !== swapReq.requestorName.toLowerCase()) {
       return NextResponse.json(
-        { error: 'The requestor is no longer assigned to that shift' },
+        { error: 'The offering resident is no longer assigned to that shift' },
         { status: 409 }
       )
     }
 
-    // Same-day conflict checks: after the swap each person must still have at most one shift per day
-    const requestorDate = swapReq.requestorShiftId.split('|')[0]
-    const acceptorDate = acceptorShiftId.split('|')[0]
-
-    // Acceptor would gain requestorDate — check they don't already have another shift that day
+    // Check the taker doesn't already have a shift on the same day
+    const offerDate = swapReq.requestorShiftId.split('|')[0]
     const acceptorDayConflict = published.some(
       (a) =>
         a.residentName?.toLowerCase() === acceptorName.toLowerCase() &&
-        a.shiftId.startsWith(requestorDate + '|') &&
-        a.shiftId !== acceptorShiftId // the shift they're giving up doesn't count
+        a.shiftId.startsWith(offerDate + '|')
     )
-    if (acceptorDayConflict) {
+    if (acceptorDayConflict && !swap) {
       return NextResponse.json(
-        { error: 'You are already scheduled on the same day as the shift you would receive' },
+        { error: 'You are already scheduled on the same day as this shift' },
         { status: 409 }
       )
     }
 
-    // Requestor would gain acceptorDate — check they don't already have another shift that day
-    const requestorDayConflict = published.some(
-      (a) =>
-        a.residentName?.toLowerCase() === swapReq.requestorName.toLowerCase() &&
-        a.shiftId.startsWith(acceptorDate + '|') &&
-        a.shiftId !== swapReq.requestorShiftId // the shift they're giving up doesn't count
-    )
-    if (requestorDayConflict) {
-      return NextResponse.json(
-        { error: 'The requestor is already scheduled on the same day as the shift they would receive' },
-        { status: 409 }
-      )
-    }
-
-    const swap = (a: typeof published[number]) => {
+    // Transfer shift: requestor loses it, acceptor gains it.
+    // If swap=true, also vacate the acceptor's existing shift on that day.
+    const transfer = (a: typeof published[number]) => {
       if (a.shiftId === swapReq.requestorShiftId) return { ...a, residentName: acceptorName }
-      if (a.shiftId === acceptorShiftId) return { ...a, residentName: swapReq.requestorName }
+      if (swap && a.residentName?.toLowerCase() === acceptorName.toLowerCase() && a.shiftId.startsWith(offerDate + '|')) {
+        return { ...a, residentName: null }
+      }
       return a
     }
 
     await setSchedule({
       ...schedule,
-      assignments: schedule.assignments.map(swap),
-      publishedAssignments: published.map(swap),
+      assignments: schedule.assignments.map(transfer),
+      publishedAssignments: published.map(transfer),
     })
 
     return NextResponse.json(
       await updateSwapRequest(id, {
         status: 'accepted',
         acceptorName,
-        acceptorShiftId,
         acceptedAt: new Date().toISOString(),
       })
     )

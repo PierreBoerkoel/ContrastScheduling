@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, Schedule } from '@/lib/types'
-import { CLINIC_ABBR } from '@/lib/types'
+import type { Shift, Schedule, ShiftAssignment, ShiftSplit } from '@/lib/types'
+import { CLINIC_ABBR, formatTimeRange, computeCoverageSegments } from '@/lib/types'
+import { clinicEntities } from '@/lib/invoices'
+import type { CompletedShiftForInvoice } from '@/lib/invoices'
+import InvoiceGenerator from '@/app/components/InvoiceGenerator'
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -40,18 +43,52 @@ function clinicAbbr(clinic: string) {
   return CLINIC_ABBR[clinic] ?? clinic
 }
 
+function isShiftEnded(shift: { date: string; endTime?: string }): boolean {
+  if (shift.endTime) {
+    return new Date() >= new Date(`${shift.date}T${shift.endTime}:00`)
+  }
+  return new Date().toISOString().split('T')[0] > shift.date
+}
+
 function nextDayStr(dateStr: string) {
   const d = new Date(dateStr + 'T00:00:00Z')
   d.setUTCDate(d.getUTCDate() + 1)
   return d.toISOString().split('T')[0].replace(/-/g, '')
 }
 
+function formatCompactTime(startTime?: string, endTime?: string): string {
+  if (!startTime || !endTime) return ''
+  const fmt = (t: string) => {
+    const [h, m] = t.split(':').map(Number)
+    const hour = h % 12 || 12
+    return m === 0 ? `${hour}` : `${hour}:${m.toString().padStart(2, '0')}`
+  }
+  const startH = parseInt(startTime.split(':')[0])
+  const endH = parseInt(endTime.split(':')[0])
+  const sameHalf = (startH < 12) === (endH < 12)
+  const ampm = endH < 12 ? 'a' : 'p'
+  return sameHalf
+    ? `${fmt(startTime)}–${fmt(endTime)}${ampm}`
+    : `${fmt(startTime)}a–${fmt(endTime)}p`
+}
+
 function googleCalendarUrl(shift: Shift) {
-  const start = shift.date.replace(/-/g, '')
+  const dateBase = shift.date.replace(/-/g, '')
+  if (shift.startTime && shift.endTime) {
+    const startTs = `${dateBase}T${shift.startTime.replace(':', '')}00`
+    const endTs = `${dateBase}T${shift.endTime.replace(':', '')}00`
+    const params = new URLSearchParams({
+      action: 'TEMPLATE',
+      text: `Contrast Call – ${shift.clinic}`,
+      dates: `${startTs}/${endTs}`,
+      details: `Contrast coverage call shift at ${shift.clinic}\n${formatTimeRange(shift.startTime, shift.endTime)}`,
+    })
+    return `https://calendar.google.com/calendar/render?${params}`
+  }
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     text: `Contrast Call – ${shift.clinic}`,
-    dates: `${start}/${nextDayStr(shift.date)}`,
+    dates: `${dateBase}/${nextDayStr(shift.date)}`,
     details: 'Contrast coverage call shift',
   })
   return `https://calendar.google.com/calendar/render?${params}`
@@ -66,13 +103,19 @@ function generateICS(shifts: Shift[]): string {
     'METHOD:PUBLISH',
   ]
   for (const s of shifts) {
+    const dateBase = s.date.replace(/-/g, '')
+    const timed = s.startTime && s.endTime
     lines.push(
       'BEGIN:VEVENT',
       `UID:${s.id}@contrast-scheduling`,
-      `DTSTART;VALUE=DATE:${s.date.replace(/-/g, '')}`,
-      `DTEND;VALUE=DATE:${nextDayStr(s.date)}`,
+      timed
+        ? `DTSTART:${dateBase}T${s.startTime!.replace(':', '')}00`
+        : `DTSTART;VALUE=DATE:${dateBase}`,
+      timed
+        ? `DTEND:${dateBase}T${s.endTime!.replace(':', '')}00`
+        : `DTEND;VALUE=DATE:${nextDayStr(s.date)}`,
       `SUMMARY:Contrast Call – ${s.clinic}`,
-      `DESCRIPTION:Contrast coverage call shift at ${s.clinic}`,
+      `DESCRIPTION:Contrast coverage call shift at ${s.clinic}${timed ? `\\n${formatTimeRange(s.startTime, s.endTime)}` : ''}`,
       'END:VEVENT'
     )
   }
@@ -96,6 +139,8 @@ export default function ProfilePage() {
 
   const [shifts, setShifts] = useState<Shift[]>([])
   const [schedule, setSchedule] = useState<Schedule | null>(null)
+  const [history, setHistory] = useState<ShiftAssignment[]>([])
+  const [allSplits, setAllSplits] = useState<ShiftSplit[]>([])
   const [loading, setLoading] = useState(true)
   const [showGoogleLinks, setShowGoogleLinks] = useState(false)
 
@@ -105,6 +150,22 @@ export default function ProfilePage() {
   const [nameSaving, setNameSaving] = useState(false)
   const [nameError, setNameError] = useState('')
 
+  const [editingContact, setEditingContact] = useState(false)
+  const [contactAddress, setContactAddress] = useState('')
+  const [contactPhone, setContactPhone] = useState('')
+  const [contactEmail, setContactEmail] = useState('')
+  const [contactSaving, setContactSaving] = useState(false)
+  const [contactError, setContactError] = useState('')
+
+  const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false)
+
+  // Re-render every 60 s so isShiftEnded() stays current without a page refresh
+  const [, forceUpdate] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => forceUpdate((n) => n + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
   const now = new Date()
   const [calYear, setCalYear] = useState(now.getFullYear())
   const [calMonth, setCalMonth] = useState(now.getMonth())
@@ -113,9 +174,13 @@ export default function ProfilePage() {
     Promise.all([
       fetch('/api/shifts').then((r) => r.json()),
       fetch('/api/schedule').then((r) => r.json()),
-    ]).then(([shiftList, sched]) => {
+      fetch('/api/history').then((r) => r.json()),
+      fetch('/api/splits').then((r) => r.json()),
+    ]).then(([shiftList, sched, hist, splitList]) => {
       setShifts(Array.isArray(shiftList) ? shiftList : [])
       setSchedule(sched?.publishedAssignments?.length ? sched : null)
+      setHistory(Array.isArray(hist) ? hist : [])
+      setAllSplits(Array.isArray(splitList) ? splitList : [])
       setLoading(false)
     })
   }, [])
@@ -141,26 +206,139 @@ export default function ProfilePage() {
     setEditingName(true)
   }
 
+  async function saveContact() {
+    if (!user) return
+    setContactSaving(true)
+    setContactError('')
+    try {
+      await user.update({
+        unsafeMetadata: {
+          ...(user.unsafeMetadata ?? {}),
+          address: contactAddress.trim(),
+          phone: contactPhone.trim(),
+          email: contactEmail.trim(),
+        },
+      })
+      setEditingContact(false)
+    } catch (e) {
+      setContactError(e instanceof Error ? e.message : 'Failed to update contact info')
+    } finally {
+      setContactSaving(false)
+    }
+  }
+
+  function startEditContact() {
+    const meta = user?.unsafeMetadata as { address?: string; phone?: string; email?: string } | undefined
+    setContactAddress(meta?.address ?? '')
+    setContactPhone(meta?.phone ?? '')
+    setContactEmail(meta?.email ?? user?.primaryEmailAddress?.emailAddress ?? '')
+    setContactError('')
+    setEditingContact(true)
+  }
+
   if (!isLoaded || loading) return null
 
   const today = new Date().toISOString().split('T')[0]
 
   const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
-  const myShifts: Shift[] = (schedule?.publishedAssignments ?? [])
-    .filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase())
-    .map((a) => {
-      if (shiftById[a.shiftId]) return shiftById[a.shiftId]
-      const [date, clinic] = a.shiftId.split('|')
-      return { id: a.shiftId, date, clinic } as Shift
-    })
 
-  const upcoming = myShifts.filter((s) => s.date >= today).sort((a, b) => a.date.localeCompare(b.date))
-  const completed = myShifts.filter((s) => s.date < today).sort((a, b) => b.date.localeCompare(a.date))
+  function assignmentToShift(a: ShiftAssignment): Shift {
+    if (shiftById[a.shiftId]) return shiftById[a.shiftId]
+    const [date, ...parts] = a.shiftId.split('|')
+    return { id: a.shiftId, date, clinic: parts.join('|') } as Shift
+  }
 
-  // Support multiple shifts per date (e.g. BCCA CT + BCCA MRI/PET)
-  const myDateToClinics: Record<string, string[]> = {}
-  for (const s of myShifts) {
-    (myDateToClinics[s.date] ??= []).push(s.clinic)
+  // Build split-aware coverage: resolve exact time windows each resident covers
+  const splitsByShift: Record<string, ShiftSplit[]> = {}
+  for (const s of allSplits) (splitsByShift[s.shiftId] ??= []).push(s)
+
+  // My coverage from the published schedule (direct assignments, split-aware)
+  const myScheduleCoverage: Shift[] = []
+  for (const a of (schedule?.publishedAssignments ?? []).filter(
+    (a) => a.residentName?.toLowerCase() === myName.toLowerCase()
+  )) {
+    const base = assignmentToShift(a)
+    const segs = computeCoverageSegments(base, a.residentName, splitsByShift[a.shiftId] ?? [])
+    for (const seg of segs.filter((s) => s.residentName.toLowerCase() === myName.toLowerCase())) {
+      myScheduleCoverage.push({
+        ...base,
+        startTime: seg.start || base.startTime,
+        endTime: seg.end || base.endTime,
+      })
+    }
+  }
+
+  // My coverage from accepted splits where I am the acceptor.
+  // Deduplicated per shift so multiple accepted splits from the same shift are merged correctly.
+  const mySplitCoverage: Shift[] = []
+  const acceptorShiftIds = [...new Set(
+    allSplits
+      .filter((s) => s.status === 'accepted' && s.acceptorName?.toLowerCase() === myName.toLowerCase())
+      .map((s) => s.shiftId)
+  )]
+  for (const sid of acceptorShiftIds) {
+    const base = assignmentToShift({ shiftId: sid, residentName: myName })
+    const shift = shiftById[sid]
+    if (!shift?.startTime || !shift?.endTime) {
+      mySplitCoverage.push(base)
+      continue
+    }
+    const assignment = (schedule?.publishedAssignments ?? []).find((a) => a.shiftId === sid)
+    const segs = computeCoverageSegments(shift, assignment?.residentName ?? null, splitsByShift[sid] ?? [])
+    for (const seg of segs.filter((s) => s.residentName.toLowerCase() === myName.toLowerCase())) {
+      mySplitCoverage.push({
+        ...base,
+        startTime: seg.start || base.startTime,
+        endTime: seg.end || base.endTime,
+      })
+    }
+  }
+
+  const allMyCoverage = [...myScheduleCoverage, ...mySplitCoverage]
+
+  // Upcoming: not yet ended
+  const upcoming: Shift[] = allMyCoverage
+    .filter((s) => !isShiftEnded(s))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  // Completed: ended from live schedule + permanent history (for deleted blocks)
+  const scheduleCoverageIds = new Set(myScheduleCoverage.map((s) => s.id))
+  const completedMap = new Map<string, Shift>()
+  for (const a of history.filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase())) {
+    if (!scheduleCoverageIds.has(a.shiftId)) completedMap.set(a.shiftId, assignmentToShift(a))
+  }
+  for (const s of allMyCoverage.filter(isShiftEnded)) {
+    completedMap.set(`${s.id}::${s.startTime ?? ''}`, s)
+  }
+  const completed: Shift[] = [...completedMap.values()].sort((a, b) => b.date.localeCompare(a.date))
+
+  // Contact info for invoice generation (stored in Clerk unsafeMetadata)
+  const meta = user?.unsafeMetadata as { address?: string; phone?: string; email?: string } | undefined
+  const invoiceFrom = {
+    name: myName,
+    address: meta?.address ?? '',
+    phone: meta?.phone ?? '',
+    email: meta?.email ?? user?.primaryEmailAddress?.emailAddress ?? '',
+  }
+  const hasContactInfo = !!(invoiceFrom.address && invoiceFrom.phone && invoiceFrom.email)
+
+  // Completed shifts eligible for invoice generation (must have time data and a billing entity)
+  const invoiceableCompleted: CompletedShiftForInvoice[] = completed
+    .filter((s) => s.startTime && s.endTime && clinicEntities(s.clinic).length > 0)
+    .map((s) => ({
+      shiftId: `${s.id}::${s.startTime}`,
+      date: s.date,
+      clinic: s.clinic,
+      startTime: s.startTime!,
+      endTime: s.endTime!,
+    }))
+
+  // Combined for the calendar view (all my coverage, split-aware)
+  const myCalendarShifts = [...upcoming, ...completed]
+
+  const myDateToShifts: Record<string, Shift[]> = {}
+  for (const s of myCalendarShifts) {
+    (myDateToShifts[s.date] ??= []).push(s)
   }
 
   function prevMonth() {
@@ -224,7 +402,82 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {!schedule ? (
+      {/* ── Contact info (for invoices) ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-slate-700">Invoice Contact Details</h2>
+          {!editingContact && (
+            <button
+              onClick={startEditContact}
+              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-0.5 transition-colors"
+            >
+              {hasContactInfo ? 'Edit' : 'Add'}
+            </button>
+          )}
+        </div>
+
+        {editingContact ? (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Address (for invoice header)</label>
+              <textarea
+                value={contactAddress}
+                onChange={(e) => setContactAddress(e.target.value)}
+                rows={3}
+                placeholder={'123 Main St\nVancouver BC  V6B 2W9'}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+              />
+            </div>
+            <div className="flex gap-3 flex-wrap">
+              <div className="flex-1 min-w-48">
+                <label className="block text-xs text-slate-500 mb-1">Phone</label>
+                <input
+                  value={contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
+                  placeholder="604-555-0100"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+              <div className="flex-1 min-w-48">
+                <label className="block text-xs text-slate-500 mb-1">Email</label>
+                <input
+                  value={contactEmail}
+                  onChange={(e) => setContactEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  type="email"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={saveContact}
+                disabled={contactSaving}
+                className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+              >
+                {contactSaving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                onClick={() => setEditingContact(false)}
+                className="text-sm text-slate-500 hover:text-slate-700 px-2 py-1.5"
+              >
+                Cancel
+              </button>
+              {contactError && <span className="text-sm text-red-500">{contactError}</span>}
+            </div>
+          </div>
+        ) : hasContactInfo ? (
+          <div className="text-sm text-slate-500 space-y-0.5">
+            {invoiceFrom.address.split('\n').map((l, i) => <p key={i}>{l}</p>)}
+            <p>{invoiceFrom.phone}</p>
+            <p>{invoiceFrom.email}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400">Add your address, phone, and email to enable invoice generation.</p>
+        )}
+      </div>
+
+      {!schedule && history.filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase()).length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm">
           No schedule has been published yet. Check back after the admin publishes the schedule.
         </div>
@@ -258,14 +511,18 @@ export default function ProfilePage() {
               {Array.from({ length: firstWeekday }).map((_, i) => <div key={i} />)}
               {monthDays.map((d) => {
                 const dateStr = d.toISOString().split('T')[0]
-                const clinics = myDateToClinics[dateStr] ?? []
-                const hasShift = clinics.length > 0
+                const dayShifts = myDateToShifts[dateStr] ?? []
+                const hasShift = dayShifts.length > 0
                 const isToday = dateStr === today
-                const isPast = dateStr < today
+                const isPast = dateStr < today || (hasShift && dayShifts.every((s) => isShiftEnded(s)))
+                const tooltipParts = dayShifts.map((s) => {
+                  const t = formatTimeRange(s.startTime, s.endTime)
+                  return t ? `${s.clinic} (${t})` : s.clinic
+                })
                 return (
                   <div
                     key={dateStr}
-                    title={clinics.join(', ')}
+                    title={tooltipParts.join(', ')}
                     className={`aspect-square flex flex-col items-center justify-center rounded-lg text-xs select-none
                       ${hasShift
                         ? isPast
@@ -277,11 +534,18 @@ export default function ProfilePage() {
                       }`}
                   >
                     <span className="font-medium">{d.getUTCDate()}</span>
-                    {clinics.length === 1 && (
-                      <span className="text-[9px] leading-tight opacity-80">{clinicAbbr(clinics[0])}</span>
+                    {dayShifts.length === 1 && (
+                      <>
+                        <span className="text-[9px] leading-tight opacity-80">{clinicAbbr(dayShifts[0].clinic)}</span>
+                        {formatCompactTime(dayShifts[0].startTime, dayShifts[0].endTime) && (
+                          <span className="text-[8px] leading-tight opacity-70">
+                            {formatCompactTime(dayShifts[0].startTime, dayShifts[0].endTime)}
+                          </span>
+                        )}
+                      </>
                     )}
-                    {clinics.length > 1 && (
-                      <span className="text-[9px] leading-tight opacity-80">{clinics.length} shifts</span>
+                    {dayShifts.length > 1 && (
+                      <span className="text-[9px] leading-tight opacity-80">{dayShifts.length} shifts</span>
                     )}
                   </div>
                 )
@@ -357,9 +621,14 @@ export default function ProfilePage() {
                 {upcoming.map((s) => (
                   <div key={s.id} className="px-5 py-3 flex items-center justify-between">
                     <span className="text-sm text-slate-700">{formatDateLong(s.date)}</span>
-                    <span className="text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
-                      {clinicAbbr(s.clinic)}
-                    </span>
+                    <div className="text-right">
+                      <span className="text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                        {clinicAbbr(s.clinic)}
+                      </span>
+                      {formatTimeRange(s.startTime, s.endTime) && (
+                        <div className="text-xs text-slate-400 mt-0.5">{formatTimeRange(s.startTime, s.endTime)}</div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -370,18 +639,50 @@ export default function ProfilePage() {
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-700">Completed Shifts</h2>
-              <span className="text-xs text-slate-400">{completed.length} total</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-400">{completed.length} total</span>
+                {invoiceableCompleted.length > 0 && (
+                  <button
+                    onClick={() => setShowInvoiceGenerator((v) => !v)}
+                    className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    {showInvoiceGenerator ? 'Hide invoice' : 'Generate invoice'}
+                  </button>
+                )}
+              </div>
             </div>
+
+            {showInvoiceGenerator && invoiceableCompleted.length > 0 && (
+              <div className="px-5 py-4 border-b border-slate-100 bg-blue-50">
+                <InvoiceGenerator
+                  completed={invoiceableCompleted}
+                  from={invoiceFrom}
+                  onMissingProfile={() => {
+                    setShowInvoiceGenerator(false)
+                    startEditContact()
+                  }}
+                />
+              </div>
+            )}
+
             {completed.length === 0 ? (
               <p className="p-5 text-sm text-slate-400">No completed shifts yet.</p>
             ) : (
               <div className="divide-y divide-slate-100">
                 {completed.map((s) => (
-                  <div key={s.id} className="px-5 py-3 flex items-center justify-between">
+                  <div key={`${s.id}::${s.startTime}`} className="px-5 py-3 flex items-center justify-between">
                     <span className="text-sm text-slate-500">{formatDateLong(s.date)}</span>
-                    <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                      {clinicAbbr(s.clinic)}
-                    </span>
+                    <div className="text-right">
+                      <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                        {clinicAbbr(s.clinic)}
+                      </span>
+                      {formatTimeRange(s.startTime, s.endTime) && (
+                        <div className="text-xs text-slate-400 mt-0.5">{formatTimeRange(s.startTime, s.endTime)}</div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

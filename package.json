@@ -11,6 +11,7 @@
   "dependencies": {
     "@clerk/nextjs": "^7.3.5",
     "@vercel/postgres": "^0.10.0",
+    "docx": "^9.6.1",
     "next": "16.2.6",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -22,6 +23,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "postgres": "^3.4.9",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
