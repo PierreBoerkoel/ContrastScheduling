@@ -18,7 +18,7 @@ export async function initDb(): Promise<void> {
   await sql`
     CREATE TABLE IF NOT EXISTS availability_submissions (
       id                  TEXT PRIMARY KEY,
-      user_id             TEXT UNIQUE,
+      user_id             TEXT,
       resident_name       TEXT NOT NULL,
       submitted_at        TIMESTAMPTZ NOT NULL,
       available_shift_ids TEXT[] NOT NULL DEFAULT '{}'
@@ -37,7 +37,6 @@ export async function initDb(): Promise<void> {
   `
   await sql`ALTER TABLE schedule ADD COLUMN IF NOT EXISTS published_assignments JSONB NOT NULL DEFAULT '[]'::jsonb`
   await sql`ALTER TABLE schedule ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ`
-  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ`
   await sql`
     CREATE TABLE IF NOT EXISTS swap_requests (
       id                  TEXT PRIMARY KEY,
@@ -60,6 +59,7 @@ export async function initDb(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
+  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ`
   // Add columns to existing tables if upgrading from the pre-auth schema
   await sql`ALTER TABLE availability_submissions ADD COLUMN IF NOT EXISTS user_id TEXT`
   await sql`ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS requestor_user_id TEXT`

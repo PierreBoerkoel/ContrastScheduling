@@ -317,8 +317,10 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
           </span>
           <input
             type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             value={sequenceLoading ? '' : invoiceSeq}
-            onChange={(e) => setInvoiceSeq(e.target.value)}
+            onChange={(e) => { if (/^\d*$/.test(e.target.value)) setInvoiceSeq(e.target.value) }}
             disabled={sequenceLoading}
             className="px-2 py-1.5 w-16 focus:outline-none disabled:opacity-50 bg-white"
           />
