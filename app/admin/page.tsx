@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
 import type { Shift, AvailabilitySubmission, Schedule, ClinicName, SwapRequest, SchedulingPeriod, ShiftSplit } from '@/lib/types'
-import { CLINICS, CLINIC_ABBR, defaultShiftTimes, formatTimeRange, computeCoverageSegments, buildDisplayNames } from '@/lib/types'
+import { CLINICS, CLINIC_ABBR, formatTimeRange, computeCoverageSegments, buildDisplayNames, clinicDefaultShiftTimes, clinicDefaultActiveClinics } from '@/lib/types'
+import type { ClinicDefault } from '@/lib/types'
 
 type Tab = 'shifts' | 'availability' | 'schedule' | 'swaps' | 'users' | 'billing'
 
@@ -49,16 +50,8 @@ function isWeekend(dateStr: string) {
   return d === 0 || d === 6
 }
 
-function defaultClinicsForDay(dateStr: string): Set<ClinicName> {
-  const day = new Date(dateStr + 'T00:00:00Z').getUTCDay() // 0=Sun,1=Mon,...,6=Sat
-  const s = new Set<ClinicName>()
-  if (day === 6) s.add('BC Cancer Agency CT')           // Saturdays only
-  s.add('BC Cancer Agency MRI/PET')                     // all days
-  s.add('INITIO Medical Imaging')                       // all days
-  if (day >= 1 && day <= 5) s.add('UBC Hospital')       // weekdays only
-  if (day === 2) s.add("BC Women's Hospital")           // Tuesdays only
-  return s
-}
+const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] // Mon–Sun display order
 
 function datesInRange(start: string, end: string): string[] {
   const dates: string[] = []
@@ -219,6 +212,21 @@ export default function AdminPage() {
   const [savingTimes, setSavingTimes] = useState(false)
   const [removingShiftId, setRemovingShiftId] = useState<string | null>(null)
 
+  // Clinic defaults
+  const [clinicDefaults, setClinicDefaults] = useState<ClinicDefault[]>([])
+  const clinicDefaultsRef = useRef<ClinicDefault[]>([])
+  const [showClinicDefaults, setShowClinicDefaults] = useState(false)
+  const [editingClinicDefault, setEditingClinicDefault] = useState<string | null>(null)
+  const [clinicDefaultEdit, setClinicDefaultEdit] = useState<{
+    activeDays: Set<number>
+    weekdayStart: string
+    weekdayEnd: string
+    weekendStart: string
+    weekendEnd: string
+  }>({ activeDays: new Set(), weekdayStart: '', weekdayEnd: '', weekendStart: '', weekendEnd: '' })
+  const [savingClinicDefault, setSavingClinicDefault] = useState(false)
+  const [clinicDefaultError, setClinicDefaultError] = useState('')
+
   // Billing rates
   const [billingRates, setBillingRates] = useState<Record<string, number>>({})
   const [editingRateKey, setEditingRateKey] = useState<string | null>(null)
@@ -256,6 +264,15 @@ export default function AdminPage() {
   useEffect(() => { fetchData() }, [fetchData])
 
   useEffect(() => {
+    fetch('/api/admin/clinic-defaults')
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d)) { setClinicDefaults(d); clinicDefaultsRef.current = d } })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => { clinicDefaultsRef.current = clinicDefaults }, [clinicDefaults])
+
+  useEffect(() => {
     fetch('/api/admin/billing-rates')
       .then((r) => r.json())
       .then((d) => { if (d && typeof d === 'object' && !d.error) setBillingRates(d) })
@@ -273,7 +290,7 @@ export default function AdminPage() {
     setActiveClinics((prev) => {
       const next: Record<string, Set<ClinicName>> = {}
       for (const d of dates) {
-        next[d] = prev[d] ?? defaultClinicsForDay(d)
+        next[d] = prev[d] ?? clinicDefaultActiveClinics(d, clinicDefaultsRef.current)
       }
       return next
     })
@@ -283,7 +300,7 @@ export default function AdminPage() {
         if (!next[d]) {
           next[d] = {}
           for (const clinic of CLINICS) {
-            const t = defaultShiftTimes(clinic, d)
+            const t = clinicDefaultShiftTimes(clinic, d, clinicDefaultsRef.current)
             if (t) next[d][clinic] = t
           }
         }
@@ -298,7 +315,7 @@ export default function AdminPage() {
       const adding = !next[date].has(clinic)
       adding ? next[date].add(clinic) : next[date].delete(clinic)
       if (adding && !shiftTimes[date]?.[clinic]) {
-        const t = defaultShiftTimes(clinic, date)
+        const t = clinicDefaultShiftTimes(clinic, date, clinicDefaultsRef.current)
         if (t) setShiftTimes((pt) => ({ ...pt, [date]: { ...(pt[date] ?? {}), [clinic]: t } }))
       }
       return next
@@ -657,6 +674,185 @@ export default function AdminPage() {
       {/* ── SHIFTS TAB ── */}
       {tab === 'shifts' && (
         <div className="space-y-6">
+
+          {/* ── Default shift settings ── */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <button
+              onClick={() => setShowClinicDefaults((v) => !v)}
+              className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-slate-50 transition-colors"
+            >
+              <div>
+                <div className="text-sm font-semibold text-slate-700">Default Shift Settings</div>
+                <div className="text-xs text-slate-400 mt-0.5">Active days and times pre-filled when configuring a new block.</div>
+              </div>
+              <svg className={`w-4 h-4 text-slate-400 transition-transform ${showClinicDefaults ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {showClinicDefaults && (
+              <div className="border-t border-slate-100 divide-y divide-slate-100">
+                {CLINICS.map((clinic) => {
+                  const def = clinicDefaults.find((d) => d.clinic === clinic)
+                  const isEditing = editingClinicDefault === clinic
+                  const hasWeekdays = isEditing
+                    ? [1, 2, 3, 4, 5].some((d) => clinicDefaultEdit.activeDays.has(d))
+                    : (def?.activeDays ?? []).some((d) => d >= 1 && d <= 5)
+                  const hasWeekends = isEditing
+                    ? [0, 6].some((d) => clinicDefaultEdit.activeDays.has(d))
+                    : (def?.activeDays ?? []).some((d) => d === 0 || d === 6)
+
+                  return (
+                    <div key={clinic} className="px-5 py-4">
+                      <div className="flex items-start justify-between gap-4 mb-3">
+                        <span className="text-sm font-medium text-slate-800">{clinic}</span>
+                        {!isEditing && (
+                          <button
+                            onClick={() => {
+                              setEditingClinicDefault(clinic)
+                              setClinicDefaultError('')
+                              setClinicDefaultEdit({
+                                activeDays: new Set(def?.activeDays ?? []),
+                                weekdayStart: def?.weekdayStart ?? '',
+                                weekdayEnd: def?.weekdayEnd ?? '',
+                                weekendStart: def?.weekendStart ?? '',
+                                weekendEnd: def?.weekendEnd ?? '',
+                              })
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0"
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </div>
+
+                      {isEditing ? (
+                        <div className="flex flex-wrap gap-x-6 gap-y-4">
+                          {/* Day toggles */}
+                          <div>
+                            <div className="text-xs text-slate-500 mb-1.5">Active days</div>
+                            <div className="flex gap-1">
+                              {DAY_ORDER.map((day) => {
+                                const active = clinicDefaultEdit.activeDays.has(day)
+                                return (
+                                  <button
+                                    key={day}
+                                    onClick={() => {
+                                      setClinicDefaultEdit((prev) => {
+                                        const next = new Set(prev.activeDays)
+                                        active ? next.delete(day) : next.add(day)
+                                        return { ...prev, activeDays: next }
+                                      })
+                                    }}
+                                    className={`w-8 h-8 text-xs rounded-full font-medium transition-colors ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                  >
+                                    {DAY_LABELS[day]}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Weekday times */}
+                          {hasWeekdays && (
+                            <div>
+                              <div className="text-xs text-slate-500 mb-1.5">Weekday times</div>
+                              <div className="flex items-center gap-2">
+                                <TimeInput value={clinicDefaultEdit.weekdayStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayStart: v }))} className="w-24 px-2 py-1 text-sm" />
+                                <span className="text-slate-400 text-xs">–</span>
+                                <TimeInput value={clinicDefaultEdit.weekdayEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayEnd: v }))} className="w-24 px-2 py-1 text-sm" />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Weekend times */}
+                          {hasWeekends && (
+                            <div>
+                              <div className="text-xs text-slate-500 mb-1.5">Weekend times</div>
+                              <div className="flex items-center gap-2">
+                                <TimeInput value={clinicDefaultEdit.weekendStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendStart: v }))} className="w-24 px-2 py-1 text-sm" />
+                                <span className="text-slate-400 text-xs">–</span>
+                                <TimeInput value={clinicDefaultEdit.weekendEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendEnd: v }))} className="w-24 px-2 py-1 text-sm" />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Save / Cancel */}
+                          <div className="flex items-end gap-2 pb-0.5">
+                            <button
+                              disabled={savingClinicDefault}
+                              onClick={async () => {
+                                setSavingClinicDefault(true)
+                                setClinicDefaultError('')
+                                const activeDays = [...clinicDefaultEdit.activeDays].sort()
+                                const hasWd = activeDays.some((d) => d >= 1 && d <= 5)
+                                const hasWe = activeDays.some((d) => d === 0 || d === 6)
+                                const res = await fetch('/api/admin/clinic-defaults', {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    clinic,
+                                    activeDays,
+                                    weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
+                                    weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
+                                    weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
+                                    weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
+                                  }),
+                                })
+                                setSavingClinicDefault(false)
+                                if (res.ok) {
+                                  setClinicDefaults((prev) =>
+                                    prev.map((d) => d.clinic === clinic ? {
+                                      ...d,
+                                      activeDays,
+                                      weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
+                                      weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
+                                      weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
+                                      weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
+                                    } : d)
+                                  )
+                                  setEditingClinicDefault(null)
+                                } else {
+                                  setClinicDefaultError('Failed to save')
+                                }
+                              }}
+                              className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                            >
+                              {savingClinicDefault ? 'Saving…' : 'Save'}
+                            </button>
+                            <button onClick={() => { setEditingClinicDefault(null); setClinicDefaultError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
+                              Cancel
+                            </button>
+                            {clinicDefaultError && <span className="text-xs text-red-500">{clinicDefaultError}</span>}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-4">
+                          {/* Day pills */}
+                          <div className="flex gap-1">
+                            {DAY_ORDER.map((day) => {
+                              const active = (def?.activeDays ?? []).includes(day)
+                              return (
+                                <span key={day} className={`w-7 h-7 text-xs flex items-center justify-center rounded-full font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
+                                  {DAY_LABELS[day]}
+                                </span>
+                              )
+                            })}
+                          </div>
+                          {hasWeekdays && def?.weekdayStart && def?.weekdayEnd && (
+                            <span className="text-xs text-slate-500">Weekday: {formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
+                          )}
+                          {hasWeekends && def?.weekendStart && def?.weekendEnd && (
+                            <span className="text-xs text-slate-500">Weekend: {formatTimeValue(def.weekendStart)} – {formatTimeValue(def.weekendEnd)}</span>
+                          )}
+                          {!def && <span className="text-xs text-slate-300">No defaults configured</span>}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
           {/* ── Configure block ── */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
@@ -1162,7 +1358,7 @@ export default function AdminPage() {
                                       key={clinic}
                                       className="px-4 py-3 text-slate-300 text-xs cursor-pointer hover:bg-slate-50 hover:text-blue-500 transition-colors"
                                       onClick={() => {
-                                        const t = defaultShiftTimes(clinic, date) ?? { startTime: '', endTime: '' }
+                                        const t = clinicDefaultShiftTimes(clinic, date, clinicDefaultsRef.current) ?? { startTime: '', endTime: '' }
                                         setAddingShiftCell({ date, clinic })
                                         setAddCellTimes(t)
                                       }}

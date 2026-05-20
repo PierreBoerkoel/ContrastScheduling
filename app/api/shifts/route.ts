@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getShifts, setShifts, findPeriodByName, addSchedulingPeriod, updateSchedulingPeriod, getSchedule, setSchedule, getSchedulingPeriods } from '@/lib/db'
+import { getShifts, setShifts, findPeriodByName, addSchedulingPeriod, updateSchedulingPeriod, getSchedule, setSchedule, getSchedulingPeriods, getClinicDefaults } from '@/lib/db'
 import type { ClinicName, Shift } from '@/lib/types'
-import { defaultShiftTimes } from '@/lib/types'
+import { clinicDefaultShiftTimes } from '@/lib/types'
 
 async function requireAdmin() {
   const user = await currentUser()
@@ -64,6 +64,7 @@ export async function POST(request: Request) {
     period = await addSchedulingPeriod({ name: blockName, startDate, endDate })
   }
 
+  const clinicDefaults = await getClinicDefaults()
   const shifts: Shift[] = []
   const current = new Date(startDate + 'T00:00:00Z')
   const end = new Date(endDate + 'T00:00:00Z')
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
   while (current <= end) {
     const dateStr = current.toISOString().split('T')[0]
     for (const clinic of activeClinics[dateStr] ?? []) {
-      const times = shiftTimes?.[dateStr]?.[clinic] ?? defaultShiftTimes(clinic, dateStr)
+      const times = shiftTimes?.[dateStr]?.[clinic] ?? clinicDefaultShiftTimes(clinic, dateStr, clinicDefaults)
       shifts.push({ id: `${dateStr}|${clinic}`, date: dateStr, clinic, periodId: period.id, ...times })
     }
     current.setUTCDate(current.getUTCDate() + 1)

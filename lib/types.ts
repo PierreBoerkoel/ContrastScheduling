@@ -68,6 +68,41 @@ export function defaultShiftTimes(
   }
 }
 
+export interface ClinicDefault {
+  clinic: string
+  activeDays: number[]       // 0=Sun, 1=Mon, ..., 6=Sat
+  weekdayStart: string | null
+  weekdayEnd: string | null
+  weekendStart: string | null
+  weekendEnd: string | null
+}
+
+export function clinicDefaultShiftTimes(
+  clinic: string,
+  dateStr: string,
+  defaults: ClinicDefault[],
+): { startTime: string; endTime: string } | undefined {
+  const d = defaults.find((x) => x.clinic === clinic)
+  if (!d) return undefined
+  const day = new Date(dateStr + 'T00:00:00Z').getUTCDay()
+  const isWeekend = day === 0 || day === 6
+  if (isWeekend) {
+    if (d.weekendStart && d.weekendEnd) return { startTime: d.weekendStart, endTime: d.weekendEnd }
+    return undefined
+  }
+  if (d.weekdayStart && d.weekdayEnd) return { startTime: d.weekdayStart, endTime: d.weekdayEnd }
+  return undefined
+}
+
+export function clinicDefaultActiveClinics(dateStr: string, defaults: ClinicDefault[]): Set<ClinicName> {
+  const day = new Date(dateStr + 'T00:00:00Z').getUTCDay()
+  const active = new Set<ClinicName>()
+  for (const d of defaults) {
+    if (d.activeDays.includes(day)) active.add(d.clinic as ClinicName)
+  }
+  return active
+}
+
 export interface AvailabilitySubmission {
   id: string
   residentName: string

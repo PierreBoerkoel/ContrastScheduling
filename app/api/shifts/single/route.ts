@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { currentUser } from '@clerk/nextjs/server'
-import { ensureDb, getSchedule, setSchedule, touchScheduleTimestamp } from '@/lib/db'
+import { ensureDb, getSchedule, setSchedule, touchScheduleTimestamp, getClinicDefaults } from '@/lib/db'
 import { sql } from '@vercel/postgres'
-import { defaultShiftTimes } from '@/lib/types'
+import { clinicDefaultShiftTimes } from '@/lib/types'
 import type { ClinicName } from '@/lib/types'
 
 async function requireAdmin() {
@@ -35,9 +35,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'A shift for this date and clinic already exists' }, { status: 409 })
   }
 
+  const clinicDefaults = await getClinicDefaults()
   const times = (startTime && endTime)
     ? { startTime, endTime }
-    : (defaultShiftTimes(clinic, date) ?? { startTime: undefined, endTime: undefined })
+    : (clinicDefaultShiftTimes(clinic, date, clinicDefaults) ?? { startTime: undefined, endTime: undefined })
 
   await sql`
     INSERT INTO shifts (id, date, clinic, period_id, start_time, end_time)

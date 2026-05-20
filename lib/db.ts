@@ -1,5 +1,5 @@
 import { sql, db } from '@vercel/postgres'
-import type { Shift, AvailabilitySubmission, Schedule, SwapRequest, ShiftAssignment, SchedulingPeriod, ShiftSplit } from './types'
+import type { Shift, AvailabilitySubmission, Schedule, SwapRequest, ShiftAssignment, SchedulingPeriod, ShiftSplit, ClinicDefault } from './types'
 
 // Run migrations once per Lambda cold-start; all DDL uses IF NOT EXISTS so it is safe to re-run.
 let _ready: Promise<void> | null = null
@@ -134,7 +134,32 @@ export async function initDb(): Promise<void> {
       value NUMERIC NOT NULL
     )
   `
-  // Seed defaults — only inserts when the key doesn't already exist
+  await sql`
+    CREATE TABLE IF NOT EXISTS clinic_defaults (
+      clinic        TEXT PRIMARY KEY,
+      active_days   TEXT NOT NULL DEFAULT '[]',
+      weekday_start TEXT,
+      weekday_end   TEXT,
+      weekend_start TEXT,
+      weekend_end   TEXT
+    )
+  `
+  const clinicSeeds: Array<[string, string, string | null, string | null, string | null, string | null]> = [
+    ['BC Cancer Agency CT',       '[6]',               '17:00', '19:00', '08:00', '16:00'],
+    ['BC Cancer Agency MRI/PET',  '[0,1,2,3,4,5,6]',  '17:00', '22:00', '08:00', '21:00'],
+    ['INITIO Medical Imaging',    '[0,1,2,3,4,5,6]',  '17:30', '21:30', '08:00', '16:00'],
+    ['UBC Hospital',              '[1,2,3,4,5]',       '17:30', '22:30', null,    null   ],
+    ["BC Women's Hospital",       '[2]',               '17:30', '21:30', null,    null   ],
+  ]
+  for (const [clinic, days, ws, we, ss, se] of clinicSeeds) {
+    await sql`
+      INSERT INTO clinic_defaults (clinic, active_days, weekday_start, weekday_end, weekend_start, weekend_end)
+      VALUES (${clinic}, ${days}, ${ws}, ${we}, ${ss}, ${se})
+      ON CONFLICT (clinic) DO NOTHING
+    `
+  }
+
+  // Seed billing rate defaults — only inserts when the key doesn't already exist
   const defaults: Array<[string, number]> = [
     ['MRCT_base',        50],
     ['MRCT_standalone',  75],
@@ -508,6 +533,42 @@ export async function setInvoiceSequence(residentName: string, series: string, n
     INSERT INTO invoice_sequences (resident_name, series, next_number)
     VALUES (${residentName}, ${series}, ${nextNumber})
     ON CONFLICT (resident_name, series) DO UPDATE SET next_number = ${nextNumber}
+  `
+}
+
+// ── Clinic defaults ───────────────────────────────────────────────────────────
+
+export async function getClinicDefaults(): Promise<ClinicDefault[]> {
+  await ensureDb()
+  const { rows } = await sql`
+    SELECT clinic, active_days, weekday_start, weekday_end, weekend_start, weekend_end
+    FROM clinic_defaults ORDER BY clinic
+  `
+  return rows.map((r) => ({
+    clinic: r.clinic as string,
+    activeDays: JSON.parse(r.active_days as string) as number[],
+    weekdayStart: (r.weekday_start as string | null) ?? null,
+    weekdayEnd: (r.weekday_end as string | null) ?? null,
+    weekendStart: (r.weekend_start as string | null) ?? null,
+    weekendEnd: (r.weekend_end as string | null) ?? null,
+  }))
+}
+
+export async function setClinicDefault(
+  clinic: string,
+  data: Omit<ClinicDefault, 'clinic'>
+): Promise<void> {
+  await ensureDb()
+  const activeDaysJson = JSON.stringify(data.activeDays)
+  await sql`
+    INSERT INTO clinic_defaults (clinic, active_days, weekday_start, weekday_end, weekend_start, weekend_end)
+    VALUES (${clinic}, ${activeDaysJson}, ${data.weekdayStart}, ${data.weekdayEnd}, ${data.weekendStart}, ${data.weekendEnd})
+    ON CONFLICT (clinic) DO UPDATE SET
+      active_days   = ${activeDaysJson},
+      weekday_start = ${data.weekdayStart},
+      weekday_end   = ${data.weekdayEnd},
+      weekend_start = ${data.weekendStart},
+      weekend_end   = ${data.weekendEnd}
   `
 }
 
