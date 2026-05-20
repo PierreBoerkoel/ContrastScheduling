@@ -342,7 +342,7 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 w-fit">
         <button
           onClick={() => generate('pdf')}
           disabled={generating || selectedCount === 0}
