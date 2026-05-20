@@ -181,12 +181,14 @@ export default function AdminPage() {
   // Shift time editing + removal
   const [editingTimesShiftId, setEditingTimesShiftId] = useState<string | null>(null)
   const [timesEdit, setTimesEdit] = useState({ startTime: '', endTime: '' })
+  const [timesEditError, setTimesEditError] = useState('')
   const [savingTimes, setSavingTimes] = useState(false)
   const [removingShiftId, setRemovingShiftId] = useState<string | null>(null)
 
   // Inline add-shift cell (post-publish)
   const [addingShiftCell, setAddingShiftCell] = useState<{ date: string; clinic: ClinicName } | null>(null)
   const [addCellTimes, setAddCellTimes] = useState({ startTime: '', endTime: '' })
+  const [addCellError, setAddCellError] = useState('')
   const [addingCell, setAddingCell] = useState(false)
 
   // Flash confirmation after live shift edits
@@ -298,6 +300,14 @@ export default function AdminPage() {
 
   async function saveShifts() {
     if (!selectedBlock) return
+    for (const [date, clinicMap] of Object.entries(shiftTimes)) {
+      for (const [clinic, times] of Object.entries(clinicMap)) {
+        if (times && endBeforeStart(times.startTime, times.endTime)) {
+          setSaveError(`End time must be after start time (${date}, ${clinic}).`)
+          return
+        }
+      }
+    }
     setSavingShifts(true)
     setShiftsSaved(false)
     setSaveError('')
@@ -362,8 +372,17 @@ export default function AdminPage() {
     await fetchData()
   }
 
+  function endBeforeStart(start: string, end: string): boolean {
+    return !!(start && end && end <= start)
+  }
+
   async function addCellShift() {
     if (!schedPeriod || !addingShiftCell) return
+    if (endBeforeStart(addCellTimes.startTime, addCellTimes.endTime)) {
+      setAddCellError('End time must be after start time.')
+      return
+    }
+    setAddCellError('')
     setAddingCell(true)
     try {
       await fetch('/api/shifts/single', {
@@ -385,6 +404,11 @@ export default function AdminPage() {
   }
 
   async function saveShiftTimes(shiftId: string) {
+    if (endBeforeStart(timesEdit.startTime, timesEdit.endTime)) {
+      setTimesEditError('End time must be after start time.')
+      return
+    }
+    setTimesEditError('')
     setSavingTimes(true)
     try {
       await fetch('/api/shifts/single', {
@@ -1010,6 +1034,9 @@ export default function AdminPage() {
                                           onChange={(v) => setAddCellTimes((p) => ({ ...p, endTime: v }))}
                                           className="w-full text-xs px-1.5 py-0.5"
                                         />
+                                        {addCellError && (
+                                          <p className="text-xs text-red-500">{addCellError}</p>
+                                        )}
                                         <div className="flex gap-2 pt-0.5">
                                           <button
                                             onClick={addCellShift}
@@ -1019,7 +1046,7 @@ export default function AdminPage() {
                                             {addingCell ? 'Adding…' : 'Add'}
                                           </button>
                                           <button
-                                            onClick={() => setAddingShiftCell(null)}
+                                            onClick={() => { setAddingShiftCell(null); setAddCellError('') }}
                                             className="text-xs text-slate-400 hover:text-slate-600"
                                           >
                                             Cancel
@@ -1118,6 +1145,9 @@ export default function AdminPage() {
                                         onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))}
                                         className="w-full text-xs px-1.5 py-0.5"
                                       />
+                                      {timesEditError && (
+                                        <p className="text-xs text-red-500">{timesEditError}</p>
+                                      )}
                                       <div className="flex gap-2 pt-0.5">
                                         <button
                                           onClick={() => saveShiftTimes(shift.id)}
@@ -1127,7 +1157,7 @@ export default function AdminPage() {
                                           {savingTimes ? 'Saving…' : 'Save'}
                                         </button>
                                         <button
-                                          onClick={() => setEditingTimesShiftId(null)}
+                                          onClick={() => { setEditingTimesShiftId(null); setTimesEditError('') }}
                                           className="text-xs text-slate-400 hover:text-slate-600"
                                         >
                                           Cancel
