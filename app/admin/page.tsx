@@ -1501,14 +1501,14 @@ export default function AdminPage() {
               </div>
               {/* Desktop table */}
               <div className="hidden sm:block overflow-x-auto">
-              <table className="w-full table-fixed text-sm">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left px-4 py-3 font-medium text-slate-600 w-[12%]">Status</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600 w-[22%]">Requestor</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600 w-[32%]">Shift offered</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600 w-[26%]">Accepted by</th>
-                    <th className="px-4 py-3 w-[8%]" />
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Status</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Requestor</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Shift offered</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Accepted by</th>
+                    <th className="px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody>
