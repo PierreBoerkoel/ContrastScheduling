@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSchedule, upsertShiftHistory } from '@/lib/db'
+import { getSchedule, getShifts, upsertShiftHistory } from '@/lib/db'
 
 export async function GET(request: NextRequest) {
   const auth = request.headers.get('authorization')
@@ -8,13 +8,17 @@ export async function GET(request: NextRequest) {
   }
 
   const today = new Date().toISOString().split('T')[0]
-  const schedule = await getSchedule()
+  const [schedule, allShifts] = await Promise.all([getSchedule(), getShifts()])
   if (!schedule) return NextResponse.json({ processed: 0 })
 
-  const pastAssignments = schedule.publishedAssignments.filter(
-    (a) => a.residentName && a.shiftId.split('|')[0] < today
-  )
+  const shiftMap = Object.fromEntries(allShifts.map((s) => [s.id, s]))
+  const toArchive = schedule.publishedAssignments
+    .filter((a) => a.residentName && shiftMap[a.shiftId]?.date < today)
+    .map((a) => {
+      const shift = shiftMap[a.shiftId]
+      return { shiftId: a.shiftId, residentName: a.residentName!, date: shift.date, clinic: shift.clinic }
+    })
 
-  await upsertShiftHistory(pastAssignments)
-  return NextResponse.json({ processed: pastAssignments.length })
+  await upsertShiftHistory(toArchive)
+  return NextResponse.json({ processed: toArchive.length })
 }

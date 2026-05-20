@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, Schedule, ShiftAssignment, ShiftSplit } from '@/lib/types'
+import type { Shift, Schedule, ShiftAssignment, ShiftSplit, ClinicName } from '@/lib/types'
 import { CLINIC_ABBR, formatTimeRange, computeCoverageSegments } from '@/lib/types'
 import { clinicEntities } from '@/lib/invoices'
 import type { CompletedShiftForInvoice } from '@/lib/invoices'
@@ -245,6 +245,7 @@ export default function ProfilePage() {
 
   function assignmentToShift(a: ShiftAssignment): Shift {
     if (shiftById[a.shiftId]) return shiftById[a.shiftId]
+    if (a.date && a.clinic) return { id: a.shiftId, date: a.date, clinic: a.clinic as ClinicName } as Shift
     const [date, ...parts] = a.shiftId.split('|')
     return { id: a.shiftId, date, clinic: parts.join('|') } as Shift
   }

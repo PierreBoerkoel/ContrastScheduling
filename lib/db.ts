@@ -343,15 +343,14 @@ export async function addSwapRequest(
 
 // ── Shift history (permanent record, survives block deletion) ─────────────────
 
-export async function upsertShiftHistory(assignments: ShiftAssignment[]): Promise<void> {
+export async function upsertShiftHistory(
+  records: Array<{ shiftId: string; residentName: string; date: string; clinic: string }>
+): Promise<void> {
   await ensureDb()
-  for (const a of assignments) {
-    if (!a.residentName) continue
-    const [date, ...clinicParts] = a.shiftId.split('|')
-    const clinic = clinicParts.join('|')
+  for (const r of records) {
     await sql`
       INSERT INTO shift_history (shift_id, date, clinic, resident_name)
-      VALUES (${a.shiftId}, ${date}, ${clinic}, ${a.residentName})
+      VALUES (${r.shiftId}, ${r.date}, ${r.clinic}, ${r.residentName})
       ON CONFLICT (shift_id) DO UPDATE SET resident_name = EXCLUDED.resident_name
     `
   }
@@ -359,8 +358,8 @@ export async function upsertShiftHistory(assignments: ShiftAssignment[]): Promis
 
 export async function getShiftHistory(): Promise<ShiftAssignment[]> {
   await ensureDb()
-  const { rows } = await sql`SELECT shift_id, resident_name FROM shift_history ORDER BY date DESC`
-  return rows.map((r) => ({ shiftId: r.shift_id, residentName: r.resident_name }))
+  const { rows } = await sql`SELECT shift_id, date, clinic, resident_name FROM shift_history ORDER BY date DESC`
+  return rows.map((r) => ({ shiftId: r.shift_id, residentName: r.resident_name, date: r.date as string, clinic: r.clinic as string }))
 }
 
 // ── Shift splits ──────────────────────────────────────────────────────────────

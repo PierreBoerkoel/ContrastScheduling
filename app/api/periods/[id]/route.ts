@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { deleteSchedulingPeriod, setShifts, getShifts, getSchedule, setSchedule } from '@/lib/db'
+import { deleteSchedulingPeriod, setShifts, getShifts, getSchedule, setSchedule, upsertShiftHistory } from '@/lib/db'
 
 export async function DELETE(
   _request: Request,
@@ -23,6 +23,17 @@ export async function DELETE(
   if (periodShiftIds.size > 0) {
     const schedule = await getSchedule()
     if (schedule) {
+      // Archive completed assignments before wiping them from the schedule
+      const shiftMap = Object.fromEntries(allShifts.map((s) => [s.id, s]))
+      const toArchive = schedule.publishedAssignments
+        .filter((a) => periodShiftIds.has(a.shiftId) && a.residentName)
+        .map((a) => {
+          const shift = shiftMap[a.shiftId]
+          return { shiftId: a.shiftId, residentName: a.residentName!, date: shift?.date ?? '', clinic: shift?.clinic ?? '' }
+        })
+        .filter((r) => r.date && r.clinic)
+      if (toArchive.length > 0) await upsertShiftHistory(toArchive)
+
       await setSchedule({
         ...schedule,
         assignments: schedule.assignments.filter((a) => !periodShiftIds.has(a.shiftId)),
