@@ -1888,72 +1888,54 @@ export default function AdminPage() {
                 const isEditing = editingContactEntity === entity
                 return (
                   <div key={entity} className="px-5 py-4">
-                    <div className="flex items-start justify-between gap-4 mb-2">
-                      <span className="text-sm font-medium text-slate-800">{ENTITY_DISPLAY[entity]}</span>
-                      {!isEditing && (
-                        <button
-                          onClick={() => {
-                            setEditingContactEntity(entity)
-                            setContactSaveError('')
-                            setContactEdit({
-                              contactName: rec?.contactName ?? '',
-                              org: rec?.org ?? '',
-                              address: rec?.address ?? '',
-                              email: rec?.email ?? '',
-                            })
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0"
-                        >
-                          Edit
-                        </button>
-                      )}
-                    </div>
-
                     {isEditing ? (
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">Contact person</label>
-                            <input
-                              value={contactEdit.contactName}
-                              onChange={(e) => setContactEdit((p) => ({ ...p, contactName: e.target.value }))}
-                              placeholder="e.g. Jane Smith"
-                              className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                            />
+                      <>
+                        <div className="text-sm font-medium text-slate-800 mb-3">{ENTITY_DISPLAY[entity]}</div>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">Contact person</label>
+                              <input
+                                value={contactEdit.contactName}
+                                onChange={(e) => setContactEdit((p) => ({ ...p, contactName: e.target.value }))}
+                                placeholder="e.g. Jane Smith"
+                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">Organization</label>
+                              <input
+                                value={contactEdit.org}
+                                onChange={(e) => setContactEdit((p) => ({ ...p, org: e.target.value }))}
+                                placeholder="e.g. BCCA Diagnostic Imaging"
+                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                              />
+                            </div>
                           </div>
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">Organization</label>
-                            <input
-                              value={contactEdit.org}
-                              onChange={(e) => setContactEdit((p) => ({ ...p, org: e.target.value }))}
-                              placeholder="e.g. BCCA Diagnostic Imaging"
-                              className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                            />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">Address</label>
+                              <textarea
+                                value={contactEdit.address}
+                                onChange={(e) => setContactEdit((p) => ({ ...p, address: e.target.value }))}
+                                rows={2}
+                                placeholder={'600 W 10th Ave\nVancouver BC  V5Z 4E6'}
+                                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">Email (optional)</label>
+                              <input
+                                value={contactEdit.email}
+                                onChange={(e) => setContactEdit((p) => ({ ...p, email: e.target.value }))}
+                                placeholder="billing@example.com"
+                                type="email"
+                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                              />
+                            </div>
                           </div>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">Address</label>
-                            <textarea
-                              value={contactEdit.address}
-                              onChange={(e) => setContactEdit((p) => ({ ...p, address: e.target.value }))}
-                              rows={2}
-                              placeholder={'600 W 10th Ave\nVancouver BC  V5Z 4E6'}
-                              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">Email (optional)</label>
-                            <input
-                              value={contactEdit.email}
-                              onChange={(e) => setContactEdit((p) => ({ ...p, email: e.target.value }))}
-                              placeholder="billing@example.com"
-                              type="email"
-                              className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 mt-3">
                           <button
                             disabled={savingContact}
                             onClick={async () => {
@@ -1989,14 +1971,32 @@ export default function AdminPage() {
                           </button>
                           {contactSaveError && <span className="text-xs text-red-500">{contactSaveError}</span>}
                         </div>
-                      </div>
+                      </>
                     ) : (
-                      <div className="text-xs text-slate-500 space-y-0.5">
-                        {rec?.contactName && <div className="font-medium text-slate-700">{rec.contactName}</div>}
-                        {rec?.org && <div>{rec.org}</div>}
-                        {rec?.address && rec.address.split('\n').map((l, i) => <div key={i}>{l}</div>)}
-                        {rec?.email && <div>{rec.email}</div>}
-                        {!rec && <div className="text-slate-300">No contact configured</div>}
+                      <div className="flex items-start gap-4">
+                        <span className="text-sm font-medium text-slate-800 shrink-0 w-28">{ENTITY_DISPLAY[entity]}</span>
+                        <div className="flex-1 min-w-0 text-xs text-slate-500 space-y-0.5">
+                          {rec?.contactName && <div className="font-medium text-slate-700">{rec.contactName}</div>}
+                          {rec?.org && <div>{rec.org}</div>}
+                          {rec?.address && rec.address.split('\n').map((l, i) => <div key={i}>{l}</div>)}
+                          {rec?.email && <div>{rec.email}</div>}
+                          {!rec && <div className="text-slate-300">No contact configured</div>}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setEditingContactEntity(entity)
+                            setContactSaveError('')
+                            setContactEdit({
+                              contactName: rec?.contactName ?? '',
+                              org: rec?.org ?? '',
+                              address: rec?.address ?? '',
+                              email: rec?.email ?? '',
+                            })
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0"
+                        >
+                          Edit
+                        </button>
                       </div>
                     )}
                   </div>
