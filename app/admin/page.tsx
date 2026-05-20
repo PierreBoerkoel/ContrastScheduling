@@ -55,6 +55,88 @@ function datesInRange(start: string, end: string): string[] {
   return dates
 }
 
+function parseTimeInput(raw: string): string | null {
+  const s = raw.trim().toLowerCase().replace(/\s+/g, '')
+  if (!s) return null
+
+  let ampm: 'am' | 'pm' | null = null
+  let digits = s
+  if (s.endsWith('am')) { ampm = 'am'; digits = s.slice(0, -2) }
+  else if (s.endsWith('pm')) { ampm = 'pm'; digits = s.slice(0, -2) }
+  else if (s.endsWith('a')) { ampm = 'am'; digits = s.slice(0, -1) }
+  else if (s.endsWith('p')) { ampm = 'pm'; digits = s.slice(0, -1) }
+
+  digits = digits.replace(':', '')
+  if (!/^\d{1,4}$/.test(digits)) return null
+
+  let h: number, m: number
+  if (digits.length <= 2) {
+    h = parseInt(digits, 10); m = 0
+  } else if (digits.length === 3) {
+    h = parseInt(digits.slice(0, 1), 10); m = parseInt(digits.slice(1), 10)
+  } else {
+    h = parseInt(digits.slice(0, 2), 10); m = parseInt(digits.slice(2), 10)
+  }
+
+  if (m < 0 || m > 59 || h < 0) return null
+  if (ampm === 'am') {
+    if (h === 12) h = 0
+    if (h > 12) return null
+  } else if (ampm === 'pm') {
+    if (h !== 12) h += 12
+    if (h > 23) return null
+  } else {
+    if (h > 23) return null
+  }
+
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+function formatTimeValue(hhmm: string): string {
+  if (!hhmm) return ''
+  const [h, m] = hhmm.split(':').map(Number)
+  const ampm = h < 12 ? 'AM' : 'PM'
+  const hour = h % 12 || 12
+  return m === 0 ? `${hour} ${ampm}` : `${hour}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
+function TimeInput({ value, onChange, className }: {
+  value: string
+  onChange: (hhmm: string) => void
+  className?: string
+}) {
+  const [raw, setRaw] = useState(() => formatTimeValue(value))
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    setRaw(formatTimeValue(value))
+    setError(false)
+  }, [value])
+
+  function handleBlur() {
+    if (!raw.trim()) { onChange(''); setError(false); return }
+    const parsed = parseTimeInput(raw)
+    if (parsed) {
+      setRaw(formatTimeValue(parsed))
+      onChange(parsed)
+      setError(false)
+    } else {
+      setError(true)
+    }
+  }
+
+  return (
+    <input
+      type="text"
+      value={raw}
+      onChange={(e) => { setRaw(e.target.value); setError(false) }}
+      onBlur={handleBlur}
+      placeholder="e.g. 8am"
+      className={`border rounded focus:outline-none focus:ring-1 ${error ? 'border-red-400 focus:ring-red-400' : 'border-slate-200 focus:ring-blue-400'} ${className ?? ''}`}
+    />
+  )
+}
+
 export default function AdminPage() {
   const { user, isLoaded } = useUser()
   const isAdmin = user?.publicMetadata?.role === 'admin'
@@ -589,17 +671,15 @@ export default function AdminPage() {
                                   />
                                   {active && (
                                     <div className="flex flex-col gap-0.5">
-                                      <input
-                                        type="time"
+                                      <TimeInput
                                         value={times?.startTime ?? ''}
-                                        onChange={(e) => setTime(date, clinic, 'startTime', e.target.value)}
-                                        className="w-24 text-xs border border-slate-200 rounded px-1 py-0.5 text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                        onChange={(v) => setTime(date, clinic, 'startTime', v)}
+                                        className="w-24 text-xs px-1 py-0.5 text-slate-600"
                                       />
-                                      <input
-                                        type="time"
+                                      <TimeInput
                                         value={times?.endTime ?? ''}
-                                        onChange={(e) => setTime(date, clinic, 'endTime', e.target.value)}
-                                        className="w-24 text-xs border border-slate-200 rounded px-1 py-0.5 text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                        onChange={(v) => setTime(date, clinic, 'endTime', v)}
+                                        className="w-24 text-xs px-1 py-0.5 text-slate-600"
                                       />
                                     </div>
                                   )}
@@ -920,17 +1000,15 @@ export default function AdminPage() {
                                   return (
                                     <td key={clinic} className="px-4 py-3">
                                       <div className="space-y-1">
-                                        <input
-                                          type="time"
+                                        <TimeInput
                                           value={addCellTimes.startTime}
-                                          onChange={(e) => setAddCellTimes((p) => ({ ...p, startTime: e.target.value }))}
-                                          className="w-full text-xs border border-slate-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                          onChange={(v) => setAddCellTimes((p) => ({ ...p, startTime: v }))}
+                                          className="w-full text-xs px-1.5 py-0.5"
                                         />
-                                        <input
-                                          type="time"
+                                        <TimeInput
                                           value={addCellTimes.endTime}
-                                          onChange={(e) => setAddCellTimes((p) => ({ ...p, endTime: e.target.value }))}
-                                          className="w-full text-xs border border-slate-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                          onChange={(v) => setAddCellTimes((p) => ({ ...p, endTime: v }))}
+                                          className="w-full text-xs px-1.5 py-0.5"
                                         />
                                         <div className="flex gap-2 pt-0.5">
                                           <button
@@ -1030,17 +1108,15 @@ export default function AdminPage() {
                                   </div>
                                   {editingTimesShiftId === shift.id ? (
                                     <div onClick={(e) => e.stopPropagation()} className="space-y-1">
-                                      <input
-                                        type="time"
+                                      <TimeInput
                                         value={timesEdit.startTime}
-                                        onChange={(e) => setTimesEdit((p) => ({ ...p, startTime: e.target.value }))}
-                                        className="w-full text-xs border border-slate-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                        onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))}
+                                        className="w-full text-xs px-1.5 py-0.5"
                                       />
-                                      <input
-                                        type="time"
+                                      <TimeInput
                                         value={timesEdit.endTime}
-                                        onChange={(e) => setTimesEdit((p) => ({ ...p, endTime: e.target.value }))}
-                                        className="w-full text-xs border border-slate-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                        onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))}
+                                        className="w-full text-xs px-1.5 py-0.5"
                                       />
                                       <div className="flex gap-2 pt-0.5">
                                         <button
