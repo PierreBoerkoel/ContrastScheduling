@@ -133,6 +133,8 @@ export default function SchedulePage() {
   const effectivePeriodId = selectedPeriodId ?? upcomingPeriods[0]?.id ?? null
   const selectedPeriod = upcomingPeriods.find((p) => p.id === effectivePeriodId) ?? null
 
+  const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
+
   const filteredPublished = upcomingPeriods.length > 0 && selectedPeriod
     ? published.filter((a) => {
         const date = shiftById[a.shiftId]?.date ?? a.shiftId.split('|')[0]
@@ -142,8 +144,6 @@ export default function SchedulePage() {
 
   const assignmentMap: Record<string, string | null> = {}
   for (const a of filteredPublished) assignmentMap[a.shiftId] = a.residentName
-
-  const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
 
   const myAssignedDates = new Set(
     filteredPublished
