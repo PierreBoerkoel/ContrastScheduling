@@ -880,7 +880,7 @@ export default function AdminPage() {
                   <span className="text-xs text-slate-400">
                     Click a cell to reassign. Use Edit / Remove to update times or delete a shift.
                     {blockIsPublished && (
-                      <span className="ml-1 text-green-600 font-medium">Changes to shifts are live immediately — no regeneration or republication needed.</span>
+                      <span className="ml-1 text-slate-500">Publish after making any changes to update what residents see.</span>
                     )}
                   </span>
                   <span className="text-xs text-slate-400 shrink-0">
