@@ -158,6 +158,7 @@ export default function ProfilePage() {
   const [contactError, setContactError] = useState('')
 
   const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false)
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set())
 
   // Re-render every 60 s so isShiftEnded() stays current without a page refresh
   const [, forceUpdate] = useState(0)
@@ -311,6 +312,33 @@ export default function ProfilePage() {
     completedMap.set(`${s.id}::${s.startTime ?? ''}`, s)
   }
   const completed: Shift[] = [...completedMap.values()].sort((a, b) => b.date.localeCompare(a.date))
+
+  // Group completed shifts by month for collapsible display (used when >= 10 shifts)
+  const completedByMonth: { key: string; label: string; shifts: Shift[] }[] = []
+  for (const s of completed) {
+    const key = s.date.slice(0, 7)
+    const last = completedByMonth[completedByMonth.length - 1]
+    if (last?.key === key) {
+      last.shifts.push(s)
+    } else {
+      const [y, m] = key.split('-').map(Number)
+      const label = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-CA', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+      completedByMonth.push({ key, label, shifts: [s] })
+    }
+  }
+  const mostRecentMonthKey = completedByMonth[0]?.key ?? ''
+  function toggleMonth(key: string) {
+    setExpandedMonths((prev) => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+  function isMonthExpanded(key: string) {
+    if (expandedMonths.has(key)) return true
+    if (expandedMonths.size === 0 && key === mostRecentMonthKey) return true
+    return false
+  }
 
   // Contact info for invoice generation (stored in Clerk unsafeMetadata)
   const meta = user?.unsafeMetadata as { address?: string; phone?: string; email?: string } | undefined
@@ -670,7 +698,7 @@ export default function ProfilePage() {
 
             {completed.length === 0 ? (
               <p className="p-5 text-sm text-slate-400">No completed shifts yet.</p>
-            ) : (
+            ) : completed.length < 10 ? (
               <div className="divide-y divide-slate-100">
                 {completed.map((s) => (
                   <div key={`${s.id}::${s.startTime}`} className="px-5 py-3 flex items-center justify-between">
@@ -685,6 +713,48 @@ export default function ProfilePage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {completedByMonth.map(({ key, label, shifts: monthShifts }) => {
+                  const expanded = isMonthExpanded(key)
+                  return (
+                    <div key={key}>
+                      <button
+                        onClick={() => toggleMonth(key)}
+                        className="w-full px-5 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors"
+                      >
+                        <span className="text-sm font-medium text-slate-600">{label}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">{monthShifts.length} shift{monthShifts.length !== 1 ? 's' : ''}</span>
+                          <svg
+                            className={`w-4 h-4 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                      </button>
+                      {expanded && (
+                        <div className="divide-y divide-slate-100 bg-slate-50/50">
+                          {monthShifts.map((s) => (
+                            <div key={`${s.id}::${s.startTime}`} className="px-5 py-3 flex items-center justify-between">
+                              <span className="text-sm text-slate-500">{formatDateLong(s.date)}</span>
+                              <div className="text-right">
+                                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                                  {clinicAbbr(s.clinic)}
+                                </span>
+                                {formatTimeRange(s.startTime, s.endTime) && (
+                                  <div className="text-xs text-slate-400 mt-0.5">{formatTimeRange(s.startTime, s.endTime)}</div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
