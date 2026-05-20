@@ -69,6 +69,7 @@ export default function AdminPage() {
   const [shiftTimes, setShiftTimes] = useState<Record<string, Partial<Record<ClinicName, { startTime: string; endTime: string }>>>>({})
   const [savingShifts, setSavingShifts] = useState(false)
   const [shiftsSaved, setShiftsSaved] = useState(false)
+  const [savedAt, setSavedAt] = useState<Date | null>(null)
   const [saveError, setSaveError] = useState('')
   const skipNextAutoInit = useRef(false)
 
@@ -241,6 +242,7 @@ export default function AdminPage() {
     } else {
       await fetchData()
       setShiftsSaved(true)
+      setSavedAt(new Date())
     }
     setSavingShifts(false)
   }
@@ -610,20 +612,22 @@ export default function AdminPage() {
                     </tbody>
                   </table>
                 </div>
-                <div className="mt-4 flex items-center gap-3">
-                  <button
-                    onClick={saveShifts}
-                    disabled={savingShifts}
-                    className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                  >
-                    {savingShifts ? 'Saving…' : `Save ${selectedBlock}`}
-                  </button>
-                  {shiftsSaved && (
-                    <span className="text-sm text-green-600">
-                      {selectedBlock} saved! Share <span className="font-mono bg-green-50 px-1 rounded">/availability</span> with residents.
+                <div className="mt-4 flex flex-col gap-1.5">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={saveShifts}
+                      disabled={savingShifts}
+                      className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                    >
+                      {savingShifts ? 'Saving…' : `Save ${selectedBlock}`}
+                    </button>
+                    {saveError && <span className="text-sm text-red-500">{saveError}</span>}
+                  </div>
+                  {savedAt && (
+                    <span className="text-xs text-slate-400">
+                      Last saved at {savedAt.toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit', hour12: true })}
                     </span>
                   )}
-                  {saveError && <span className="text-sm text-red-500">{saveError}</span>}
                 </div>
               </>
             )}
