@@ -66,8 +66,8 @@ const PAGE_H = 792   // Letter height in pt
 const MARGIN = mm(20)
 const CONTENT_W = PAGE_W - 2 * MARGIN
 
-// Column widths for services table (must sum to CONTENT_W ≈ 572)
-const COL_W = [170, 110, 150, 44, 52, 52]  // Date | Time | Description | Hrs | Rate | Amount
+// Column widths for services table (must sum to CONTENT_W ≈ 498)
+const COL_W = [124, 90, 144, 40, 50, 50]  // Date | Time | Description | Hrs | Rate | Amount
 const COL_LABELS = ['Date', 'Time', 'Description', 'Hours', 'Rate', 'Amount']
 const COL_ALIGN: Array<'left' | 'right' | 'center'> = ['left', 'left', 'left', 'right', 'right', 'right']
 
