@@ -191,8 +191,6 @@ export default function AdminPage() {
   const [addCellError, setAddCellError] = useState('')
   const [addingCell, setAddingCell] = useState(false)
 
-  // Flash confirmation after live shift edits
-  const [shiftChangedAt, setShiftChangedAt] = useState<Date | null>(null)
 
   const fetchData = useCallback(async () => {
     const safe = (p: Promise<Response>) => p.then((r) => r.json()).catch(() => null)
@@ -396,7 +394,6 @@ export default function AdminPage() {
         }),
       })
       setAddingShiftCell(null)
-      setShiftChangedAt(new Date())
       await fetchData()
     } finally {
       setAddingCell(false)
@@ -417,7 +414,6 @@ export default function AdminPage() {
         body: JSON.stringify({ shiftId, startTime: timesEdit.startTime || null, endTime: timesEdit.endTime || null }),
       })
       setEditingTimesShiftId(null)
-      setShiftChangedAt(new Date())
       await fetchData()
     } finally {
       setSavingTimes(false)
@@ -431,7 +427,6 @@ export default function AdminPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ shiftId }),
     })
-    setShiftChangedAt(new Date())
     await fetchData()
   }
 
@@ -988,11 +983,9 @@ export default function AdminPage() {
                     )}
                   </span>
                   <span className="text-xs text-slate-400 shrink-0">
-                    {shiftChangedAt
-                      ? <span className="text-green-600">Last updated: {formatDateTime(shiftChangedAt.toISOString())}</span>
-                      : schedule?.updatedAt
-                      ? <span>Last updated: {formatDateTime(schedule.updatedAt)}</span>
-                      : null}
+                    {schedPeriod?.publishedAt
+                      ? <span>Last published: {formatDateTime(schedPeriod.publishedAt)}</span>
+                      : <span className="text-amber-500">Not yet published</span>}
                   </span>
                 </div>
                 <div className="overflow-x-auto">
