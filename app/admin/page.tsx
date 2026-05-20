@@ -878,8 +878,11 @@ export default function AdminPage() {
           </div>
 
           {/* ── Configure block ── */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <h2 className="text-base font-semibold text-slate-700 mb-4">Configure Block</h2>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+              <h2 className="text-sm font-semibold text-slate-700">Configure Block</h2>
+            </div>
+            <div className="p-6">
             <div className="flex gap-4 mb-6 flex-wrap items-end">
               <label className="flex flex-col gap-1 text-sm text-slate-600">
                 Block
@@ -1014,12 +1017,16 @@ export default function AdminPage() {
                 </div>
               </>
             )}
+            </div>
           </div>
 
           {/* ── Configured blocks list ── */}
           {periods.length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-              <h2 className="text-base font-semibold text-slate-700 mb-4">Configured Blocks</h2>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+                <h2 className="text-sm font-semibold text-slate-700">Configured Blocks</h2>
+              </div>
+              <div className="p-6">
               <div className="space-y-2">
                 {periods
                   .slice()
@@ -1060,6 +1067,7 @@ export default function AdminPage() {
                       </div>
                     )
                   })}
+              </div>
               </div>
             </div>
           )}
