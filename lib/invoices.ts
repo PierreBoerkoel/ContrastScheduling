@@ -59,7 +59,7 @@ export const BILLING_CONTACTS: Record<BillingEntity, BillingContact> = {
 
 export const SERIES_DIGITS: Record<BillingEntity, number> = {
   MRCT: 3,
-  PET: 4,
+  PET: 3,
   UBCMR: 3,
   BCWHMR: 3,
 }

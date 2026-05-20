@@ -80,8 +80,10 @@ export interface AvailabilitySubmission {
 export interface ShiftAssignment {
   shiftId: string
   residentName: string | null
-  date?: string    // present on history records fetched from shift_history table
-  clinic?: string  // present on history records fetched from shift_history table
+  date?: string       // present on history records fetched from shift_history table
+  clinic?: string     // present on history records fetched from shift_history table
+  startTime?: string  // present on history records fetched from shift_history table
+  endTime?: string    // present on history records fetched from shift_history table
 }
 
 export interface Schedule {

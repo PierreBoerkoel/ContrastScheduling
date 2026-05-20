@@ -100,9 +100,13 @@ export async function initDb(): Promise<void> {
       shift_id      TEXT PRIMARY KEY,
       date          TEXT NOT NULL,
       clinic        TEXT NOT NULL,
-      resident_name TEXT NOT NULL
+      resident_name TEXT NOT NULL,
+      start_time    TEXT,
+      end_time      TEXT
     )
   `
+  await sql`ALTER TABLE shift_history ADD COLUMN IF NOT EXISTS start_time TEXT`
+  await sql`ALTER TABLE shift_history ADD COLUMN IF NOT EXISTS end_time TEXT`
   await sql`
     CREATE TABLE IF NOT EXISTS invoice_sequences (
       resident_name TEXT NOT NULL,
@@ -344,22 +348,32 @@ export async function addSwapRequest(
 // ── Shift history (permanent record, survives block deletion) ─────────────────
 
 export async function upsertShiftHistory(
-  records: Array<{ shiftId: string; residentName: string; date: string; clinic: string }>
+  records: Array<{ shiftId: string; residentName: string; date: string; clinic: string; startTime?: string | null; endTime?: string | null }>
 ): Promise<void> {
   await ensureDb()
   for (const r of records) {
     await sql`
-      INSERT INTO shift_history (shift_id, date, clinic, resident_name)
-      VALUES (${r.shiftId}, ${r.date}, ${r.clinic}, ${r.residentName})
-      ON CONFLICT (shift_id) DO UPDATE SET resident_name = EXCLUDED.resident_name
+      INSERT INTO shift_history (shift_id, date, clinic, resident_name, start_time, end_time)
+      VALUES (${r.shiftId}, ${r.date}, ${r.clinic}, ${r.residentName}, ${r.startTime ?? null}, ${r.endTime ?? null})
+      ON CONFLICT (shift_id) DO UPDATE SET
+        resident_name = EXCLUDED.resident_name,
+        start_time = EXCLUDED.start_time,
+        end_time = EXCLUDED.end_time
     `
   }
 }
 
 export async function getShiftHistory(): Promise<ShiftAssignment[]> {
   await ensureDb()
-  const { rows } = await sql`SELECT shift_id, date, clinic, resident_name FROM shift_history ORDER BY date DESC`
-  return rows.map((r) => ({ shiftId: r.shift_id, residentName: r.resident_name, date: r.date as string, clinic: r.clinic as string }))
+  const { rows } = await sql`SELECT shift_id, date, clinic, resident_name, start_time, end_time FROM shift_history ORDER BY date DESC`
+  return rows.map((r) => ({
+    shiftId: r.shift_id as string,
+    residentName: r.resident_name as string,
+    date: r.date as string,
+    clinic: r.clinic as string,
+    startTime: r.start_time as string | null ?? undefined,
+    endTime: r.end_time as string | null ?? undefined,
+  }))
 }
 
 // ── Shift splits ──────────────────────────────────────────────────────────────

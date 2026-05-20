@@ -30,7 +30,7 @@ export async function DELETE(
         .filter((a) => periodShiftIds.has(a.shiftId) && a.residentName && (shiftMap[a.shiftId]?.date ?? '') < today)
         .map((a) => {
           const shift = shiftMap[a.shiftId]
-          return { shiftId: a.shiftId, residentName: a.residentName!, date: shift?.date ?? '', clinic: shift?.clinic ?? '' }
+          return { shiftId: a.shiftId, residentName: a.residentName!, date: shift?.date ?? '', clinic: shift?.clinic ?? '', startTime: shift?.startTime, endTime: shift?.endTime }
         })
         .filter((r) => r.date && r.clinic)
       if (toArchive.length > 0) await upsertShiftHistory(toArchive)

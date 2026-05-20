@@ -245,7 +245,7 @@ export default function ProfilePage() {
 
   function assignmentToShift(a: ShiftAssignment): Shift {
     if (shiftById[a.shiftId]) return shiftById[a.shiftId]
-    if (a.date && a.clinic) return { id: a.shiftId, date: a.date, clinic: a.clinic as ClinicName } as Shift
+    if (a.date && a.clinic) return { id: a.shiftId, date: a.date, clinic: a.clinic as ClinicName, startTime: a.startTime, endTime: a.endTime } as Shift
     const [date, ...parts] = a.shiftId.split('|')
     return { id: a.shiftId, date, clinic: parts.join('|') } as Shift
   }
