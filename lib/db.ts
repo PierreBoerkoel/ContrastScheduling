@@ -1,5 +1,6 @@
 import { sql, db } from '@vercel/postgres'
 import type { Shift, AvailabilitySubmission, Schedule, SwapRequest, ShiftAssignment, SchedulingPeriod, ShiftSplit, ClinicDefault } from './types'
+import type { BillingContactRecord } from './invoices'
 
 // Run migrations once per Lambda cold-start; all DDL uses IF NOT EXISTS so it is safe to re-run.
 let _ready: Promise<void> | null = null
@@ -171,6 +172,29 @@ export async function initDb(): Promise<void> {
   ]
   for (const [key, value] of defaults) {
     await sql`INSERT INTO billing_rates (key, value) VALUES (${key}, ${value}) ON CONFLICT (key) DO NOTHING`
+  }
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS billing_contacts (
+      entity       TEXT PRIMARY KEY,
+      contact_name TEXT NOT NULL DEFAULT '',
+      org          TEXT NOT NULL DEFAULT '',
+      address      TEXT NOT NULL DEFAULT '',
+      email        TEXT
+    )
+  `
+  const contactSeeds: Array<[string, string, string, string, string | null]> = [
+    ['MRCT',   'Danielle Florendo', 'BCCA Diagnostic Imaging',            '600 W 10th Ave\nVancouver BC  V5Z 4E6', null],
+    ['PET',    'Chris Raiwe',       'BCCA Molecular Imaging and Therapy', '600 W 10th Ave\nVancouver BC  V5Z 4E6', null],
+    ['UBCMR',  '',                  'Vancouver Imaging',                  '450-943 West Broadway\nVancouver BC  V5Z 4E1', 'finance@vancouverimaging.com'],
+    ['BCWHMR', 'Rahul Jain',        'BCW Diagnostic Imaging',             '4500 Oak St.\nVancouver BC  V6H3N1', null],
+  ]
+  for (const [entity, name, org, address, email] of contactSeeds) {
+    await sql`
+      INSERT INTO billing_contacts (entity, contact_name, org, address, email)
+      VALUES (${entity}, ${name}, ${org}, ${address}, ${email})
+      ON CONFLICT (entity) DO NOTHING
+    `
   }
 }
 
@@ -569,6 +593,33 @@ export async function setClinicDefault(
       weekday_end   = ${data.weekdayEnd},
       weekend_start = ${data.weekendStart},
       weekend_end   = ${data.weekendEnd}
+  `
+}
+
+// ── Billing contacts ──────────────────────────────────────────────────────────
+
+export async function getBillingContacts(): Promise<BillingContactRecord[]> {
+  await ensureDb()
+  const { rows } = await sql`SELECT entity, contact_name, org, address, email FROM billing_contacts ORDER BY entity`
+  return rows.map((r) => ({
+    entity: r.entity as string,
+    contactName: (r.contact_name as string) ?? '',
+    org: (r.org as string) ?? '',
+    address: (r.address as string) ?? '',
+    email: (r.email as string | null) ?? null,
+  }))
+}
+
+export async function setBillingContact(entity: string, data: Omit<BillingContactRecord, 'entity'>): Promise<void> {
+  await ensureDb()
+  await sql`
+    INSERT INTO billing_contacts (entity, contact_name, org, address, email)
+    VALUES (${entity}, ${data.contactName}, ${data.org}, ${data.address}, ${data.email})
+    ON CONFLICT (entity) DO UPDATE SET
+      contact_name = ${data.contactName},
+      org          = ${data.org},
+      address      = ${data.address},
+      email        = ${data.email}
   `
 }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { setInvoiceSequence, addInvoiceHistory, getBillingRates } from '@/lib/db'
+import { setInvoiceSequence, addInvoiceHistory, getBillingRates, getBillingContacts } from '@/lib/db'
 import { calculateLineItems, ratesToBillingRates } from '@/lib/invoices'
 import { buildInvoiceDocx } from '@/lib/docx-invoice'
 import { buildInvoicePdf } from '@/lib/pdf-invoice'
@@ -33,8 +33,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
-  const rawRates = await getBillingRates()
+  const [rawRates, contacts] = await Promise.all([getBillingRates(), getBillingContacts()])
   const rates = ratesToBillingRates(rawRates)
+  const contactRow = contacts.find((c) => c.entity === entity)
+  const contact = contactRow
+    ? { name: contactRow.contactName, org: contactRow.org, address: contactRow.address, email: contactRow.email ?? undefined }
+    : undefined
 
   const allLineItems: BillingLineItem[] = shifts.flatMap((shift) => {
     const items = [...calculateLineItems(shift, modes[shift.shiftId] ?? null, rates)[entity]]
@@ -66,7 +70,7 @@ export async function POST(request: Request) {
     await setInvoiceSequence(residentName, entity, parseInt(trailingDigits[1]) + 1)
   }
 
-  const invoiceOpts = { entity, invoiceNumber, invoiceDate, from, lineItems: allLineItems }
+  const invoiceOpts = { entity, invoiceNumber, invoiceDate, contact, from, lineItems: allLineItems }
   const isPdf = format !== 'docx'
   const buffer = isPdf
     ? await buildInvoicePdf(invoiceOpts)

@@ -147,7 +147,7 @@ function drawTableRow(page: PDFPage, y: number, item: BillingLineItem, rowIndex:
 // ── Main builder ──────────────────────────────────────────────────────────────
 
 export async function buildInvoicePdf(opts: InvoiceDocOptions): Promise<Buffer> {
-  const contact: BillingContact = BILLING_CONTACTS[opts.entity]
+  const contact: BillingContact = opts.contact ?? BILLING_CONTACTS[opts.entity]
   const total = opts.lineItems.reduce((s, l) => s + l.amount, 0)
 
   const pdfDoc = await PDFDocument.create()

@@ -65,6 +65,14 @@ export interface BillingContact {
   email?: string
 }
 
+export interface BillingContactRecord {
+  entity: string
+  contactName: string
+  org: string
+  address: string
+  email: string | null
+}
+
 export const BILLING_CONTACTS: Record<BillingEntity, BillingContact> = {
   MRCT: {
     name: 'Danielle Florendo',

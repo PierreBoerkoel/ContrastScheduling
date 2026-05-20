@@ -18,6 +18,7 @@ export interface InvoiceDocOptions {
   entity: BillingEntity
   invoiceNumber: string
   invoiceDate: string      // YYYY-MM-DD
+  contact?: BillingContact // overrides hardcoded BILLING_CONTACTS default
   from: {
     name: string
     address: string
@@ -134,7 +135,7 @@ function emptyPara(after = 200): Paragraph {
 // ── Main builder ──────────────────────────────────────────────────────────────
 
 export async function buildInvoiceDocx(opts: InvoiceDocOptions): Promise<Buffer> {
-  const contact: BillingContact = BILLING_CONTACTS[opts.entity]
+  const contact: BillingContact = opts.contact ?? BILLING_CONTACTS[opts.entity]
   const total = opts.lineItems.reduce((s, l) => s + l.amount, 0)
 
   const toLines = [
