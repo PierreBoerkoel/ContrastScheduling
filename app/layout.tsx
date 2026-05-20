@@ -23,24 +23,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="en" className={`${geist.variable} h-full`}>
         <body className="min-h-full flex flex-col bg-slate-50 font-sans antialiased">
           <header className="bg-white border-b border-slate-200 shadow-sm">
-            <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-              <Link href="/" className="text-lg font-semibold text-slate-800 hover:text-blue-600 transition-colors">
-                Contrast Call Scheduling
+            <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+              <Link href="/" className="font-semibold text-slate-800 hover:text-blue-600 transition-colors shrink-0 text-base sm:text-lg">
+                <span className="sm:hidden">Contrast Scheduling</span>
+                <span className="hidden sm:inline">Contrast Call Scheduling</span>
               </Link>
-              <nav className="flex items-center gap-6 text-sm font-medium">
+              <nav className="flex items-center gap-3 sm:gap-6 text-sm font-medium">
                 <Show when="signed-in">
-                  <Link href="/profile" className="text-slate-600 hover:text-blue-600 transition-colors">
+                  <Link href="/profile" className="hidden sm:block text-slate-600 hover:text-blue-600 transition-colors">
                     My Profile
                   </Link>
-                  <Link href="/availability" className="text-slate-600 hover:text-blue-600 transition-colors">
+                  <Link href="/availability" className="hidden sm:block text-slate-600 hover:text-blue-600 transition-colors">
                     Submit Availability
                   </Link>
-                  <Link href="/schedule" className="text-slate-600 hover:text-blue-600 transition-colors">
+                  <Link href="/schedule" className="hidden sm:block text-slate-600 hover:text-blue-600 transition-colors">
                     View Schedule
                   </Link>
                   <Link
                     href="/admin"
-                    className="bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700 transition-colors"
+                    className="hidden sm:block bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700 transition-colors"
                   >
                     Admin
                   </Link>
@@ -55,6 +56,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </Show>
               </nav>
             </div>
+            {/* Mobile sub-nav strip */}
+            <Show when="signed-in">
+              <div className="sm:hidden border-t border-slate-100">
+                <div className="flex px-2 py-1">
+                  <Link href="/profile" className="flex-1 text-center py-2 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition-colors">Profile</Link>
+                  <Link href="/availability" className="flex-1 text-center py-2 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition-colors">Availability</Link>
+                  <Link href="/schedule" className="flex-1 text-center py-2 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition-colors">Schedule</Link>
+                  <Link href="/admin" className="flex-1 text-center py-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors">Admin</Link>
+                </div>
+              </div>
+            </Show>
           </header>
           <main className="flex-1">
             <OnboardingGuard>{children}</OnboardingGuard>

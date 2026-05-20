@@ -135,7 +135,7 @@ export default function SchedulePage() {
 
   const filteredPublished = upcomingPeriods.length > 0 && selectedPeriod
     ? published.filter((a) => {
-        const date = a.shiftId.split('|')[0]
+        const date = shiftById[a.shiftId]?.date ?? a.shiftId.split('|')[0]
         return date >= selectedPeriod.startDate && date <= selectedPeriod.endDate
       })
     : published
@@ -148,7 +148,7 @@ export default function SchedulePage() {
   const myAssignedDates = new Set(
     filteredPublished
       .filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase())
-      .map((a) => a.shiftId.split('|')[0])
+      .map((a) => shiftById[a.shiftId]?.date ?? a.shiftId.split('|')[0])
   )
 
   // Splits indexed by shift ID
@@ -350,9 +350,11 @@ export default function SchedulePage() {
 
   const byDate: Record<string, Shift[]> = {}
   for (const a of filteredPublished) {
-    const [date, clinic] = a.shiftId.split('|')
-    const shift = shiftById[a.shiftId] ?? { id: a.shiftId, date, clinic: clinic as ClinicName }
-    ;(byDate[date] ??= []).push(shift)
+    const shift = shiftById[a.shiftId] ?? (() => {
+      const [date, clinic] = a.shiftId.split('|')
+      return { id: a.shiftId, date, clinic: clinic as ClinicName }
+    })()
+    ;(byDate[shift.date] ??= []).push(shift)
   }
   const sortedDates = Object.keys(byDate).sort()
 
@@ -383,6 +385,116 @@ export default function SchedulePage() {
 
   const pendingSwaps = swapRequests.filter((r) => r.status === 'pending')
   const pendingSplits = splits.filter((s) => s.status === 'pending')
+
+  // Renders the assignment content for a shift cell (used in both mobile cards and desktop table)
+  const renderShiftContent = (shift: Shift) => {
+    const resident = assignmentMap[shift.id]
+    const hasPendingSwap = pendingSwaps.some((r) => r.requestorShiftId === shift.id)
+    const shiftSplits = splitsByShift[shift.id] ?? []
+    const hasPendingSplitOffer = shiftSplits.some((s) => s.status === 'pending')
+    const isClaiming = claimingShiftId === shift.id
+    const shiftDate = shift.date
+    const alreadyOnDay = (myAssignedDates.has(shiftDate) && !myFullyGivenAwayDates.has(shiftDate)) || mySplitFullShiftDates.has(shiftDate)
+    const hasGivenAwayPortionOnDay = myName !== '' && splits.some(
+      (sp) => sp.status === 'accepted' && sp.offerorName.toLowerCase() === myName.toLowerCase() &&
+        (shiftById[sp.shiftId]?.date ?? sp.shiftId.split('|')[0]) === shiftDate
+    )
+    const hasOverlappingSplit = !!shift.startTime && !!shift.endTime && myName !== '' &&
+      splits.some(
+        (sp) => sp.status === 'accepted' && sp.acceptorName?.toLowerCase() === myName.toLowerCase() &&
+          (shiftById[sp.shiftId]?.date ?? sp.shiftId.split('|')[0]) === shiftDate &&
+          sp.shiftId !== shift.id &&
+          timeToMinutes(shift.startTime!) < timeToMinutes(sp.offeredEnd) &&
+          timeToMinutes(sp.offeredStart) < timeToMinutes(shift.endTime!)
+      )
+
+    if (resident) {
+      const segments = computeCoverageSegments(shift, resident, shiftSplits)
+      return (
+        <div className={segments.length > 1 ? 'space-y-1.5' : ''}>
+          {segments.map((seg, i) => (
+            <div key={i} className={segments.length > 1 ? 'border-b border-slate-100 last:border-0 pb-1.5 last:pb-0' : ''}>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-medium text-slate-800">{displayMap[seg.residentName] ?? seg.residentName}</span>
+                {hasPendingSwap && i === 0 && segments.length === 1 && (
+                  <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">offered</span>
+                )}
+              </div>
+              {seg.start && seg.end && (
+                <div className="text-xs text-slate-400 mt-0.5">{formatTimeRange(seg.start, seg.end)}</div>
+              )}
+            </div>
+          ))}
+          {hasPendingSplitOffer && (
+            <div className="text-xs text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full inline-block mt-0.5">portion offered</div>
+          )}
+        </div>
+      )
+    }
+
+    if (alreadyOnDay) {
+      if (daysUntil(shiftDate) <= 7) {
+        return <span className="text-xs text-slate-300">—</span>
+      }
+      if (hasGivenAwayPortionOnDay) {
+        return (
+          <button disabled className="text-xs font-medium border rounded px-2 py-0.5 cursor-not-allowed text-slate-300 border-slate-200">
+            Claim shift
+          </button>
+        )
+      }
+      if (pendingClaimShiftId === shift.id) {
+        return (
+          <div className="flex gap-1.5 items-center">
+            <button onClick={() => claimShift(shift.id, true)} disabled={claimingShiftId === shift.id}
+              className="text-xs font-medium bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700 disabled:opacity-40 transition-colors"
+            >
+              {claimingShiftId === shift.id ? 'Claiming…' : 'Confirm'}
+            </button>
+            <button onClick={() => setPendingClaimShiftId(null)} className="text-xs text-slate-500 hover:text-slate-700">Cancel</button>
+          </div>
+        )
+      }
+      return (
+        <button onClick={() => setPendingClaimShiftId(shift.id)}
+          className="text-xs font-medium border rounded px-2 py-0.5 transition-colors text-blue-600 border-blue-200 hover:text-blue-700 hover:border-blue-400"
+        >
+          Claim shift
+        </button>
+      )
+    }
+
+    if (isShiftStarted(shift)) return <span className="text-xs text-slate-300">—</span>
+
+    if (hasOverlappingSplit) {
+      return (
+        <button disabled className="text-xs font-medium border rounded px-2 py-0.5 cursor-not-allowed text-slate-300 border-slate-200">
+          Claim shift
+        </button>
+      )
+    }
+
+    if (pendingClaimShiftId === shift.id) {
+      return (
+        <div className="flex gap-1.5 items-center">
+          <button onClick={() => claimShift(shift.id)} disabled={isClaiming}
+            className="text-xs font-medium bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700 disabled:opacity-40 transition-colors"
+          >
+            {isClaiming ? 'Claiming…' : 'Confirm'}
+          </button>
+          <button onClick={() => setPendingClaimShiftId(null)} className="text-xs text-slate-500 hover:text-slate-700">Cancel</button>
+        </div>
+      )
+    }
+
+    return (
+      <button onClick={() => setPendingClaimShiftId(shift.id)}
+        className="text-xs font-medium border rounded px-2 py-0.5 transition-colors text-blue-600 border-blue-200 hover:text-blue-700 hover:border-blue-400"
+      >
+        Claim shift
+      </button>
+    )
+  }
 
   if (loading) {
     return <div className="max-w-4xl mx-auto px-4 py-16 text-slate-400 text-sm">Loading…</div>
@@ -488,8 +600,31 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {/* Schedule grid */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto overflow-y-auto max-h-[70vh]">
+      {/* Schedule grid — mobile: card-per-date; desktop: table */}
+      <div className="sm:hidden space-y-3">
+        {sortedDates.map((date) => (
+          <div key={date} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100">
+              <span className="text-sm font-semibold text-slate-700">{formatDate(date)}</span>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {byDate[date]?.map((shift) => (
+                <div key={shift.id} className="px-4 py-3">
+                  <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                    <span className="text-sm font-medium text-slate-700">{CLINIC_ABBR[shift.clinic] ?? shift.clinic}</span>
+                    {formatTimeRange(shift.startTime, shift.endTime) && (
+                      <span className="text-xs text-slate-400 shrink-0">{formatTimeRange(shift.startTime, shift.endTime)}</span>
+                    )}
+                  </div>
+                  {renderShiftContent(shift)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden sm:block bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto overflow-y-auto max-h-[70vh]">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-slate-100 bg-slate-50">
@@ -504,185 +639,11 @@ export default function SchedulePage() {
           <tbody>
             {sortedDates.map((date) => (
               <tr key={date} className="border-b border-slate-100 last:border-0">
-                <td className="px-4 py-3 font-medium text-slate-700 whitespace-nowrap">
-                  {formatDate(date)}
-                </td>
+                <td className="px-4 py-3 font-medium text-slate-700 whitespace-nowrap">{formatDate(date)}</td>
                 {CLINICS.map((clinic) => {
                   const shift = byDate[date]?.find((s) => s.clinic === clinic)
                   if (!shift) return <td key={clinic} className="px-4 py-3 text-slate-200">—</td>
-                  const resident = assignmentMap[shift.id]
-                  const hasPendingSwap = pendingSwaps.some((r) => r.requestorShiftId === shift.id)
-                  const shiftSplits = splitsByShift[shift.id] ?? []
-                  const hasPendingSplitOffer = shiftSplits.some((s) => s.status === 'pending')
-                  const isClaiming = claimingShiftId === shift.id
-                  const shiftDate = shift.id.split('|')[0]
-                  const alreadyOnDay = (myAssignedDates.has(shiftDate) && !myFullyGivenAwayDates.has(shiftDate)) || mySplitFullShiftDates.has(shiftDate)
-                  const hasGivenAwayPortionOnDay = myName !== '' && splits.some(
-                    (sp) =>
-                      sp.status === 'accepted' &&
-                      sp.offerorName.toLowerCase() === myName.toLowerCase() &&
-                      sp.shiftId.split('|')[0] === shiftDate
-                  )
-                  const hasOverlappingSplit =
-                    !!shift.startTime && !!shift.endTime && myName !== '' &&
-                    splits.some(
-                      (sp) =>
-                        sp.status === 'accepted' &&
-                        sp.acceptorName?.toLowerCase() === myName.toLowerCase() &&
-                        sp.shiftId.split('|')[0] === shiftDate &&
-                        sp.shiftId !== shift.id &&
-                        timeToMinutes(shift.startTime!) < timeToMinutes(sp.offeredEnd) &&
-                        timeToMinutes(sp.offeredStart) < timeToMinutes(shift.endTime!)
-                    )
-
-                  return (
-                    <td key={clinic} className="px-4 py-3">
-                      {resident ? (
-                        <div>
-                          {(() => {
-                            const segments = computeCoverageSegments(shift, resident, shiftSplits)
-                            return (
-                              <div className={segments.length > 1 ? 'space-y-1.5' : ''}>
-                                {segments.map((seg, i) => (
-                                  <div
-                                    key={i}
-                                    className={segments.length > 1 ? 'border-b border-slate-100 last:border-0 pb-1.5 last:pb-0' : ''}
-                                  >
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="font-medium text-slate-800">{displayMap[seg.residentName] ?? seg.residentName}</span>
-                                      {hasPendingSwap && i === 0 && segments.length === 1 && (
-                                        <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
-                                          offered
-                                        </span>
-                                      )}
-                                    </div>
-                                    {seg.start && seg.end && (
-                                      <div className="text-xs text-slate-400 mt-0.5">
-                                        {formatTimeRange(seg.start, seg.end)}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                                {hasPendingSplitOffer && (
-                                  <div className="text-xs text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full inline-block mt-0.5">
-                                    portion offered
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })()}
-                        </div>
-                      ) : alreadyOnDay ? (
-                        daysUntil(shiftDate) <= 7 ? (
-                          <div>
-                            <span className="text-xs text-slate-300">—</span>
-                            {formatTimeRange(shift.startTime, shift.endTime) && (
-                              <div className="text-xs text-slate-300 mt-0.5">
-                                {formatTimeRange(shift.startTime, shift.endTime)}
-                              </div>
-                            )}
-                          </div>
-                        ) : hasGivenAwayPortionOnDay ? (
-                          <div>
-                            <button
-                              disabled
-                              className="text-xs font-medium border rounded px-2 py-0.5 cursor-not-allowed text-slate-300 border-slate-200"
-                            >
-                              Claim shift
-                            </button>
-                            {formatTimeRange(shift.startTime, shift.endTime) && (
-                              <div className="text-xs text-slate-300 mt-0.5">
-                                {formatTimeRange(shift.startTime, shift.endTime)}
-                              </div>
-                            )}
-                          </div>
-                        ) : pendingClaimShiftId === shift.id ? (
-                          <div className="flex gap-1.5 items-center">
-                            <button
-                              onClick={() => claimShift(shift.id, true)}
-                              disabled={claimingShiftId === shift.id}
-                              className="text-xs font-medium bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                            >
-                              {claimingShiftId === shift.id ? 'Claiming…' : 'Confirm'}
-                            </button>
-                            <button
-                              onClick={() => setPendingClaimShiftId(null)}
-                              className="text-xs text-slate-500 hover:text-slate-700"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : (
-                          <div>
-                            <button
-                              onClick={() => setPendingClaimShiftId(shift.id)}
-                              className="text-xs font-medium border rounded px-2 py-0.5 transition-colors text-blue-600 border-blue-200 hover:text-blue-700 hover:border-blue-400"
-                            >
-                              Claim shift
-                            </button>
-                            {formatTimeRange(shift.startTime, shift.endTime) && (
-                              <div className="text-xs text-slate-400 mt-0.5">
-                                {formatTimeRange(shift.startTime, shift.endTime)}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      ) : isShiftStarted(shift) ? (
-                        <div>
-                          <span className="text-xs text-slate-300">—</span>
-                          {formatTimeRange(shift.startTime, shift.endTime) && (
-                            <div className="text-xs text-slate-300 mt-0.5">
-                              {formatTimeRange(shift.startTime, shift.endTime)}
-                            </div>
-                          )}
-                        </div>
-                      ) : hasOverlappingSplit ? (
-                        <div>
-                          <button
-                            disabled
-                            className="text-xs font-medium border rounded px-2 py-0.5 cursor-not-allowed text-slate-300 border-slate-200"
-                          >
-                            Claim shift
-                          </button>
-                          {formatTimeRange(shift.startTime, shift.endTime) && (
-                            <div className="text-xs text-slate-400 mt-0.5">
-                              {formatTimeRange(shift.startTime, shift.endTime)}
-                            </div>
-                          )}
-                        </div>
-                      ) : pendingClaimShiftId === shift.id ? (
-                        <div className="flex gap-1.5 items-center">
-                          <button
-                            onClick={() => claimShift(shift.id)}
-                            disabled={isClaiming}
-                            className="text-xs font-medium bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                          >
-                            {isClaiming ? 'Claiming…' : 'Confirm'}
-                          </button>
-                          <button
-                            onClick={() => setPendingClaimShiftId(null)}
-                            className="text-xs text-slate-500 hover:text-slate-700"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <div>
-                          <button
-                            onClick={() => setPendingClaimShiftId(shift.id)}
-                            className="text-xs font-medium border rounded px-2 py-0.5 transition-colors text-blue-600 border-blue-200 hover:text-blue-700 hover:border-blue-400"
-                          >
-                            Claim shift
-                          </button>
-                          {formatTimeRange(shift.startTime, shift.endTime) && (
-                            <div className="text-xs text-slate-400 mt-0.5">
-                              {formatTimeRange(shift.startTime, shift.endTime)}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  )
+                  return <td key={clinic} className="px-4 py-3">{renderShiftContent(shift)}</td>
                 })}
               </tr>
             ))}
@@ -747,8 +708,8 @@ export default function SchedulePage() {
 
                   return (
                     <div key={`${shiftId}-${isSplitAcceptance}`}>
-                      <div className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-2.5">
-                        <div>
+                      <div className="flex items-start gap-3 flex-wrap rounded-lg border border-slate-200 px-4 py-2.5">
+                        <div className="flex-1 min-w-0">
                           <span className="text-sm text-slate-700">{label}</span>
                           {ownedWindow && (ownedWindow.start !== shiftById[shiftId]?.startTime || ownedWindow.end !== shiftById[shiftId]?.endTime) && (
                             <span className="ml-2 text-xs text-slate-400">
@@ -757,9 +718,9 @@ export default function SchedulePage() {
                           )}
                         </div>
                         {alreadyPending ? (
-                          <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full">Offered</span>
+                          <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full shrink-0">Offered</span>
                         ) : myPendingSplit ? (
-                          <span className="text-xs text-violet-600 bg-violet-50 px-2 py-1 rounded-full">
+                          <span className="text-xs text-violet-600 bg-violet-50 px-2 py-1 rounded-full shrink-0">
                             Portion offered · {formatTimeRange(myPendingSplit.offeredStart, myPendingSplit.offeredEnd)}
                           </span>
                         ) : (
@@ -919,12 +880,14 @@ export default function SchedulePage() {
           <div className="divide-y divide-slate-100">
             {pendingSwaps.map((req) => {
               const isMyOffer = req.requestorName.toLowerCase() === myName.toLowerCase()
-              const offerDate = req.requestorShiftId.split('|')[0]
+              const offerDate = shiftById[req.requestorShiftId]?.date ?? req.requestorShiftId.split('|')[0]
               const myConflict = !isMyOffer ? filteredPublished.find(
-                (a) => a.shiftId.startsWith(offerDate + '|') && a.residentName?.toLowerCase() === myName.toLowerCase()
+                (a) => a.shiftId !== req.requestorShiftId &&
+                  (shiftById[a.shiftId]?.date ?? a.shiftId.split('|')[0]) === offerDate &&
+                  a.residentName?.toLowerCase() === myName.toLowerCase()
               ) : null
               const myConflictClinic = myConflict
-                ? (CLINIC_ABBR[myConflict.shiftId.split('|')[1]] ?? myConflict.shiftId.split('|')[1])
+                ? (CLINIC_ABBR[shiftById[myConflict.shiftId]?.clinic ?? ''] ?? shiftById[myConflict.shiftId]?.clinic ?? '')
                 : null
               return (
                 <div key={req.id} className="p-5">

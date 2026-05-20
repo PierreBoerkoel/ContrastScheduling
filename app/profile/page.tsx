@@ -585,7 +585,7 @@ export default function ProfilePage() {
                       <>
                         <span className="text-[9px] leading-tight opacity-80">{clinicAbbr(dayShifts[0].clinic)}</span>
                         {formatCompactTime(dayShifts[0].startTime, dayShifts[0].endTime) && (
-                          <span className="text-[8px] leading-tight opacity-70">
+                          <span className="hidden sm:inline text-[8px] leading-tight opacity-70">
                             {formatCompactTime(dayShifts[0].startTime, dayShifts[0].endTime)}
                           </span>
                         )}
@@ -666,8 +666,11 @@ export default function ProfilePage() {
             ) : (
               <div className="divide-y divide-slate-100">
                 {upcoming.map((s) => (
-                  <div key={s.id} className="px-5 py-3 flex items-center justify-between">
-                    <span className="text-sm text-slate-700">{formatDateLong(s.date)}</span>
+                  <div key={s.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                    <span className="text-sm text-slate-700">
+                      <span className="sm:hidden">{formatDateShort(s.date)}</span>
+                      <span className="hidden sm:inline">{formatDateLong(s.date)}</span>
+                    </span>
                     <div className="text-right">
                       <span className="text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
                         {clinicAbbr(s.clinic)}
@@ -720,8 +723,11 @@ export default function ProfilePage() {
             ) : completed.length < 10 ? (
               <div className="divide-y divide-slate-100">
                 {completed.map((s) => (
-                  <div key={`${s.id}::${s.startTime}`} className="px-5 py-3 flex items-center justify-between">
-                    <span className="text-sm text-slate-500">{formatDateLong(s.date)}</span>
+                  <div key={`${s.id}::${s.startTime}`} className="px-5 py-3 flex items-center justify-between gap-3">
+                    <span className="text-sm text-slate-500">
+                      <span className="sm:hidden">{formatDateShort(s.date)}</span>
+                      <span className="hidden sm:inline">{formatDateLong(s.date)}</span>
+                    </span>
                     <div className="text-right">
                       <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
                         {clinicAbbr(s.clinic)}
@@ -757,8 +763,11 @@ export default function ProfilePage() {
                       {expanded && (
                         <div className="divide-y divide-slate-100 bg-slate-50/50">
                           {monthShifts.map((s) => (
-                            <div key={`${s.id}::${s.startTime}`} className="px-5 py-3 flex items-center justify-between">
-                              <span className="text-sm text-slate-500">{formatDateLong(s.date)}</span>
+                            <div key={`${s.id}::${s.startTime}`} className="px-5 py-3 flex items-center justify-between gap-3">
+                              <span className="text-sm text-slate-500">
+                                <span className="sm:hidden">{formatDateShort(s.date)}</span>
+                                <span className="hidden sm:inline">{formatDateLong(s.date)}</span>
+                              </span>
                               <div className="text-right">
                                 <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
                                   {clinicAbbr(s.clinic)}

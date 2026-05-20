@@ -218,7 +218,57 @@ export default function AvailabilityPage() {
             </div>
           ) : (
             <>
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto overflow-y-auto max-h-[70vh]">
+              {/* Mobile: card-per-date layout */}
+              <div className="sm:hidden space-y-3">
+                {sortedDates.map((date) => {
+                  const shiftsOnDay = byDate[date]
+                  const allSelected = shiftsOnDay.every((s) => selected.has(s.id))
+                  return (
+                    <div key={date} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                        <span className="text-sm font-medium text-slate-700">{formatDate(date)}</span>
+                        {!selectedBlockPublished && (
+                          <button
+                            onClick={() => toggleAllOnDay(date)}
+                            className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                          >
+                            {allSelected ? 'Deselect all' : 'Select all'}
+                          </button>
+                        )}
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {CLINICS.map((clinic: ClinicName) => {
+                          const shift = shiftsOnDay.find((s) => s.clinic === clinic)
+                          if (!shift) return null
+                          return (
+                            <label
+                              key={clinic}
+                              className={`flex items-center justify-between px-4 py-3 gap-3 ${!selectedBlockPublished ? 'cursor-pointer active:bg-slate-50' : ''}`}
+                            >
+                              <div className="min-w-0">
+                                <div className="text-sm text-slate-700">{CLINIC_ABBR[clinic] ?? clinic}</div>
+                                {formatTimeRange(shift.startTime, shift.endTime) && (
+                                  <div className="text-xs text-slate-400 mt-0.5">{formatTimeRange(shift.startTime, shift.endTime)}</div>
+                                )}
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={selected.has(shift.id)}
+                                onChange={() => toggleShift(shift.id)}
+                                disabled={selectedBlockPublished}
+                                className="w-5 h-5 shrink-0 accent-blue-600 cursor-pointer disabled:cursor-default disabled:opacity-50"
+                              />
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Desktop: table layout */}
+              <div className="hidden sm:block bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto overflow-y-auto max-h-[70vh]">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 z-10">
                     <tr className="border-b border-slate-100">
