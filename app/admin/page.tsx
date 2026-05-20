@@ -19,8 +19,8 @@ const RATE_ROWS: RateRow[] = [
   { key: 'MRCT_ct',         label: 'BCCA CT coverage',            description: 'BC Cancer Agency CT-only shifts' },
   { key: 'PET_base',        label: 'BCCA PET (with MRI active)',  description: 'PET component while MRI is running' },
   { key: 'PET_standalone',  label: 'BCCA PET standalone',         description: 'PET-only coverage when MRI is down' },
-  { key: 'UBCMR_MR',        label: 'UBC Hospital MR',             description: 'MR coverage at UBC Hospital' },
-  { key: 'BCWHMR_MR',       label: "BC Women's MR",               description: "MR coverage at BC Women's Hospital" },
+  { key: 'UBCMR_MR',        label: 'UBC Hospital MRI',            description: 'MRI coverage at UBC Hospital' },
+  { key: 'BCWHMR_MR',       label: "BC Women's MRI",              description: "MRI coverage at BC Women's Hospital" },
 ]
 
 interface ClerkUser {
