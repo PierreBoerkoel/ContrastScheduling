@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { setInvoiceSequence, addInvoiceHistory } from '@/lib/db'
-import { calculateLineItems } from '@/lib/invoices'
+import { setInvoiceSequence, addInvoiceHistory, getBillingRates } from '@/lib/db'
+import { calculateLineItems, ratesToBillingRates } from '@/lib/invoices'
 import { buildInvoiceDocx } from '@/lib/docx-invoice'
 import { buildInvoicePdf } from '@/lib/pdf-invoice'
 import type { BillingEntity, CompletedShiftForInvoice, MriPetMode, BillingLineItem } from '@/lib/invoices'
@@ -33,8 +33,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
+  const rawRates = await getBillingRates()
+  const rates = ratesToBillingRates(rawRates)
+
   const allLineItems: BillingLineItem[] = shifts.flatMap((shift) => {
-    const items = [...calculateLineItems(shift, modes[shift.shiftId] ?? null)[entity]]
+    const items = [...calculateLineItems(shift, modes[shift.shiftId] ?? null, rates)[entity]]
     const parking = parkingAmounts?.[shift.shiftId] ?? 0
     if (parking > 0) {
       items.push({

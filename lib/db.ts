@@ -128,6 +128,25 @@ export async function initDb(): Promise<void> {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS invoice_history_user_idx ON invoice_history (user_id)`
+  await sql`
+    CREATE TABLE IF NOT EXISTS billing_rates (
+      key   TEXT PRIMARY KEY,
+      value NUMERIC NOT NULL
+    )
+  `
+  // Seed defaults — only inserts when the key doesn't already exist
+  const defaults: Array<[string, number]> = [
+    ['MRCT_base',        50],
+    ['MRCT_standalone',  75],
+    ['MRCT_ct',          75],
+    ['PET_base',         25],
+    ['PET_standalone',   75],
+    ['UBCMR_MR',         75],
+    ['BCWHMR_MR',        75],
+  ]
+  for (const [key, value] of defaults) {
+    await sql`INSERT INTO billing_rates (key, value) VALUES (${key}, ${value}) ON CONFLICT (key) DO NOTHING`
+  }
 }
 
 // ── Shifts ────────────────────────────────────────────────────────────────────
@@ -490,6 +509,19 @@ export async function setInvoiceSequence(residentName: string, series: string, n
     VALUES (${residentName}, ${series}, ${nextNumber})
     ON CONFLICT (resident_name, series) DO UPDATE SET next_number = ${nextNumber}
   `
+}
+
+// ── Billing rates ─────────────────────────────────────────────────────────────
+
+export async function getBillingRates(): Promise<Record<string, number>> {
+  await ensureDb()
+  const { rows } = await sql`SELECT key, value FROM billing_rates`
+  return Object.fromEntries(rows.map((r) => [r.key as string, parseFloat(r.value as string)]))
+}
+
+export async function setBillingRate(key: string, value: number): Promise<void> {
+  await ensureDb()
+  await sql`INSERT INTO billing_rates (key, value) VALUES (${key}, ${value}) ON CONFLICT (key) DO UPDATE SET value = ${value}`
 }
 
 // ── Swap requests ─────────────────────────────────────────────────────────────

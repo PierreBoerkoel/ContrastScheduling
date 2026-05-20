@@ -5,7 +5,23 @@ import { useUser } from '@clerk/nextjs'
 import type { Shift, AvailabilitySubmission, Schedule, ClinicName, SwapRequest, SchedulingPeriod, ShiftSplit } from '@/lib/types'
 import { CLINICS, CLINIC_ABBR, defaultShiftTimes, formatTimeRange, computeCoverageSegments, buildDisplayNames } from '@/lib/types'
 
-type Tab = 'shifts' | 'availability' | 'schedule' | 'swaps' | 'users'
+type Tab = 'shifts' | 'availability' | 'schedule' | 'swaps' | 'users' | 'billing'
+
+interface RateRow {
+  key: string
+  label: string
+  description: string
+}
+
+const RATE_ROWS: RateRow[] = [
+  { key: 'MRCT_base',       label: 'BCCA MRI (with PET active)',  description: 'MRI coverage while PET is running' },
+  { key: 'MRCT_standalone', label: 'BCCA MRI standalone',         description: 'MRI-only coverage (PET down or after 9 PM)' },
+  { key: 'MRCT_ct',         label: 'BCCA CT coverage',            description: 'BC Cancer Agency CT-only shifts' },
+  { key: 'PET_base',        label: 'BCCA PET (with MRI active)',  description: 'PET component while MRI is running' },
+  { key: 'PET_standalone',  label: 'BCCA PET standalone',         description: 'PET-only coverage when MRI is down' },
+  { key: 'UBCMR_MR',        label: 'UBC Hospital MR',             description: 'MR coverage at UBC Hospital' },
+  { key: 'BCWHMR_MR',       label: "BC Women's MR",               description: "MR coverage at BC Women's Hospital" },
+]
 
 interface ClerkUser {
   id: string
@@ -203,6 +219,13 @@ export default function AdminPage() {
   const [savingTimes, setSavingTimes] = useState(false)
   const [removingShiftId, setRemovingShiftId] = useState<string | null>(null)
 
+  // Billing rates
+  const [billingRates, setBillingRates] = useState<Record<string, number>>({})
+  const [editingRateKey, setEditingRateKey] = useState<string | null>(null)
+  const [rateEditValue, setRateEditValue] = useState('')
+  const [savingRate, setSavingRate] = useState(false)
+  const [rateSaveError, setRateSaveError] = useState('')
+
   // Inline add-shift cell (post-publish)
   const [addingShiftCell, setAddingShiftCell] = useState<{ date: string; clinic: ClinicName } | null>(null)
   const [addCellTimes, setAddCellTimes] = useState({ startTime: '', endTime: '' })
@@ -231,6 +254,13 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  useEffect(() => {
+    fetch('/api/admin/billing-rates')
+      .then((r) => r.json())
+      .then((d) => { if (d && typeof d === 'object' && !d.error) setBillingRates(d) })
+      .catch(() => {})
+  }, [])
 
   // Initialize the clinic grid whenever the date range changes (skip when loading an existing block)
   useEffect(() => {
@@ -616,6 +646,10 @@ export default function AdminPage() {
                 {users.length}
               </span>
             )}
+          </button>
+          <button onClick={() => setTab('billing')} className={tabClass('billing')}>
+            <span className="sm:hidden">Billing</span>
+            <span className="hidden sm:inline">Billing</span>
           </button>
         </div>
       </div>
@@ -1535,6 +1569,93 @@ export default function AdminPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+      {/* ── BILLING TAB ── */}
+      {tab === 'billing' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+              <h2 className="text-sm font-semibold text-slate-700">Shift Rates</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Hourly billing rates used when generating invoices. Changes take effect immediately on the next invoice generated.</p>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {RATE_ROWS.map((row) => {
+                const current = billingRates[row.key]
+                const isEditing = editingRateKey === row.key
+                return (
+                  <div key={row.key} className="px-5 py-4 flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-800">{row.label}</div>
+                      <div className="text-xs text-slate-400 mt-0.5">{row.description}</div>
+                    </div>
+                    {isEditing ? (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-sm text-slate-500">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={rateEditValue}
+                          onChange={(e) => { setRateEditValue(e.target.value); setRateSaveError('') }}
+                          className="w-20 border border-slate-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          autoFocus
+                        />
+                        <span className="text-xs text-slate-400">/hr</span>
+                        <button
+                          disabled={savingRate}
+                          onClick={async () => {
+                            const val = parseFloat(rateEditValue)
+                            if (isNaN(val) || val < 0) { setRateSaveError('Invalid'); return }
+                            setSavingRate(true)
+                            setRateSaveError('')
+                            const res = await fetch('/api/admin/billing-rates', {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ key: row.key, value: val }),
+                            })
+                            setSavingRate(false)
+                            if (res.ok) {
+                              setBillingRates((prev) => ({ ...prev, [row.key]: val }))
+                              setEditingRateKey(null)
+                            } else {
+                              setRateSaveError('Failed to save')
+                            }
+                          }}
+                          className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                        >
+                          {savingRate ? 'Saving…' : 'Save'}
+                        </button>
+                        <button
+                          onClick={() => { setEditingRateKey(null); setRateSaveError('') }}
+                          className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        {rateSaveError && <span className="text-xs text-red-500">{rateSaveError}</span>}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-sm font-medium text-slate-800">
+                          {current !== undefined ? `$${current.toFixed(2)}/hr` : '—'}
+                        </span>
+                        <button
+                          onClick={() => {
+                            setEditingRateKey(row.key)
+                            setRateEditValue(current !== undefined ? String(current) : '')
+                            setRateSaveError('')
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         </div>
       )}
     </div>

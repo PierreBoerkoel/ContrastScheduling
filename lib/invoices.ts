@@ -1,5 +1,37 @@
 export type BillingEntity = 'MRCT' | 'PET' | 'UBCMR' | 'BCWHMR'
 
+export interface BillingRates {
+  MRCT_base: number        // MRI with PET active
+  MRCT_standalone: number  // MRI-only (PET down or after PET hours)
+  MRCT_ct: number          // CT coverage
+  PET_base: number         // PET with MRI active
+  PET_standalone: number   // PET-only (MRI down)
+  UBCMR_MR: number         // UBC Hospital MR
+  BCWHMR_MR: number        // BC Women's Hospital MR
+}
+
+export const DEFAULT_RATES: BillingRates = {
+  MRCT_base: 50,
+  MRCT_standalone: 75,
+  MRCT_ct: 75,
+  PET_base: 25,
+  PET_standalone: 75,
+  UBCMR_MR: 75,
+  BCWHMR_MR: 75,
+}
+
+export function ratesToBillingRates(raw: Record<string, number>): BillingRates {
+  return {
+    MRCT_base:       raw['MRCT_base']       ?? DEFAULT_RATES.MRCT_base,
+    MRCT_standalone: raw['MRCT_standalone'] ?? DEFAULT_RATES.MRCT_standalone,
+    MRCT_ct:         raw['MRCT_ct']         ?? DEFAULT_RATES.MRCT_ct,
+    PET_base:        raw['PET_base']        ?? DEFAULT_RATES.PET_base,
+    PET_standalone:  raw['PET_standalone']  ?? DEFAULT_RATES.PET_standalone,
+    UBCMR_MR:        raw['UBCMR_MR']        ?? DEFAULT_RATES.UBCMR_MR,
+    BCWHMR_MR:       raw['BCWHMR_MR']       ?? DEFAULT_RATES.BCWHMR_MR,
+  }
+}
+
 // How the MRI/PET resident was billing on a given shift
 export type MriPetMode =
   | 'normal'        // $50/hr MRCT + $25/hr PET
@@ -137,12 +169,13 @@ function item(date: string, startTime: string, endTime: string, desc: string, ra
 export function calculateLineItems(
   shift: CompletedShiftForInvoice,
   mode: MriPetMode | null,
+  rates: BillingRates = DEFAULT_RATES,
 ): Record<BillingEntity, BillingLineItem[]> {
   const result: Record<BillingEntity, BillingLineItem[]> = { MRCT: [], PET: [], UBCMR: [], BCWHMR: [] }
   const { date, clinic, startTime: sS, endTime: sE } = shift
 
   if (clinic === 'BC Cancer Agency CT') {
-    result.MRCT.push(item(date, sS, sE, 'CT coverage', 75))
+    result.MRCT.push(item(date, sS, sE, 'CT coverage', rates.MRCT_ct))
     return result
   }
 
@@ -154,18 +187,18 @@ export function calculateLineItems(
       case 'normal': {
         const inPet = overlapInterval(sS, sE, sS, petEnd)
         const afterPet = overlapInterval(sS, sE, PET_END, sE)
-        if (inPet) result.MRCT.push(item(date, inPet.start, inPet.end, 'MRI coverage', 50))
-        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI standalone coverage', 75))
-        if (inPet) result.PET.push(item(date, inPet.start, inPet.end, 'PET coverage', 25))
+        if (inPet) result.MRCT.push(item(date, inPet.start, inPet.end, 'MRI coverage', rates.MRCT_base))
+        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI standalone coverage', rates.MRCT_standalone))
+        if (inPet) result.PET.push(item(date, inPet.start, inPet.end, 'PET coverage', rates.PET_base))
         break
       }
 
       case 'two-residents': {
         const inPet = overlapInterval(sS, sE, sS, petEnd)
         const afterPet = overlapInterval(sS, sE, PET_END, sE)
-        if (inPet) result.MRCT.push(item(date, inPet.start, inPet.end, 'MRI coverage', 75))
-        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI standalone coverage', 75))
-        if (inPet) result.PET.push(item(date, inPet.start, inPet.end, 'PET coverage', 25))
+        if (inPet) result.MRCT.push(item(date, inPet.start, inPet.end, 'MRI coverage', rates.MRCT_standalone))
+        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI standalone coverage', rates.MRCT_standalone))
+        if (inPet) result.PET.push(item(date, inPet.start, inPet.end, 'PET coverage', rates.PET_base))
         break
       }
 
@@ -173,22 +206,22 @@ export function calculateLineItems(
         const ctSeg = overlapInterval(sS, sE, ct.start, ct.end)
         const postCt = overlapInterval(sS, sE, ct.end, petEnd)
         const afterPet = overlapInterval(sS, sE, PET_END, sE)
-        if (ctSeg) result.MRCT.push(item(date, ctSeg.start, ctSeg.end, 'MRI and CT coverage', 75))
-        if (postCt) result.MRCT.push(item(date, postCt.start, postCt.end, 'MRI coverage', 50))
-        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI standalone coverage', 75))
+        if (ctSeg) result.MRCT.push(item(date, ctSeg.start, ctSeg.end, 'MRI and CT coverage', rates.MRCT_standalone))
+        if (postCt) result.MRCT.push(item(date, postCt.start, postCt.end, 'MRI coverage', rates.MRCT_base))
+        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI standalone coverage', rates.MRCT_standalone))
         const petSeg = overlapInterval(sS, sE, sS, petEnd)
-        if (petSeg) result.PET.push(item(date, petSeg.start, petSeg.end, 'PET coverage', 25))
+        if (petSeg) result.PET.push(item(date, petSeg.start, petSeg.end, 'PET coverage', rates.PET_base))
         break
       }
 
       case 'mri-down': {
         const petSeg = overlapInterval(sS, sE, sS, petEnd)
-        if (petSeg) result.PET.push(item(date, petSeg.start, petSeg.end, 'PET standalone coverage', 75))
+        if (petSeg) result.PET.push(item(date, petSeg.start, petSeg.end, 'PET standalone coverage', rates.PET_standalone))
         break
       }
 
       case 'pet-down': {
-        result.MRCT.push(item(date, sS, sE, 'MRI standalone coverage', 75))
+        result.MRCT.push(item(date, sS, sE, 'MRI standalone coverage', rates.MRCT_standalone))
         break
       }
     }
@@ -196,12 +229,12 @@ export function calculateLineItems(
   }
 
   if (clinic === 'UBC Hospital') {
-    result.UBCMR.push(item(date, sS, sE, 'MR coverage', 75))
+    result.UBCMR.push(item(date, sS, sE, 'MR coverage', rates.UBCMR_MR))
     return result
   }
 
   if (clinic === "BC Women's Hospital") {
-    result.BCWHMR.push(item(date, sS, sE, 'MR coverage', 75))
+    result.BCWHMR.push(item(date, sS, sE, 'MR coverage', rates.BCWHMR_MR))
     return result
   }
 
