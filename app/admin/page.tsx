@@ -726,7 +726,7 @@ export default function AdminPage() {
 
                   return (
                     <div key={clinic} className="px-5 py-4">
-                      <div className="flex items-start justify-between gap-4 mb-3">
+                      <div className="flex items-center justify-between gap-4 mb-3">
                         <span className="text-sm font-medium text-slate-800">{clinic}</span>
                         {!isEditing && (
                           <button
@@ -800,7 +800,7 @@ export default function AdminPage() {
                           )}
 
                           {/* Save / Cancel */}
-                          <div className="flex items-end gap-2 pb-0.5">
+                          <div className="flex items-center gap-2">
                             <button
                               disabled={savingClinicDefault}
                               onClick={async () => {
