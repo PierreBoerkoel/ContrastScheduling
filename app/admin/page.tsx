@@ -778,16 +778,18 @@ export default function AdminPage() {
                         key={p.id}
                         className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-2.5"
                       >
-                        <div>
-                          <span className="text-sm font-medium text-slate-800">{p.name}</span>
-                          <span className="ml-3 text-xs text-slate-400">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-slate-800">{p.name}</span>
+                            {blockShiftCount > 0 && (
+                              <span className="text-xs text-blue-500">{blockShiftCount} shifts</span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-400 mt-0.5">
                             {formatDate(p.startDate)} – {formatDate(p.endDate)}
-                          </span>
-                          {blockShiftCount > 0 && (
-                            <span className="ml-2 text-xs text-blue-500">{blockShiftCount} shifts</span>
-                          )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-4 shrink-0 ml-3">
                           <button
                             onClick={() => handleBlockSelect(p.name)}
                             className="text-xs text-blue-500 hover:text-blue-700 transition-colors"
@@ -828,7 +830,45 @@ export default function AdminPage() {
                     {activeSubmissions.length} submission{activeSubmissions.length !== 1 ? 's' : ''}
                   </h2>
                 </div>
-                <div className="overflow-x-auto">
+                {/* Mobile cards */}
+                <div className="sm:hidden divide-y divide-slate-100">
+                  {activeSubmissions
+                    .slice()
+                    .sort((a, b) => {
+                      const pa = periods.find((p) => p.id === a.periodId)
+                      const pb = periods.find((p) => p.id === b.periodId)
+                      return (pa?.startDate ?? '').localeCompare(pb?.startDate ?? '') || a.residentName.localeCompare(b.residentName)
+                    })
+                    .map((sub) => {
+                      const period = periods.find((p) => p.id === sub.periodId)
+                      const periodShiftCount = shifts.filter((s) => s.periodId === sub.periodId).length
+                      return (
+                        <div key={sub.id} className="px-4 py-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-slate-800 text-sm">{sub.residentName}</span>
+                            <span className="text-xs font-medium text-slate-600 shrink-0">{period?.name ?? '—'}</span>
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                              <span>{sub.availableShiftIds.length} / {periodShiftCount} shifts available</span>
+                              {sub.maxShifts && <span className="text-slate-400">max {sub.maxShifts}</span>}
+                            </div>
+                            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-blue-500 rounded-full"
+                                style={{ width: periodShiftCount > 0 ? `${(sub.availableShiftIds.length / periodShiftCount) * 100}%` : '0%' }}
+                              />
+                            </div>
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            Submitted {new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(sub.submittedAt))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+                {/* Desktop table */}
+                <div className="hidden sm:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50">
@@ -1252,7 +1292,48 @@ export default function AdminPage() {
                   {users.length} resident{users.length !== 1 ? 's' : ''}
                 </h2>
               </div>
-              <div className="overflow-x-auto">
+              {/* Mobile cards */}
+              <div className="sm:hidden divide-y divide-slate-100">
+                {users
+                  .slice()
+                  .sort((a, b) => a.fullName.localeCompare(b.fullName))
+                  .map((u) => (
+                    <div key={u.id} className="px-4 py-3 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-medium text-slate-800 text-sm truncate">{u.fullName}</span>
+                          <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${u.role === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
+                            {u.role}
+                          </span>
+                        </div>
+                        {u.id !== user?.id && (
+                          <div className="flex items-center gap-3 shrink-0">
+                            <button
+                              onClick={() => setRole(u.id, u.role === 'admin' ? 'resident' : 'admin')}
+                              disabled={promotingUserId === u.id}
+                              className="text-xs text-blue-500 hover:text-blue-700 transition-colors disabled:opacity-40"
+                            >
+                              {promotingUserId === u.id ? '…' : u.role === 'admin' ? 'Demote' : 'Make admin'}
+                            </button>
+                            <button
+                              onClick={() => removeUser(u.id)}
+                              disabled={removingUserId === u.id}
+                              className="text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                            >
+                              {removingUserId === u.id ? 'Removing…' : 'Remove'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-500 break-all">{u.email}</div>
+                      <div className="text-xs text-slate-400">
+                        Joined {new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium' }).format(new Date(u.createdAt))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              {/* Desktop table */}
+              <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
@@ -1336,7 +1417,56 @@ export default function AdminPage() {
                   <span>{swapRequests.filter((r) => r.status === 'cancelled').length} cancelled</span>
                 </div>
               </div>
-              <div className="overflow-x-auto">
+              {/* Mobile cards */}
+              <div className="sm:hidden divide-y divide-slate-100">
+                {swapRequests
+                  .slice()
+                  .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
+                  .map((req) => {
+                    const offeredShift = shifts.find((s) => s.id === req.requestorShiftId)
+                    return (
+                      <div key={req.id} className="px-4 py-3 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${req.status === 'pending' ? 'bg-amber-100 text-amber-700' : req.status === 'accepted' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                              {req.status}
+                            </span>
+                            <span className="font-medium text-slate-800 text-sm">{req.requestorName}</span>
+                          </div>
+                          {req.status === 'pending' && (
+                            <button
+                              onClick={async () => {
+                                await fetch(`/api/swaps/${req.id}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ action: 'cancel' }),
+                                })
+                                await fetchData()
+                              }}
+                              className="text-xs text-red-400 hover:text-red-600 transition-colors shrink-0"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
+                        {offeredShift ? (
+                          <div className="text-xs text-slate-600">
+                            <span className="font-medium">{formatDate(offeredShift.date)}</span>
+                            <span className="text-slate-400 ml-1">· {CLINIC_ABBR[offeredShift.clinic] ?? offeredShift.clinic}</span>
+                          </div>
+                        ) : null}
+                        {req.acceptorName && (
+                          <div className="text-xs text-slate-500">Taken by {req.acceptorName}</div>
+                        )}
+                        <div className="text-xs text-slate-400">
+                          {new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(req.requestedAt))}
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+              {/* Desktop table */}
+              <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
