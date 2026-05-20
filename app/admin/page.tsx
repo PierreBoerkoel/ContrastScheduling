@@ -726,80 +726,61 @@ export default function AdminPage() {
 
                   return (
                     <div key={clinic} className="px-5 py-4">
-                      <div className="flex items-center justify-between gap-4 mb-3">
-                        <span className="text-sm font-medium text-slate-800">{clinic}</span>
-                        {!isEditing && (
-                          <button
-                            onClick={() => {
-                              setEditingClinicDefault(clinic)
-                              setClinicDefaultError('')
-                              setClinicDefaultEdit({
-                                activeDays: new Set(def?.activeDays ?? []),
-                                weekdayStart: def?.weekdayStart ?? '',
-                                weekdayEnd: def?.weekdayEnd ?? '',
-                                weekendStart: def?.weekendStart ?? '',
-                                weekendEnd: def?.weekendEnd ?? '',
-                              })
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0"
-                          >
-                            Edit
-                          </button>
-                        )}
-                      </div>
-
                       {isEditing ? (
-                        <div className="flex flex-wrap gap-x-6 gap-y-4">
-                          {/* Day toggles */}
-                          <div>
-                            <div className="text-xs text-slate-500 mb-1.5">Active days</div>
-                            <div className="flex gap-1">
-                              {DAY_ORDER.map((day) => {
-                                const active = clinicDefaultEdit.activeDays.has(day)
-                                return (
-                                  <button
-                                    key={day}
-                                    onClick={() => {
-                                      setClinicDefaultEdit((prev) => {
-                                        const next = new Set(prev.activeDays)
-                                        active ? next.delete(day) : next.add(day)
-                                        return { ...prev, activeDays: next }
-                                      })
-                                    }}
-                                    className={`w-8 h-8 text-xs rounded-full font-medium transition-colors ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                                  >
-                                    {DAY_LABELS[day]}
-                                  </button>
-                                )
-                              })}
+                        <>
+                          <div className="text-sm font-medium text-slate-800 mb-3">{clinic}</div>
+                          <div className="flex flex-wrap gap-x-6 gap-y-4 mb-4">
+                            {/* Day toggles */}
+                            <div>
+                              <div className="text-xs text-slate-500 mb-1.5">Active days</div>
+                              <div className="flex gap-1">
+                                {DAY_ORDER.map((day) => {
+                                  const active = clinicDefaultEdit.activeDays.has(day)
+                                  return (
+                                    <button
+                                      key={day}
+                                      onClick={() => {
+                                        setClinicDefaultEdit((prev) => {
+                                          const next = new Set(prev.activeDays)
+                                          active ? next.delete(day) : next.add(day)
+                                          return { ...prev, activeDays: next }
+                                        })
+                                      }}
+                                      className={`w-8 h-8 text-xs rounded-full font-medium transition-colors ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                    >
+                                      {DAY_LABELS[day]}
+                                    </button>
+                                  )
+                                })}
+                              </div>
                             </div>
+
+                            {/* Weekday times */}
+                            {hasWeekdays && (
+                              <div>
+                                <div className="text-xs text-slate-500 mb-1.5">Weekday times</div>
+                                <div className="flex items-center gap-2">
+                                  <TimeInput value={clinicDefaultEdit.weekdayStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayStart: v }))} className="w-24 px-2 py-1 text-sm" />
+                                  <span className="text-slate-400 text-xs">–</span>
+                                  <TimeInput value={clinicDefaultEdit.weekdayEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayEnd: v }))} className="w-24 px-2 py-1 text-sm" />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Weekend times */}
+                            {hasWeekends && (
+                              <div>
+                                <div className="text-xs text-slate-500 mb-1.5">Weekend times</div>
+                                <div className="flex items-center gap-2">
+                                  <TimeInput value={clinicDefaultEdit.weekendStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendStart: v }))} className="w-24 px-2 py-1 text-sm" />
+                                  <span className="text-slate-400 text-xs">–</span>
+                                  <TimeInput value={clinicDefaultEdit.weekendEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendEnd: v }))} className="w-24 px-2 py-1 text-sm" />
+                                </div>
+                              </div>
+                            )}
                           </div>
 
-                          {/* Weekday times */}
-                          {hasWeekdays && (
-                            <div>
-                              <div className="text-xs text-slate-500 mb-1.5">Weekday times</div>
-                              <div className="flex items-center gap-2">
-                                <TimeInput value={clinicDefaultEdit.weekdayStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayStart: v }))} className="w-24 px-2 py-1 text-sm" />
-                                <span className="text-slate-400 text-xs">–</span>
-                                <TimeInput value={clinicDefaultEdit.weekdayEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayEnd: v }))} className="w-24 px-2 py-1 text-sm" />
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Weekend times */}
-                          {hasWeekends && (
-                            <div>
-                              <div className="text-xs text-slate-500 mb-1.5">Weekend times</div>
-                              <div className="flex items-center gap-2">
-                                <TimeInput value={clinicDefaultEdit.weekendStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendStart: v }))} className="w-24 px-2 py-1 text-sm" />
-                                <span className="text-slate-400 text-xs">–</span>
-                                <TimeInput value={clinicDefaultEdit.weekendEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendEnd: v }))} className="w-24 px-2 py-1 text-sm" />
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Save / Cancel */}
+                          {/* Save / Cancel on their own row */}
                           <div className="flex items-center gap-2">
                             <button
                               disabled={savingClinicDefault}
@@ -847,27 +828,46 @@ export default function AdminPage() {
                             </button>
                             {clinicDefaultError && <span className="text-xs text-red-500">{clinicDefaultError}</span>}
                           </div>
-                        </div>
+                        </>
                       ) : (
-                        <div className="flex flex-wrap items-center gap-4">
-                          {/* Day pills */}
-                          <div className="flex gap-1">
-                            {DAY_ORDER.map((day) => {
-                              const active = (def?.activeDays ?? []).includes(day)
-                              return (
-                                <span key={day} className={`w-7 h-7 text-xs flex items-center justify-center rounded-full font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
-                                  {DAY_LABELS[day]}
-                                </span>
-                              )
-                            })}
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm font-medium text-slate-800 shrink-0 w-24">{clinic}</span>
+                          <div className="flex flex-wrap items-center gap-4 flex-1 min-w-0">
+                            {/* Day pills */}
+                            <div className="flex gap-1">
+                              {DAY_ORDER.map((day) => {
+                                const active = (def?.activeDays ?? []).includes(day)
+                                return (
+                                  <span key={day} className={`w-7 h-7 text-xs flex items-center justify-center rounded-full font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
+                                    {DAY_LABELS[day]}
+                                  </span>
+                                )
+                              })}
+                            </div>
+                            {hasWeekdays && def?.weekdayStart && def?.weekdayEnd && (
+                              <span className="text-xs text-slate-500">Weekday: {formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
+                            )}
+                            {hasWeekends && def?.weekendStart && def?.weekendEnd && (
+                              <span className="text-xs text-slate-500">Weekend: {formatTimeValue(def.weekendStart)} – {formatTimeValue(def.weekendEnd)}</span>
+                            )}
+                            {!def && <span className="text-xs text-slate-300">No defaults configured</span>}
                           </div>
-                          {hasWeekdays && def?.weekdayStart && def?.weekdayEnd && (
-                            <span className="text-xs text-slate-500">Weekday: {formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
-                          )}
-                          {hasWeekends && def?.weekendStart && def?.weekendEnd && (
-                            <span className="text-xs text-slate-500">Weekend: {formatTimeValue(def.weekendStart)} – {formatTimeValue(def.weekendEnd)}</span>
-                          )}
-                          {!def && <span className="text-xs text-slate-300">No defaults configured</span>}
+                          <button
+                            onClick={() => {
+                              setEditingClinicDefault(clinic)
+                              setClinicDefaultError('')
+                              setClinicDefaultEdit({
+                                activeDays: new Set(def?.activeDays ?? []),
+                                weekdayStart: def?.weekdayStart ?? '',
+                                weekdayEnd: def?.weekdayEnd ?? '',
+                                weekendStart: def?.weekendStart ?? '',
+                                weekendEnd: def?.weekendEnd ?? '',
+                              })
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0"
+                          >
+                            Edit
+                          </button>
                         </div>
                       )}
                     </div>
