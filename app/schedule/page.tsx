@@ -32,6 +32,19 @@ function timeToMinutes(t: string): number {
   return h * 60 + m
 }
 
+function splitFraction(offeredStart: string, offeredEnd: string, shiftStart?: string, shiftEnd?: string): number {
+  if (!shiftStart || !shiftEnd) return 0.5
+  const shiftDur = timeToMinutes(shiftEnd) - timeToMinutes(shiftStart)
+  if (shiftDur <= 0) return 0.5
+  const splitDur = timeToMinutes(offeredEnd) - timeToMinutes(offeredStart)
+  return Math.max(0, Math.min(1, splitDur / shiftDur))
+}
+
+function formatShiftCount(n: number): string {
+  const r = Math.round(n * 10) / 10
+  return Number.isInteger(r) ? `${r}` : r.toFixed(1)
+}
+
 function minutesToTime(mins: number): string {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
 }
@@ -347,6 +360,15 @@ export default function SchedulePage() {
   for (const a of filteredPublished) {
     if (a.residentName) counts[a.residentName] = (counts[a.residentName] ?? 0) + 1
   }
+  for (const sp of splits) {
+    if (sp.status !== 'accepted' || !sp.acceptorName) continue
+    const assignment = filteredPublished.find((a) => a.shiftId === sp.shiftId)
+    if (!assignment?.residentName) continue
+    const shift = shiftById[sp.shiftId]
+    const frac = splitFraction(sp.offeredStart, sp.offeredEnd, shift?.startTime, shift?.endTime)
+    counts[assignment.residentName] = (counts[assignment.residentName] ?? 1) - frac
+    counts[sp.acceptorName] = (counts[sp.acceptorName] ?? 0) + frac
+  }
 
   const allNamesInView = new Set<string>()
   for (const a of filteredPublished) {
@@ -460,7 +482,7 @@ export default function SchedulePage() {
                 className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-800 text-sm px-3 py-1 rounded-full"
               >
                 <span className="font-medium">{displayMap[resident] ?? resident}</span>
-                <span className="text-blue-400 text-xs">{count} shift{count !== 1 ? 's' : ''}</span>
+                <span className="text-blue-400 text-xs">{formatShiftCount(count)} shift{count === 1 ? '' : 's'}</span>
               </span>
             ))}
         </div>

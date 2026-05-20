@@ -55,6 +55,24 @@ function datesInRange(start: string, end: string): string[] {
   return dates
 }
 
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+function splitFraction(offeredStart: string, offeredEnd: string, shiftStart?: string, shiftEnd?: string): number {
+  if (!shiftStart || !shiftEnd) return 0.5
+  const shiftDur = timeToMinutes(shiftEnd) - timeToMinutes(shiftStart)
+  if (shiftDur <= 0) return 0.5
+  const splitDur = timeToMinutes(offeredEnd) - timeToMinutes(offeredStart)
+  return Math.max(0, Math.min(1, splitDur / shiftDur))
+}
+
+function formatShiftCount(n: number): string {
+  const r = Math.round(n * 10) / 10
+  return Number.isInteger(r) ? `${r}` : r.toFixed(1)
+}
+
 function parseTimeInput(raw: string): string | null {
   const s = raw.trim().toLowerCase().replace(/\s+/g, '')
   if (!s) return null
@@ -460,9 +478,19 @@ export default function AdminPage() {
 
   const splitsByShift: Record<string, ShiftSplit[]> = {}
   for (const sp of splits) (splitsByShift[sp.shiftId] ??= []).push(sp)
+  const blockShiftById = Object.fromEntries(blockShifts.map((s) => [s.id, s]))
   const counts: Record<string, number> = {}
   for (const a of blockAssignments) {
     if (a.residentName) counts[a.residentName] = (counts[a.residentName] ?? 0) + 1
+  }
+  for (const sp of splits) {
+    if (sp.status !== 'accepted' || !sp.acceptorName) continue
+    const assignment = blockAssignments.find((a) => a.shiftId === sp.shiftId)
+    if (!assignment?.residentName) continue
+    const shift = blockShiftById[sp.shiftId]
+    const frac = splitFraction(sp.offeredStart, sp.offeredEnd, shift?.startTime, shift?.endTime)
+    counts[assignment.residentName] = (counts[assignment.residentName] ?? 1) - frac
+    counts[sp.acceptorName] = (counts[sp.acceptorName] ?? 0) + frac
   }
 
   const allNamesInView = new Set<string>()
@@ -962,7 +990,7 @@ export default function AdminPage() {
                         className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-700 text-sm px-3 py-1 rounded-full"
                       >
                         <span className="font-medium">{displayMap[resident] ?? resident}</span>
-                        <span className="text-slate-400 text-xs">{count}</span>
+                        <span className="text-slate-400 text-xs">{formatShiftCount(count)}</span>
                       </span>
                     ))}
                   {blockAssignments.filter((a) => !a.residentName).length > 0 && (
