@@ -158,7 +158,7 @@ export default function ProfilePage() {
   const [contactError, setContactError] = useState('')
 
   const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false)
-  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set())
+  const [toggledMonths, setToggledMonths] = useState<Set<string>>(new Set())
 
   // Re-render every 60 s so isShiftEnded() stays current without a page refresh
   const [, forceUpdate] = useState(0)
@@ -347,16 +347,16 @@ export default function ProfilePage() {
   }
   const mostRecentMonthKey = completedByMonth[0]?.key ?? ''
   function toggleMonth(key: string) {
-    setExpandedMonths((prev) => {
+    setToggledMonths((prev) => {
       const next = new Set(prev)
       next.has(key) ? next.delete(key) : next.add(key)
       return next
     })
   }
-  function isMonthExpanded(key: string) {
-    if (expandedMonths.has(key)) return true
-    if (expandedMonths.size === 0 && key === mostRecentMonthKey) return true
-    return false
+  function isMonthExpanded(key: string): boolean {
+    const toggled = toggledMonths.has(key)
+    // Most recent month defaults to expanded; all others default to collapsed
+    return key === mostRecentMonthKey ? !toggled : toggled
   }
 
   // Contact info for invoice generation (stored in Clerk unsafeMetadata)
@@ -720,7 +720,7 @@ export default function ProfilePage() {
 
             {completed.length === 0 ? (
               <p className="p-5 text-sm text-slate-400">No completed shifts yet.</p>
-            ) : completed.length < 10 ? (
+            ) : completed.length <= 5 ? (
               <div className="divide-y divide-slate-100">
                 {completed.map((s) => (
                   <div key={`${s.id}::${s.startTime}`} className="px-5 py-3 flex items-center justify-between gap-3">
