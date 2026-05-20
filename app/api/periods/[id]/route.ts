@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { deleteSchedulingPeriod, setShifts, getShifts, getSchedule, setSchedule, upsertShiftHistory } from '@/lib/db'
+import { deleteSchedulingPeriod, setShifts, getShifts, getSchedule, setSchedule, upsertShiftHistory, getShiftSplits } from '@/lib/db'
 
 export async function DELETE(
   _request: Request,
@@ -17,7 +17,7 @@ export async function DELETE(
   const { id } = await params
 
   // Collect this period's shift IDs before deleting, so we can scrub the schedule
-  const allShifts = await getShifts()
+  const [allShifts, allSplits] = await Promise.all([getShifts(), getShiftSplits()])
   const periodShiftIds = new Set(allShifts.filter((s) => s.periodId === id).map((s) => s.id))
 
   if (periodShiftIds.size > 0) {
@@ -33,7 +33,25 @@ export async function DELETE(
           return { shiftId: a.shiftId, residentName: a.residentName!, date: shift?.date ?? '', clinic: shift?.clinic ?? '', startTime: shift?.startTime, endTime: shift?.endTime }
         })
         .filter((r) => r.date && r.clinic)
-      if (toArchive.length > 0) await upsertShiftHistory(toArchive)
+
+      // Also archive accepted split acceptors with their coverage window
+      const splitRecords = allSplits
+        .filter((sp) => sp.status === 'accepted' && sp.acceptorName && periodShiftIds.has(sp.shiftId))
+        .flatMap((sp) => {
+          const shift = shiftMap[sp.shiftId]
+          if (!shift || shift.date >= today) return []
+          return [{
+            shiftId: `${sp.shiftId}::split::${sp.id}`,
+            residentName: sp.acceptorName!,
+            date: shift.date,
+            clinic: shift.clinic,
+            startTime: sp.offeredStart,
+            endTime: sp.offeredEnd,
+          }]
+        })
+
+      const allRecords = [...toArchive, ...splitRecords]
+      if (allRecords.length > 0) await upsertShiftHistory(allRecords)
 
       await setSchedule({
         ...schedule,
