@@ -114,7 +114,7 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
     setParkingAmounts((prev) => ({ ...prev, [shiftId]: value }))
   }
 
-  async function generate() {
+  async function generate(format: 'pdf' | 'docx' = 'pdf') {
     if (!from.name || !from.address || !from.phone || !from.email) {
       onMissingProfile()
       return
@@ -138,6 +138,7 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
           invoiceNumber,
           shifts,
           modes,
+          format,
           parkingAmounts: activeEntity === 'UBCMR'
             ? Object.fromEntries(
                 Object.entries(parkingAmounts).map(([k, v]) => [k, parseFloat(v) || 0])
@@ -157,7 +158,8 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
       const blob = await res.blob()
       const disposition = res.headers.get('Content-Disposition') ?? ''
       const match = disposition.match(/filename="([^"]+)"/)
-      const filename = match?.[1] ?? 'invoice.docx'
+      const defaultExt = format === 'docx' ? 'invoice.docx' : 'invoice.pdf'
+      const filename = match?.[1] ?? defaultExt
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -340,16 +342,25 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 
-      <button
-        onClick={generate}
-        disabled={generating || selectedCount === 0}
-        className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-        </svg>
-        {generating ? 'Generating…' : `Download Invoice${selectedCount > 0 ? ` (${selectedCount} shift${selectedCount !== 1 ? 's' : ''})` : ''}`}
-      </button>
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={() => generate('pdf')}
+          disabled={generating || selectedCount === 0}
+          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          {generating ? 'Generating…' : `Download PDF${selectedCount > 0 ? ` (${selectedCount} shift${selectedCount !== 1 ? 's' : ''})` : ''}`}
+        </button>
+        <button
+          onClick={() => generate('docx')}
+          disabled={generating || selectedCount === 0}
+          className="text-xs text-slate-400 hover:text-slate-600 disabled:opacity-40 transition-colors underline underline-offset-2 text-left"
+        >
+          Download as Word (.docx)
+        </button>
+      </div>
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { auth, currentUser } from '@clerk/nextjs/server'
 import { setInvoiceSequence, addInvoiceHistory } from '@/lib/db'
 import { calculateLineItems } from '@/lib/invoices'
 import { buildInvoiceDocx } from '@/lib/docx-invoice'
+import { buildInvoicePdf } from '@/lib/pdf-invoice'
 import type { BillingEntity, CompletedShiftForInvoice, MriPetMode, BillingLineItem } from '@/lib/invoices'
 
 interface GenerateRequest {
@@ -12,6 +13,7 @@ interface GenerateRequest {
   modes: Record<string, MriPetMode>       // shiftId → mode, for MRI/PET shifts
   parkingAmounts: Record<string, number>  // shiftId → parking amount
   invoiceDate: string
+  format?: 'pdf' | 'docx'
   from: {
     name: string
     address: string
@@ -25,7 +27,7 @@ export async function POST(request: Request) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = (await request.json()) as GenerateRequest
-  const { entity, invoiceNumber, shifts, modes, parkingAmounts, invoiceDate, from } = body
+  const { entity, invoiceNumber, shifts, modes, parkingAmounts, invoiceDate, format = 'pdf', from } = body
 
   if (!entity || !invoiceNumber || !shifts?.length || !from?.name) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -61,13 +63,11 @@ export async function POST(request: Request) {
     await setInvoiceSequence(residentName, entity, parseInt(trailingDigits[1]) + 1)
   }
 
-  const buffer = await buildInvoiceDocx({
-    entity,
-    invoiceNumber,
-    invoiceDate,
-    from,
-    lineItems: allLineItems,
-  })
+  const invoiceOpts = { entity, invoiceNumber, invoiceDate, from, lineItems: allLineItems }
+  const isPdf = format !== 'docx'
+  const buffer = isPdf
+    ? await buildInvoicePdf(invoiceOpts)
+    : await buildInvoiceDocx(invoiceOpts)
 
   await addInvoiceHistory({
     userId,
@@ -78,12 +78,15 @@ export async function POST(request: Request) {
     shiftIds: shifts.map((s) => s.shiftId),
   })
 
-  const filename = `${invoiceNumber}.docx`
+  const ext = isPdf ? 'pdf' : 'docx'
+  const contentType = isPdf
+    ? 'application/pdf'
+    : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
   return new Response(new Uint8Array(buffer), {
     headers: {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename="${invoiceNumber}.${ext}"`,
     },
   })
 }
