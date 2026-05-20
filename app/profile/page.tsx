@@ -279,9 +279,10 @@ export default function ProfilePage() {
       .map((s) => s.shiftId)
   )]
   for (const sid of acceptorShiftIds) {
-    const base = assignmentToShift({ shiftId: sid, residentName: myName })
     const shift = shiftById[sid]
-    if (!shift?.startTime || !shift?.endTime) {
+    if (!shift) continue  // block deleted; history records this coverage
+    const base = assignmentToShift({ shiftId: sid, residentName: myName })
+    if (!shift.startTime || !shift.endTime) {
       mySplitCoverage.push(base)
       continue
     }
@@ -307,7 +308,24 @@ export default function ProfilePage() {
   const scheduleCoverageIds = new Set(myScheduleCoverage.map((s) => s.id))
   const completedMap = new Map<string, Shift>()
   for (const a of history.filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase())) {
-    if (!scheduleCoverageIds.has(a.shiftId)) completedMap.set(a.shiftId, assignmentToShift(a))
+    if (scheduleCoverageIds.has(a.shiftId)) continue
+    // If this base-shift history record has accepted splits, compute actual segments
+    // (splits survive block deletion, so we can derive the real coverage windows)
+    const acceptedSplits = (splitsByShift[a.shiftId] ?? []).filter(sp => sp.status === 'accepted')
+    if (acceptedSplits.length > 0 && a.startTime && a.endTime) {
+      const segs = computeCoverageSegments({ startTime: a.startTime, endTime: a.endTime }, a.residentName!, acceptedSplits)
+      segs
+        .filter(seg => seg.residentName.toLowerCase() === myName.toLowerCase())
+        .forEach((seg, i) => {
+          completedMap.set(`${a.shiftId}::hseg::${i}`, {
+            ...assignmentToShift(a),
+            startTime: seg.start || undefined,
+            endTime: seg.end || undefined,
+          })
+        })
+    } else {
+      completedMap.set(a.shiftId, assignmentToShift(a))
+    }
   }
   for (const s of allMyCoverage.filter(isShiftEnded)) {
     completedMap.set(`${s.id}::${s.startTime ?? ''}`, s)
