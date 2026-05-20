@@ -70,6 +70,22 @@ function daysUntil(dateStr: string): number {
   return Math.round((new Date(dateStr + 'T00:00:00').getTime() - now.getTime()) / 86400000)
 }
 
+function getWeekKey(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  const day = d.getUTCDay()
+  const diff = day === 0 ? -6 : 1 - day
+  d.setUTCDate(d.getUTCDate() + diff)
+  return d.toISOString().split('T')[0]
+}
+
+function formatWeekRange(weekKey: string): string {
+  const start = new Date(weekKey + 'T00:00:00Z')
+  const end = new Date(weekKey + 'T00:00:00Z')
+  end.setUTCDate(end.getUTCDate() + 6)
+  const fmt = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return `${fmt.format(start)} – ${fmt.format(end)}`
+}
+
 export default function SchedulePage() {
   const { user } = useUser()
   const myName = user?.fullName ?? [user?.firstName, user?.lastName].filter(Boolean).join(' ') ?? ''
@@ -108,6 +124,8 @@ export default function SchedulePage() {
   const [submittingSplitAccept, setSubmittingSplitAccept] = useState(false)
   const [splitAcceptError, setSplitAcceptError] = useState('')
 
+  const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set())
+
   const fetchAll = useCallback(async () => {
     const [sched, shiftList, swaps, periodList, splitList] = await Promise.all([
       fetch('/api/schedule').then((r) => r.json()),
@@ -137,7 +155,10 @@ export default function SchedulePage() {
 
   const filteredPublished = upcomingPeriods.length > 0 && selectedPeriod
     ? published.filter((a) => {
-        const date = shiftById[a.shiftId]?.date ?? a.shiftId.split('|')[0]
+        const shift = shiftById[a.shiftId]
+        if (shift) return shift.date >= selectedPeriod.startDate && shift.date <= selectedPeriod.endDate
+        const [date, clinic] = a.shiftId.split('|')
+        if (!clinic) return false
         return date >= selectedPeriod.startDate && date <= selectedPeriod.endDate
       })
     : published
@@ -224,6 +245,7 @@ export default function SchedulePage() {
     const s = shiftById[shiftId]
     if (s) return `${formatDate(s.date)} — ${s.clinic}`
     const [date, clinic] = shiftId.split('|')
+    if (!clinic) return shiftId
     return `${formatDate(date)} — ${clinic}`
   }
 
@@ -352,11 +374,32 @@ export default function SchedulePage() {
   for (const a of filteredPublished) {
     const shift = shiftById[a.shiftId] ?? (() => {
       const [date, clinic] = a.shiftId.split('|')
+      if (!clinic) return null
       return { id: a.shiftId, date, clinic: clinic as ClinicName }
     })()
+    if (!shift) continue
     ;(byDate[shift.date] ??= []).push(shift)
   }
   const sortedDates = Object.keys(byDate).sort()
+
+  const weekGroups: { key: string; dates: string[] }[] = []
+  {
+    const seen: Record<string, string[]> = {}
+    for (const date of sortedDates) {
+      const k = getWeekKey(date)
+      if (!seen[k]) { seen[k] = []; weekGroups.push({ key: k, dates: seen[k] }) }
+      seen[k].push(date)
+    }
+  }
+
+  function toggleWeek(key: string) {
+    setExpandedWeeks((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   const counts: Record<string, number> = {}
   for (const a of filteredPublished) {
@@ -600,28 +643,67 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {/* Schedule grid — mobile: card-per-date; desktop: table */}
-      <div className="sm:hidden space-y-3">
-        {sortedDates.map((date) => (
-          <div key={date} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100">
-              <span className="text-sm font-semibold text-slate-700">{formatDate(date)}</span>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {byDate[date]?.map((shift) => (
-                <div key={shift.id} className="px-4 py-3">
-                  <div className="flex items-baseline justify-between gap-2 mb-1.5">
-                    <span className="text-sm font-medium text-slate-700">{CLINIC_ABBR[shift.clinic] ?? shift.clinic}</span>
-                    {formatTimeRange(shift.startTime, shift.endTime) && (
-                      <span className="text-xs text-slate-400 shrink-0">{formatTimeRange(shift.startTime, shift.endTime)}</span>
-                    )}
-                  </div>
-                  {renderShiftContent(shift)}
+      {/* Schedule grid — mobile: collapsible week sections; desktop: table */}
+      <div className="sm:hidden space-y-2">
+        {weekGroups.map(({ key, dates }) => {
+          const isExpanded = expandedWeeks.has(key)
+          const isCurrentWeek = key === getWeekKey(today)
+          const myShiftsInWeek = dates.filter(
+            (d) => (myAssignedDates.has(d) && !myFullyGivenAwayDates.has(d)) || mySplitFullShiftDates.has(d)
+          ).length
+          return (
+            <div key={key} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <button
+                onClick={() => toggleWeek(key)}
+                className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 active:bg-slate-100 transition-colors text-left"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-sm font-semibold text-slate-700">{formatWeekRange(key)}</span>
+                  {isCurrentWeek && (
+                    <span className="shrink-0 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">This week</span>
+                  )}
                 </div>
-              ))}
+                <div className="flex items-center gap-2 shrink-0 ml-2">
+                  {myShiftsInWeek > 0 && (
+                    <span className="text-xs font-medium text-blue-600">
+                      {myShiftsInWeek} shift{myShiftsInWeek !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                  <svg
+                    className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </button>
+              {isExpanded && (
+                <div className="border-t border-slate-100">
+                  {dates.map((date) => (
+                    <div key={date}>
+                      <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
+                        <span className="text-xs font-medium text-slate-500">{formatDate(date)}</span>
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {byDate[date]?.map((shift) => (
+                          <div key={shift.id} className="px-4 py-3">
+                            <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                              <span className="text-sm font-medium text-slate-700">{CLINIC_ABBR[shift.clinic] ?? shift.clinic}</span>
+                              {formatTimeRange(shift.startTime, shift.endTime) && (
+                                <span className="text-xs text-slate-400 shrink-0">{formatTimeRange(shift.startTime, shift.endTime)}</span>
+                              )}
+                            </div>
+                            {renderShiftContent(shift)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="hidden sm:block bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto overflow-y-auto max-h-[70vh]">
@@ -664,8 +746,9 @@ export default function SchedulePage() {
             // Offerable = my direct assignments that haven't started, plus accepted split windows I own
             const directOfferable = myShifts().filter((a) => {
               const s = shiftById[a.shiftId]
-              if (s && isShiftStarted(s)) return false
-              return !myFullyGivenAwayDates.has(a.shiftId.split('|')[0])
+              if (!s) return false
+              if (isShiftStarted(s)) return false
+              return !myFullyGivenAwayDates.has(s.date)
             })
             const splitOfferable = mySplitAcceptances().filter((sp) => {
               const s = shiftById[sp.shiftId]
@@ -708,7 +791,7 @@ export default function SchedulePage() {
 
                   return (
                     <div key={`${shiftId}-${isSplitAcceptance}`}>
-                      <div className="flex items-start gap-3 flex-wrap rounded-lg border border-slate-200 px-4 py-2.5">
+                      <div className="flex items-center gap-3 flex-wrap rounded-lg border border-slate-200 px-4 py-2.5">
                         <div className="flex-1 min-w-0">
                           <span className="text-sm text-slate-700">{label}</span>
                           {ownedWindow && (ownedWindow.start !== shiftById[shiftId]?.startTime || ownedWindow.end !== shiftById[shiftId]?.endTime) && (
@@ -760,6 +843,31 @@ export default function SchedulePage() {
                           </div>
                         )}
                       </div>
+
+                      {/* Inline whole-shift offer confirmation */}
+                      {requestingShiftId === shiftId && (
+                        <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-4">
+                          <p className="text-sm text-amber-800 mb-3">
+                            Offer <strong>{label}</strong> to others? Anyone can claim it — no shift needed in return.
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={requestSwap}
+                              disabled={submittingRequest}
+                              className="bg-amber-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-40 transition-colors"
+                            >
+                              {submittingRequest ? 'Posting…' : 'Confirm offer'}
+                            </button>
+                            <button
+                              onClick={() => { setRequestingShiftId(null); setRequestError('') }}
+                              className="text-sm text-slate-500 px-3 py-2 rounded-lg hover:bg-slate-100"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                          {requestError && <p className="mt-2 text-sm text-red-500">{requestError}</p>}
+                        </div>
+                      )}
 
                       {/* Inline split form */}
                       {splittingShiftId === shiftId && ownedWindow && (() => {
@@ -839,31 +947,6 @@ export default function SchedulePage() {
             )
           })()}
 
-          {/* Whole-shift offer confirmation */}
-          {requestingShiftId && (
-            <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <p className="text-sm text-amber-800 mb-3">
-                Offer <strong>{shiftLabel(requestingShiftId)}</strong> to others?
-                Anyone can claim it — no shift needed in return.
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={requestSwap}
-                  disabled={submittingRequest}
-                  className="bg-amber-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-40 transition-colors"
-                >
-                  {submittingRequest ? 'Posting…' : 'Confirm offer'}
-                </button>
-                <button
-                  onClick={() => { setRequestingShiftId(null); setRequestError('') }}
-                  className="text-sm text-slate-500 px-3 py-2 rounded-lg hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-              </div>
-              {requestError && <p className="mt-2 text-sm text-red-500">{requestError}</p>}
-            </div>
-          )}
         </div>
       </div>
 

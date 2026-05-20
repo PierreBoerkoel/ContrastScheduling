@@ -565,18 +565,19 @@ export default function AdminPage() {
   }
 
   const tabClass = (t: Tab) =>
-    `px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+    `px-2 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors ${
       tab === t ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
     }`
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-10">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-3">
         <h1 className="text-2xl font-bold text-slate-800">Admin Dashboard</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 flex-wrap">
           <button onClick={() => setTab('shifts')} className={tabClass('shifts')}>Shifts</button>
           <button onClick={() => setTab('availability')} className={tabClass('availability')}>
-            Availability
+            <span className="sm:hidden">Avail</span>
+            <span className="hidden sm:inline">Availability</span>
             {(() => {
               const publishedShiftIds = new Set(schedule?.publishedAssignments.map((a) => a.shiftId) ?? [])
               const unpublishedPeriodIds = new Set(
@@ -595,7 +596,10 @@ export default function AdminPage() {
               ) : null
             })()}
           </button>
-          <button onClick={() => setTab('schedule')} className={tabClass('schedule')}>Schedule</button>
+          <button onClick={() => setTab('schedule')} className={tabClass('schedule')}>
+            <span className="sm:hidden">Sched</span>
+            <span className="hidden sm:inline">Schedule</span>
+          </button>
           <button onClick={() => setTab('swaps')} className={tabClass('swaps')}>
             Swaps
             {swapRequests.filter((r) => r.status === 'pending').length > 0 && (
@@ -605,7 +609,8 @@ export default function AdminPage() {
             )}
           </button>
           <button onClick={() => setTab('users')} className={tabClass('users')}>
-            Residents
+            <span className="sm:hidden">Users</span>
+            <span className="hidden sm:inline">Residents</span>
             {users.length > 0 && (
               <span className="ml-1.5 bg-slate-100 text-slate-600 text-xs px-1.5 py-0.5 rounded-full">
                 {users.length}
@@ -823,14 +828,15 @@ export default function AdminPage() {
                     {activeSubmissions.length} submission{activeSubmissions.length !== 1 ? 's' : ''}
                   </h2>
                 </div>
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50">
-                      <th className="text-left px-4 py-3 font-medium text-slate-600">Resident</th>
-                      <th className="text-left px-4 py-3 font-medium text-slate-600">Block</th>
-                      <th className="text-left px-4 py-3 font-medium text-slate-600">Shifts available</th>
-                      <th className="text-left px-4 py-3 font-medium text-slate-600">Max shifts</th>
-                      <th className="text-left px-4 py-3 font-medium text-slate-600">Submitted</th>
+                      <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Resident</th>
+                      <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Block</th>
+                      <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Shifts available</th>
+                      <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Max shifts</th>
+                      <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Submitted</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -879,6 +885,7 @@ export default function AdminPage() {
                       })}
                   </tbody>
                 </table>
+                </div>
               </>
             )}
           </div>
@@ -1245,13 +1252,14 @@ export default function AdminPage() {
                   {users.length} resident{users.length !== 1 ? 's' : ''}
                 </h2>
               </div>
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left px-4 py-3 font-medium text-slate-600">Name</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600">Email</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600">Role</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600">Joined</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Name</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Email</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Role</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Joined</th>
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
@@ -1307,6 +1315,7 @@ export default function AdminPage() {
                     ))}
                 </tbody>
               </table>
+              </div>
             </>
           )}
         </div>
@@ -1327,14 +1336,14 @@ export default function AdminPage() {
                   <span>{swapRequests.filter((r) => r.status === 'cancelled').length} cancelled</span>
                 </div>
               </div>
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left px-4 py-3 font-medium text-slate-600">Status</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600">Requestor</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600">Shift offered</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600">Accepted by</th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600">Shift received</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Status</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Requestor</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Shift offered</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Accepted by</th>
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
@@ -1344,9 +1353,6 @@ export default function AdminPage() {
                     .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
                     .map((req) => {
                       const offeredShift = shifts.find((s) => s.id === req.requestorShiftId)
-                      const receivedShift = req.acceptorShiftId
-                        ? shifts.find((s) => s.id === req.acceptorShiftId)
-                        : null
                       return (
                         <tr key={req.id} className="border-b border-slate-100 last:border-0">
                           <td className="px-4 py-3">
@@ -1374,16 +1380,6 @@ export default function AdminPage() {
                             )}
                           </td>
                           <td className="px-4 py-3 text-slate-600">{req.acceptorName ?? '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">
-                            {receivedShift ? (
-                              <>
-                                <div>{formatDate(receivedShift.date)}</div>
-                                <div className="text-xs text-slate-400">{receivedShift.clinic}</div>
-                              </>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
                           <td className="px-4 py-3">
                             {req.status === 'pending' && (
                               <button
@@ -1406,6 +1402,7 @@ export default function AdminPage() {
                     })}
                 </tbody>
               </table>
+              </div>
             </>
           )}
         </div>

@@ -71,8 +71,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <main className="flex-1">
             <OnboardingGuard>{children}</OnboardingGuard>
           </main>
-          <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-400">
-            BC Cancer Agency &middot; INITIO Medical Imaging &middot; UBC Hospital &middot; BC Women&apos;s Hospital          </footer>
+          <footer className="border-t border-slate-200 bg-white py-4 px-4 text-center text-xs text-slate-400">
+            <span className="inline-flex flex-wrap justify-center gap-x-2 gap-y-1">
+              <span>BC Cancer Agency</span>
+              <span aria-hidden="true">&middot;</span>
+              <span>INITIO Medical Imaging</span>
+              <span aria-hidden="true">&middot;</span>
+              <span>UBC Hospital</span>
+              <span aria-hidden="true">&middot;</span>
+              <span>BC Women&apos;s Hospital</span>
+            </span>
+          </footer>
         </body>
       </html>
     </ClerkProvider>

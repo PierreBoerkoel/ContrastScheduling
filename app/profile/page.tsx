@@ -570,7 +570,7 @@ export default function ProfilePage() {
                   <div
                     key={dateStr}
                     title={tooltipParts.join(', ')}
-                    className={`aspect-square flex flex-col items-center justify-center rounded-lg text-xs select-none
+                    className={`aspect-square flex flex-col items-center justify-center text-center rounded-lg text-xs select-none
                       ${hasShift
                         ? isPast
                           ? 'bg-slate-500 text-white'
