@@ -334,27 +334,30 @@ export default function AvailabilityPage() {
               </div>
 
               {!selectedBlockPublished && (
-                <div className="mt-5 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
-                  <label className="text-sm text-slate-600 whitespace-nowrap">
-                    Maximum number of shifts I can work this block:
+                <div className="mt-5 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
+                  <label className="block text-sm text-slate-600 mb-2">
+                    <span className="sm:hidden">Max shifts this block:</span>
+                    <span className="hidden sm:inline">Maximum number of shifts I can work this block:</span>
                   </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={visibleShifts.length || undefined}
-                    value={maxShifts}
-                    onChange={(e) => setMaxShifts(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value, 10)))}
-                    placeholder="No limit"
-                    className="w-24 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  {maxShifts !== '' && (
-                    <button
-                      onClick={() => setMaxShifts('')}
-                      className="text-xs text-slate-400 hover:text-slate-600"
-                    >
-                      Clear
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={visibleShifts.length || undefined}
+                      value={maxShifts}
+                      onChange={(e) => setMaxShifts(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value, 10)))}
+                      placeholder="No limit"
+                      className="w-24 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    {maxShifts !== '' && (
+                      <button
+                        onClick={() => setMaxShifts('')}
+                        className="text-xs text-slate-400 hover:text-slate-600"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
