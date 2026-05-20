@@ -23,10 +23,11 @@ export async function DELETE(
   if (periodShiftIds.size > 0) {
     const schedule = await getSchedule()
     if (schedule) {
-      // Archive completed assignments before wiping them from the schedule
+      // Archive only past completed assignments before wiping them from the schedule
+      const today = new Date().toISOString().split('T')[0]
       const shiftMap = Object.fromEntries(allShifts.map((s) => [s.id, s]))
       const toArchive = schedule.publishedAssignments
-        .filter((a) => periodShiftIds.has(a.shiftId) && a.residentName)
+        .filter((a) => periodShiftIds.has(a.shiftId) && a.residentName && (shiftMap[a.shiftId]?.date ?? '') < today)
         .map((a) => {
           const shift = shiftMap[a.shiftId]
           return { shiftId: a.shiftId, residentName: a.residentName!, date: shift?.date ?? '', clinic: shift?.clinic ?? '' }
