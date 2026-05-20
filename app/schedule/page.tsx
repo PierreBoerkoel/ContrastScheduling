@@ -360,13 +360,13 @@ export default function SchedulePage() {
   for (const a of filteredPublished) {
     if (a.residentName) counts[a.residentName] = (counts[a.residentName] ?? 0) + 1
   }
+  const filteredShiftIds = new Set(filteredPublished.map((a) => a.shiftId))
   for (const sp of splits) {
     if (sp.status !== 'accepted' || !sp.acceptorName) continue
-    const assignment = filteredPublished.find((a) => a.shiftId === sp.shiftId)
-    if (!assignment?.residentName) continue
+    if (!filteredShiftIds.has(sp.shiftId)) continue
     const shift = shiftById[sp.shiftId]
     const frac = splitFraction(sp.offeredStart, sp.offeredEnd, shift?.startTime, shift?.endTime)
-    counts[assignment.residentName] = (counts[assignment.residentName] ?? 1) - frac
+    counts[sp.offerorName] = (counts[sp.offerorName] ?? 0) - frac
     counts[sp.acceptorName] = (counts[sp.acceptorName] ?? 0) + frac
   }
 

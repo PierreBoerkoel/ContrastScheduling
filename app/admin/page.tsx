@@ -485,11 +485,9 @@ export default function AdminPage() {
   }
   for (const sp of splits) {
     if (sp.status !== 'accepted' || !sp.acceptorName) continue
-    const assignment = blockAssignments.find((a) => a.shiftId === sp.shiftId)
-    if (!assignment?.residentName) continue
     const shift = blockShiftById[sp.shiftId]
     const frac = splitFraction(sp.offeredStart, sp.offeredEnd, shift?.startTime, shift?.endTime)
-    counts[assignment.residentName] = (counts[assignment.residentName] ?? 1) - frac
+    counts[sp.offerorName] = (counts[sp.offerorName] ?? 0) - frac
     counts[sp.acceptorName] = (counts[sp.acceptorName] ?? 0) + frac
   }
 
