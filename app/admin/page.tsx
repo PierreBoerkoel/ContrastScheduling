@@ -1427,30 +1427,117 @@ export default function AdminPage() {
                                   return (
                                     <div key={i} className={`bg-white min-h-[80px] p-2 ${!inBlock ? 'opacity-25' : ''}`}>
                                       <div className="text-xs font-medium text-slate-600 mb-1">{day}</div>
-                                      {inBlock && !shift && <div className="text-xs text-slate-300">—</div>}
+
+                                      {/* Empty cell */}
+                                      {inBlock && !shift && (() => {
+                                        const isAddingHere = blockIsPublished && addingShiftCell?.date === dateStr && addingShiftCell?.clinic === clinic
+                                        if (isAddingHere) return (
+                                          <div className="space-y-1">
+                                            <TimeInput value={addCellTimes.startTime} onChange={(v) => setAddCellTimes((p) => ({ ...p, startTime: v }))} className="w-full text-xs px-1 py-0.5" />
+                                            <TimeInput value={addCellTimes.endTime} onChange={(v) => setAddCellTimes((p) => ({ ...p, endTime: v }))} className="w-full text-xs px-1 py-0.5" />
+                                            {addCellError && <p className="text-xs text-red-500">{addCellError}</p>}
+                                            <div className="flex gap-1.5 pt-0.5">
+                                              <button onClick={addCellShift} disabled={addingCell} className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-40">{addingCell ? '…' : 'Add'}</button>
+                                              <button onClick={() => { setAddingShiftCell(null); setAddCellError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                                            </div>
+                                          </div>
+                                        )
+                                        if (blockIsPublished) return (
+                                          <div
+                                            className="text-xs text-slate-300 cursor-pointer hover:text-blue-500 transition-colors"
+                                            onClick={() => {
+                                              const t = clinicDefaultShiftTimes(clinic, dateStr, clinicDefaultsRef.current) ?? { startTime: '', endTime: '' }
+                                              setAddingShiftCell({ date: dateStr, clinic })
+                                              setAddCellTimes(t)
+                                            }}
+                                          >+ Add</div>
+                                        )
+                                        return <div className="text-xs text-slate-300">—</div>
+                                      })()}
+
+                                      {/* Cell with shift */}
                                       {shift && (() => {
                                         const resident = assignmentMap[shift.id] ?? null
+                                        const isEditing = editingShiftId === shift.id
+                                        const available = availableFor(shift.id)
                                         const segs = computeCoverageSegments(shift, resident, splitsByShift[shift.id] ?? [])
                                         const hasSplits = segs.length > 1 || segs.some((sg) => sg.residentName !== (resident ?? ''))
-                                        return resident ? (
-                                          hasSplits ? (
-                                            <div className="space-y-1">
-                                              {segs.map((sg, j) => (
-                                                <div key={j}>
-                                                  <div className={`text-xs font-medium leading-tight ${sg.residentName === resident ? 'text-slate-800' : 'text-violet-700'}`}>
-                                                    {displayMap[sg.residentName] ?? sg.residentName}
-                                                  </div>
-                                                  {sg.start && sg.end && <div className="text-xs text-slate-400">{formatTimeRange(sg.start, sg.end)}</div>}
+                                        return (
+                                          <div>
+                                            {/* Resident — click to reassign */}
+                                            {isEditing ? (
+                                              <select
+                                                autoFocus
+                                                defaultValue={resident ?? ''}
+                                                onChange={(e) => updateAssignment(shift.id, e.target.value || null)}
+                                                onBlur={() => setEditingShiftId(null)}
+                                                className="w-full border border-blue-400 rounded px-1 py-0.5 text-xs focus:outline-none mb-1"
+                                              >
+                                                <option value="">Unassigned</option>
+                                                {blockSubmissions.map((sub) => (
+                                                  <option key={sub.residentName} value={sub.residentName}>
+                                                    {sub.residentName}{!available.includes(sub.residentName) ? ' (unavailable)' : ''}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            ) : (
+                                              <div
+                                                className="cursor-pointer mb-1"
+                                                onClick={() => {
+                                                  if (editingTimesShiftId === shift.id || removingShiftId === shift.id) return
+                                                  setEditingShiftId(shift.id)
+                                                }}
+                                              >
+                                                {resident ? (
+                                                  hasSplits ? (
+                                                    <div className="space-y-1">
+                                                      {segs.map((sg, j) => (
+                                                        <div key={j}>
+                                                          <div className={`text-xs font-medium leading-tight transition-colors ${sg.residentName === resident ? 'text-slate-800 hover:text-blue-600' : 'text-violet-700'}`}>
+                                                            {displayMap[sg.residentName] ?? sg.residentName}
+                                                          </div>
+                                                          {sg.start && sg.end && <div className="text-xs text-slate-400">{formatTimeRange(sg.start, sg.end)}</div>}
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  ) : (
+                                                    <div className="text-xs font-medium text-slate-800 leading-tight hover:text-blue-600 transition-colors">
+                                                      {displayMap[resident] ?? resident}
+                                                    </div>
+                                                  )
+                                                ) : (
+                                                  <div className="text-xs text-red-400 italic">Unassigned</div>
+                                                )}
+                                              </div>
+                                            )}
+                                            {/* Time edit / remove controls */}
+                                            {editingTimesShiftId === shift.id ? (
+                                              <div onClick={(e) => e.stopPropagation()} className="space-y-1">
+                                                <TimeInput value={timesEdit.startTime} onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))} className="w-full text-xs px-1 py-0.5" />
+                                                <TimeInput value={timesEdit.endTime} onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))} className="w-full text-xs px-1 py-0.5" />
+                                                {timesEditError && <p className="text-xs text-red-500">{timesEditError}</p>}
+                                                <div className="flex gap-1.5 pt-0.5">
+                                                  <button onClick={() => saveShiftTimes(shift.id)} disabled={savingTimes} className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-40">{savingTimes ? '…' : 'Save'}</button>
+                                                  <button onClick={() => { setEditingTimesShiftId(null); setTimesEditError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
                                                 </div>
-                                              ))}
-                                            </div>
-                                          ) : (
-                                            <div>
-                                              <div className="text-xs font-medium text-slate-800 leading-tight">{displayMap[resident] ?? resident}</div>
-                                              {shift.startTime && shift.endTime && <div className="text-xs text-slate-400">{formatTimeRange(shift.startTime, shift.endTime)}</div>}
-                                            </div>
-                                          )
-                                        ) : <div className="text-xs text-red-400 italic">Unassigned</div>
+                                              </div>
+                                            ) : removingShiftId === shift.id ? (
+                                              <div onClick={(e) => e.stopPropagation()} className="text-xs space-y-1">
+                                                <p className="text-slate-600">Remove?</p>
+                                                <div className="flex gap-1.5">
+                                                  <button onClick={() => removeShift(shift.id)} className="font-medium text-red-500 hover:text-red-700">Remove</button>
+                                                  <button onClick={() => setRemovingShiftId(null)} className="text-slate-400 hover:text-slate-600">Cancel</button>
+                                                </div>
+                                              </div>
+                                            ) : !isEditing && (
+                                              <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1.5 text-xs text-slate-400 flex-wrap">
+                                                <span>{formatTimeRange(shift.startTime, shift.endTime) || 'No times'}</span>
+                                                <button onClick={() => { setEditingTimesShiftId(shift.id); setTimesEdit({ startTime: shift.startTime ?? '', endTime: shift.endTime ?? '' }) }} className="text-blue-400 hover:text-blue-600 transition-colors">Edit</button>
+                                                <button onClick={() => setRemovingShiftId(shift.id)} className="text-red-400 hover:text-red-500 transition-colors">Remove</button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )
                                       })()}
                                     </div>
                                   )
