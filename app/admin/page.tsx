@@ -1335,24 +1335,24 @@ export default function AdminPage() {
                     </button>
                   )}
                   {blockAssignments.length > 0 && !confirmRegenerate && (
-                    <>
-                      <button
-                        onClick={publishSchedule}
-                        disabled={publishing}
-                        className="bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
-                      >
-                        {publishing ? 'Publishing…' : 'Publish'}
-                      </button>
-                      <span className="text-xs text-slate-400 self-center">
-                        {schedPeriod?.publishedAt
-                          ? <>Last published: {formatDateTime(schedPeriod.publishedAt)}</>
-                          : <span className="text-amber-500">Not yet published</span>}
-                      </span>
-                    </>
+                    <button
+                      onClick={publishSchedule}
+                      disabled={publishing}
+                      className="bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
+                    >
+                      {publishing ? 'Publishing…' : 'Publish'}
+                    </button>
                   )}
                 </>
               )}
             </div>
+            {blockAssignments.length > 0 && !confirmRegenerate && (
+              <p className="mt-2 text-xs text-slate-400">
+                {schedPeriod?.publishedAt
+                  ? <>Last published: {formatDateTime(schedPeriod.publishedAt)}</>
+                  : <span className="text-amber-500">Not yet published</span>}
+              </p>
+            )}
 
             {!selectedScheduleBlock && periods.length === 0 && (
               <p className="mt-3 text-sm text-slate-400">Configure blocks in the Shifts tab first.</p>
