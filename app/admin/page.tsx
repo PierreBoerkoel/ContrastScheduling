@@ -1396,37 +1396,54 @@ export default function AdminPage() {
                   (() => {
                     const clinic = scheduleClinicFilter
                     const blockDateSet = new Set(sortedDates)
-                    const monthGroups: { year: number; month: number }[] = []
-                    for (const d of sortedDates) {
-                      const y = parseInt(d.slice(0, 4)), m = parseInt(d.slice(5, 7))
-                      const last = monthGroups[monthGroups.length - 1]
-                      if (!last || last.year !== y || last.month !== m) monthGroups.push({ year: y, month: m })
+                    if (sortedDates.length === 0) return null
+
+                    const firstDate = sortedDates[0]
+                    const lastDate = sortedDates[sortedDates.length - 1]
+
+                    // Grid: Monday of first block week → Sunday of last block week
+                    const firstObj = new Date(firstDate + 'T00:00:00Z')
+                    const firstDow = (firstObj.getUTCDay() + 6) % 7
+                    const gridStart = new Date(firstObj.getTime() - firstDow * 86400000)
+
+                    const lastObj = new Date(lastDate + 'T00:00:00Z')
+                    const lastDow = (lastObj.getUTCDay() + 6) % 7
+                    const gridEnd = new Date(lastObj.getTime() + (6 - lastDow) * 86400000)
+
+                    const gridDates: string[] = []
+                    const cur = new Date(gridStart)
+                    while (cur <= gridEnd) {
+                      gridDates.push(cur.toISOString().split('T')[0])
+                      cur.setUTCDate(cur.getUTCDate() + 1)
                     }
+
+                    const fmtMD = (d: string) => new Intl.DateTimeFormat('en-CA', { month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(d + 'T00:00:00Z'))
+                    const firstYear = firstDate.slice(0, 4), lastYear = lastDate.slice(0, 4)
+                    const rangeLabel = firstYear === lastYear
+                      ? `${fmtMD(firstDate)} – ${fmtMD(lastDate)}, ${firstYear}`
+                      : `${fmtMD(firstDate)}, ${firstYear} – ${fmtMD(lastDate)}, ${lastYear}`
+
                     return (
-                      <div className="p-5 space-y-8">
-                        {monthGroups.map(({ year, month }) => {
-                          const monthLabel = new Intl.DateTimeFormat('en-CA', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-                            .format(new Date(Date.UTC(year, month - 1, 1)))
-                          const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
-                          const firstDow = new Date(Date.UTC(year, month - 1, 1)).getUTCDay()
-                          const startOffset = (firstDow + 6) % 7
-                          const cells: (number | null)[] = [...Array(startOffset).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
-                          while (cells.length % 7 !== 0) cells.push(null)
-                          return (
-                            <div key={`${year}-${month}`}>
-                              <div className="text-sm font-semibold text-slate-700 mb-3">{monthLabel}</div>
-                              <div className="grid grid-cols-7 gap-px bg-slate-200 rounded-lg overflow-hidden border border-slate-200">
-                                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
-                                  <div key={d} className="bg-slate-50 text-xs font-medium text-slate-500 text-center py-2">{d}</div>
-                                ))}
-                                {cells.map((day, i) => {
-                                  if (day === null) return <div key={i} className="bg-white min-h-[80px]" />
-                                  const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-                                  const inBlock = blockDateSet.has(dateStr)
-                                  const shift = inBlock ? (byDate[dateStr] ?? []).find((s) => s.clinic === clinic) : undefined
-                                  return (
-                                    <div key={i} className={`bg-white min-h-[80px] p-2 ${!inBlock ? 'opacity-25' : ''}`}>
-                                      <div className="text-xs font-medium text-slate-600 mb-1">{day}</div>
+                      <div className="p-5">
+                        <div className="text-sm font-medium text-slate-500 mb-4">{rangeLabel}</div>
+                        <div className="grid grid-cols-7 gap-px bg-slate-200 rounded-lg overflow-hidden border border-slate-200">
+                          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                            <div key={d} className="bg-slate-50 text-xs font-medium text-slate-500 text-center py-2">{d}</div>
+                          ))}
+                          {gridDates.map((dateStr, i) => {
+                            const inBlock = blockDateSet.has(dateStr)
+                            const shift = inBlock ? (byDate[dateStr] ?? []).find((s) => s.clinic === clinic) : undefined
+                            const day = parseInt(dateStr.slice(8))
+                            const showMonthLabel = i === 0 || day === 1
+                            const monthName = showMonthLabel
+                              ? new Intl.DateTimeFormat('en-CA', { month: 'short', timeZone: 'UTC' }).format(new Date(dateStr + 'T00:00:00Z'))
+                              : null
+                            return (
+                              <div key={dateStr} className={`bg-white min-h-[80px] p-2 ${!inBlock ? 'opacity-25' : ''}`}>
+                                <div className="flex items-baseline gap-1 mb-1">
+                                  <span className="text-xs font-medium text-slate-600">{day}</span>
+                                  {monthName && <span className="text-xs font-semibold text-blue-500 leading-none">{monthName}</span>}
+                                </div>
 
                                       {/* Empty cell */}
                                       {inBlock && !shift && (() => {
@@ -1543,9 +1560,6 @@ export default function AdminPage() {
                                   )
                                 })}
                               </div>
-                            </div>
-                          )
-                        })}
                       </div>
                     )
                   })()
