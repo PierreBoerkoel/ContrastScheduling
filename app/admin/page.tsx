@@ -1407,8 +1407,8 @@ export default function AdminPage() {
                         {monthGroups.map(({ year, month }) => {
                           const monthLabel = new Intl.DateTimeFormat('en-CA', { month: 'long', year: 'numeric', timeZone: 'UTC' })
                             .format(new Date(Date.UTC(year, month - 1, 1)))
-                          const daysInMonth = new Date(Date.UTC(year, month, 0)).getDate()
-                          const firstDow = new Date(Date.UTC(year, month - 1, 1)).getDay()
+                          const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+                          const firstDow = new Date(Date.UTC(year, month - 1, 1)).getUTCDay()
                           const startOffset = (firstDow + 6) % 7
                           const cells: (number | null)[] = [...Array(startOffset).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
                           while (cells.length % 7 !== 0) cells.push(null)
