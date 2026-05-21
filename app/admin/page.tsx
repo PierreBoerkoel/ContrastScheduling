@@ -41,6 +41,19 @@ interface ClerkUser {
   createdAt: string
 }
 
+function fmtBlockDate(dateStr: string): string {
+  return new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(dateStr + 'T00:00:00Z'))
+}
+
+function blockLabel(p: { name: string; startDate: string; endDate: string }): string {
+  const today = new Date().toISOString().split('T')[0]
+  const thisYear = today.slice(0, 4)
+  const startYear = p.startDate.slice(0, 4)
+  const endYear = p.endDate.slice(0, 4)
+  const yearSuffix = startYear !== thisYear || endYear !== thisYear ? `, ${endYear}` : ''
+  return `${p.name} · ${fmtBlockDate(p.startDate)} – ${fmtBlockDate(p.endDate)}${yearSuffix}`
+}
+
 function formatDate(dateStr: string) {
   return new Intl.DateTimeFormat('en-CA', {
     weekday: 'short',
@@ -279,6 +292,17 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Auto-select the block containing today, or the most recent past block
+  useEffect(() => {
+    if (periods.length === 0 || selectedScheduleBlock) return
+    const today = new Date().toISOString().split('T')[0]
+    const sorted = [...periods].sort((a, b) => a.startDate.localeCompare(b.startDate))
+    const current = sorted.find((p) => p.startDate <= today && today <= p.endDate)
+    if (current) { setSelectedScheduleBlock(current.name); return }
+    const past = [...sorted].reverse().find((p) => p.endDate < today)
+    if (past) setSelectedScheduleBlock(past.name)
+  }, [periods, selectedScheduleBlock])
 
   useEffect(() => {
     fetch('/api/admin/clinic-defaults')
@@ -1262,7 +1286,7 @@ export default function AdminPage() {
                     .slice()
                     .sort((a, b) => a.startDate.localeCompare(b.startDate))
                     .map((p) => (
-                      <option key={p.id} value={p.name}>{p.name}</option>
+                      <option key={p.id} value={p.name}>{blockLabel(p)}</option>
                     ))}
                 </select>
               </label>
