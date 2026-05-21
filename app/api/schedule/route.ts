@@ -36,13 +36,16 @@ export async function POST(request: Request) {
     const blockShiftIds = new Set(shifts.map((s) => s.id))
     const keptAssignments = (existing?.assignments ?? []).filter((a) => !blockShiftIds.has(a.shiftId))
 
+    const existingPublished = existing?.publishedAssignments ?? []
     const schedule: Schedule = {
       generatedAt: new Date().toISOString(),
       publishedAt: existing?.publishedAt ?? null,
       updatedAt: null,
-      isPublished: false,
+      // Preserve isPublished if other blocks already have published assignments — generating
+      // a new draft must not revoke resident access to already-published blocks.
+      isPublished: existingPublished.length > 0 ? (existing?.isPublished ?? false) : false,
       assignments: [...keptAssignments, ...newAssignments],
-      publishedAssignments: existing?.publishedAssignments ?? [],
+      publishedAssignments: existingPublished,
     }
     await setSchedule(schedule)
     return NextResponse.json(schedule)
