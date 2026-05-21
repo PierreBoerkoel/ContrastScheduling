@@ -656,7 +656,7 @@ export default function AdminPage() {
     const rows: string[][] = [header]
 
     for (const date of sortedDates) {
-      for (const shift of (byDate[date] ?? []).slice().sort((a, b) => a.clinic.localeCompare(b.clinic))) {
+      for (const shift of (byDate[date] ?? []).filter((s) => visibleClinics.includes(s.clinic)).sort((a, b) => a.clinic.localeCompare(b.clinic))) {
         const assigned = pubMap[shift.id] ?? null
         const segs = computeCoverageSegments(shift, assigned, splitsByShift[shift.id] ?? [])
         const splitCoverage = segs
@@ -1391,219 +1391,262 @@ export default function AdminPage() {
                     </span>
                   </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-100">
-                        <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Date</th>
-                        {visibleClinics.map((clinic) => (
-                          <th key={clinic} className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">
-                            {CLINIC_ABBR[clinic] ?? clinic}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedDates.map((date) => {
-                        const shiftsOnDay = byDate[date] ?? []
-                        return (
-                          <tr key={date} className="border-b border-slate-100 last:border-0">
-                            <td className="px-4 py-3 font-medium text-slate-700 whitespace-nowrap">
-                              {formatDate(date)}
-                            </td>
-                            {visibleClinics.map((clinic) => {
-                              const shift = shiftsOnDay.find((s) => s.clinic === clinic)
-                              if (!shift) {
-                                const isAddingHere = blockIsPublished &&
-                                  addingShiftCell?.date === date && addingShiftCell?.clinic === clinic
-                                if (isAddingHere) {
+                {scheduleClinicFilter ? (
+                  // ── Calendar view (single clinic selected) ────────────────
+                  (() => {
+                    const clinic = scheduleClinicFilter
+                    const blockDateSet = new Set(sortedDates)
+                    const monthGroups: { year: number; month: number }[] = []
+                    for (const d of sortedDates) {
+                      const y = parseInt(d.slice(0, 4)), m = parseInt(d.slice(5, 7))
+                      const last = monthGroups[monthGroups.length - 1]
+                      if (!last || last.year !== y || last.month !== m) monthGroups.push({ year: y, month: m })
+                    }
+                    return (
+                      <div className="p-5 space-y-8">
+                        {monthGroups.map(({ year, month }) => {
+                          const monthLabel = new Intl.DateTimeFormat('en-CA', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+                            .format(new Date(Date.UTC(year, month - 1, 1)))
+                          const daysInMonth = new Date(Date.UTC(year, month, 0)).getDate()
+                          const firstDow = new Date(Date.UTC(year, month - 1, 1)).getDay()
+                          const startOffset = (firstDow + 6) % 7
+                          const cells: (number | null)[] = [...Array(startOffset).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
+                          while (cells.length % 7 !== 0) cells.push(null)
+                          return (
+                            <div key={`${year}-${month}`}>
+                              <div className="text-sm font-semibold text-slate-700 mb-3">{monthLabel}</div>
+                              <div className="grid grid-cols-7 gap-px bg-slate-200 rounded-lg overflow-hidden border border-slate-200">
+                                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                                  <div key={d} className="bg-slate-50 text-xs font-medium text-slate-500 text-center py-2">{d}</div>
+                                ))}
+                                {cells.map((day, i) => {
+                                  if (day === null) return <div key={i} className="bg-white min-h-[80px]" />
+                                  const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+                                  const inBlock = blockDateSet.has(dateStr)
+                                  const shift = inBlock ? (byDate[dateStr] ?? []).find((s) => s.clinic === clinic) : undefined
+                                  return (
+                                    <div key={i} className={`bg-white min-h-[80px] p-2 ${!inBlock ? 'opacity-25' : ''}`}>
+                                      <div className="text-xs font-medium text-slate-600 mb-1">{day}</div>
+                                      {inBlock && !shift && <div className="text-xs text-slate-300">—</div>}
+                                      {shift && (() => {
+                                        const resident = assignmentMap[shift.id] ?? null
+                                        const segs = computeCoverageSegments(shift, resident, splitsByShift[shift.id] ?? [])
+                                        const hasSplits = segs.length > 1 || segs.some((sg) => sg.residentName !== (resident ?? ''))
+                                        return resident ? (
+                                          hasSplits ? (
+                                            <div className="space-y-1">
+                                              {segs.map((sg, j) => (
+                                                <div key={j}>
+                                                  <div className={`text-xs font-medium leading-tight ${sg.residentName === resident ? 'text-slate-800' : 'text-violet-700'}`}>
+                                                    {displayMap[sg.residentName] ?? sg.residentName}
+                                                  </div>
+                                                  {sg.start && sg.end && <div className="text-xs text-slate-400">{formatTimeRange(sg.start, sg.end)}</div>}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <div>
+                                              <div className="text-xs font-medium text-slate-800 leading-tight">{displayMap[resident] ?? resident}</div>
+                                              {shift.startTime && shift.endTime && <div className="text-xs text-slate-400">{formatTimeRange(shift.startTime, shift.endTime)}</div>}
+                                            </div>
+                                          )
+                                        ) : <div className="text-xs text-red-400 italic">Unassigned</div>
+                                      })()}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()
+                ) : (
+                  // ── Table view (all clinics) ───────────────────────────────
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-100">
+                          <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Date</th>
+                          {visibleClinics.map((clinic) => (
+                            <th key={clinic} className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">
+                              {CLINIC_ABBR[clinic] ?? clinic}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedDates.map((date) => {
+                          const shiftsOnDay = byDate[date] ?? []
+                          return (
+                            <tr key={date} className="border-b border-slate-100 last:border-0">
+                              <td className="px-4 py-3 font-medium text-slate-700 whitespace-nowrap">
+                                {formatDate(date)}
+                              </td>
+                              {visibleClinics.map((clinic) => {
+                                const shift = shiftsOnDay.find((s) => s.clinic === clinic)
+                                if (!shift) {
+                                  const isAddingHere = blockIsPublished &&
+                                    addingShiftCell?.date === date && addingShiftCell?.clinic === clinic
+                                  if (isAddingHere) {
+                                    return (
+                                      <td key={clinic} className="px-4 py-3">
+                                        <div className="space-y-1">
+                                          <TimeInput
+                                            value={addCellTimes.startTime}
+                                            onChange={(v) => setAddCellTimes((p) => ({ ...p, startTime: v }))}
+                                            className="w-full text-xs px-1.5 py-0.5"
+                                          />
+                                          <TimeInput
+                                            value={addCellTimes.endTime}
+                                            onChange={(v) => setAddCellTimes((p) => ({ ...p, endTime: v }))}
+                                            className="w-full text-xs px-1.5 py-0.5"
+                                          />
+                                          {addCellError && <p className="text-xs text-red-500">{addCellError}</p>}
+                                          <div className="flex gap-2 pt-0.5">
+                                            <button onClick={addCellShift} disabled={addingCell} className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-40">
+                                              {addingCell ? 'Adding…' : 'Add'}
+                                            </button>
+                                            <button onClick={() => { setAddingShiftCell(null); setAddCellError('') }} className="text-xs text-slate-400 hover:text-slate-600">
+                                              Cancel
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </td>
+                                    )
+                                  }
+                                  if (blockIsPublished) {
+                                    return (
+                                      <td
+                                        key={clinic}
+                                        className="px-4 py-3 text-slate-300 text-xs cursor-pointer hover:bg-slate-50 hover:text-blue-500 transition-colors"
+                                        onClick={() => {
+                                          const t = clinicDefaultShiftTimes(clinic, date, clinicDefaultsRef.current) ?? { startTime: '', endTime: '' }
+                                          setAddingShiftCell({ date, clinic })
+                                          setAddCellTimes(t)
+                                        }}
+                                      >
+                                        + Add
+                                      </td>
+                                    )
+                                  }
+                                  return <td key={clinic} className="px-4 py-3 text-slate-200">—</td>
+                                }
+                                const resident = assignmentMap[shift.id]
+                                const isEditing = editingShiftId === shift.id
+                                const available = availableFor(shift.id)
+
+                                if (isEditing) {
                                   return (
                                     <td key={clinic} className="px-4 py-3">
-                                      <div className="space-y-1">
+                                      <select
+                                        autoFocus
+                                        defaultValue={resident ?? ''}
+                                        onChange={(e) => updateAssignment(shift.id, e.target.value || null)}
+                                        onBlur={() => setEditingShiftId(null)}
+                                        className="border border-blue-400 rounded px-2 py-1 text-sm focus:outline-none"
+                                      >
+                                        <option value="">Unassigned</option>
+                                        {blockSubmissions.map((sub) => (
+                                          <option key={sub.residentName} value={sub.residentName}>
+                                            {sub.residentName}
+                                            {!available.includes(sub.residentName) ? ' (unavailable)' : ''}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                  )
+                                }
+
+                                return (
+                                  <td
+                                    key={clinic}
+                                    className="px-4 py-3 hover:bg-slate-50"
+                                    onClick={() => {
+                                      if (editingTimesShiftId === shift.id || removingShiftId === shift.id) return
+                                      setEditingShiftId(shift.id)
+                                    }}
+                                  >
+                                    <div className="cursor-pointer mb-1">
+                                      {resident ? (() => {
+                                        const segs = computeCoverageSegments(shift, resident, splitsByShift[shift.id] ?? [])
+                                        const hasSplits = segs.length > 1 || segs.some((sg) => sg.residentName !== resident)
+                                        if (!hasSplits) {
+                                          return <span className="font-medium text-slate-800 hover:text-blue-600 transition-colors">{displayMap[resident] ?? resident}</span>
+                                        }
+                                        return (
+                                          <div className="space-y-0.5">
+                                            {segs.map((sg, i) => (
+                                              <div key={i} className="text-xs leading-snug">
+                                                <span className={sg.residentName === resident ? 'font-medium text-slate-800' : 'font-medium text-violet-700'}>
+                                                  {displayMap[sg.residentName] ?? sg.residentName}
+                                                </span>
+                                                {sg.start && sg.end && (
+                                                  <span className="text-slate-400 ml-1">{formatTimeRange(sg.start, sg.end)}</span>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )
+                                      })() : (
+                                        <span className="text-red-400 text-xs italic">Unassigned</span>
+                                      )}
+                                    </div>
+                                    {editingTimesShiftId === shift.id ? (
+                                      <div onClick={(e) => e.stopPropagation()} className="space-y-1">
                                         <TimeInput
-                                          value={addCellTimes.startTime}
-                                          onChange={(v) => setAddCellTimes((p) => ({ ...p, startTime: v }))}
+                                          value={timesEdit.startTime}
+                                          onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))}
                                           className="w-full text-xs px-1.5 py-0.5"
                                         />
                                         <TimeInput
-                                          value={addCellTimes.endTime}
-                                          onChange={(v) => setAddCellTimes((p) => ({ ...p, endTime: v }))}
+                                          value={timesEdit.endTime}
+                                          onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))}
                                           className="w-full text-xs px-1.5 py-0.5"
                                         />
-                                        {addCellError && (
-                                          <p className="text-xs text-red-500">{addCellError}</p>
-                                        )}
+                                        {timesEditError && <p className="text-xs text-red-500">{timesEditError}</p>}
                                         <div className="flex gap-2 pt-0.5">
-                                          <button
-                                            onClick={addCellShift}
-                                            disabled={addingCell}
-                                            className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-40"
-                                          >
-                                            {addingCell ? 'Adding…' : 'Add'}
+                                          <button onClick={() => saveShiftTimes(shift.id)} disabled={savingTimes} className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-40">
+                                            {savingTimes ? 'Saving…' : 'Save'}
                                           </button>
-                                          <button
-                                            onClick={() => { setAddingShiftCell(null); setAddCellError('') }}
-                                            className="text-xs text-slate-400 hover:text-slate-600"
-                                          >
+                                          <button onClick={() => { setEditingTimesShiftId(null); setTimesEditError('') }} className="text-xs text-slate-400 hover:text-slate-600">
                                             Cancel
                                           </button>
                                         </div>
                                       </div>
-                                    </td>
-                                  )
-                                }
-                                if (blockIsPublished) {
-                                  return (
-                                    <td
-                                      key={clinic}
-                                      className="px-4 py-3 text-slate-300 text-xs cursor-pointer hover:bg-slate-50 hover:text-blue-500 transition-colors"
-                                      onClick={() => {
-                                        const t = clinicDefaultShiftTimes(clinic, date, clinicDefaultsRef.current) ?? { startTime: '', endTime: '' }
-                                        setAddingShiftCell({ date, clinic })
-                                        setAddCellTimes(t)
-                                      }}
-                                    >
-                                      + Add
-                                    </td>
-                                  )
-                                }
-                                return <td key={clinic} className="px-4 py-3 text-slate-200">—</td>
-                              }
-                              const resident = assignmentMap[shift.id]
-                              const isEditing = editingShiftId === shift.id
-                              const available = availableFor(shift.id)
-
-                              if (isEditing) {
-                                return (
-                                  <td key={clinic} className="px-4 py-3">
-                                    <select
-                                      autoFocus
-                                      defaultValue={resident ?? ''}
-                                      onChange={(e) => updateAssignment(shift.id, e.target.value || null)}
-                                      onBlur={() => setEditingShiftId(null)}
-                                      className="border border-blue-400 rounded px-2 py-1 text-sm focus:outline-none"
-                                    >
-                                      <option value="">Unassigned</option>
-                                      {blockSubmissions.map((sub) => (
-                                        <option key={sub.residentName} value={sub.residentName}>
-                                          {sub.residentName}
-                                          {!available.includes(sub.residentName) ? ' (unavailable)' : ''}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </td>
-                                )
-                              }
-
-                              return (
-                                <td
-                                  key={clinic}
-                                  className="px-4 py-3 hover:bg-slate-50"
-                                  onClick={() => {
-                                    if (editingTimesShiftId === shift.id || removingShiftId === shift.id) return
-                                    setEditingShiftId(shift.id)
-                                  }}
-                                >
-                                  <div className="cursor-pointer mb-1">
-                                    {resident ? (() => {
-                                      const segs = computeCoverageSegments(shift, resident, splitsByShift[shift.id] ?? [])
-                                      const hasSplits = segs.length > 1 || segs.some((sg) => sg.residentName !== resident)
-                                      if (!hasSplits) {
-                                        return <span className="font-medium text-slate-800 hover:text-blue-600 transition-colors">{displayMap[resident] ?? resident}</span>
-                                      }
-                                      return (
-                                        <div className="space-y-0.5">
-                                          {segs.map((sg, i) => (
-                                            <div key={i} className="text-xs leading-snug">
-                                              <span className={sg.residentName === resident ? 'font-medium text-slate-800' : 'font-medium text-violet-700'}>
-                                                {displayMap[sg.residentName] ?? sg.residentName}
-                                              </span>
-                                              {sg.start && sg.end && (
-                                                <span className="text-slate-400 ml-1">{formatTimeRange(sg.start, sg.end)}</span>
-                                              )}
-                                            </div>
-                                          ))}
+                                    ) : removingShiftId === shift.id ? (
+                                      <div onClick={(e) => e.stopPropagation()} className="text-xs space-y-1">
+                                        <p className="text-slate-600">Remove this shift?</p>
+                                        <div className="flex gap-2">
+                                          <button onClick={() => removeShift(shift.id)} className="font-medium text-red-500 hover:text-red-700">Remove</button>
+                                          <button onClick={() => setRemovingShiftId(null)} className="text-slate-400 hover:text-slate-600">Cancel</button>
                                         </div>
-                                      )
-                                    })() : (
-                                      <span className="text-red-400 text-xs italic">Unassigned</span>
-                                    )}
-                                  </div>
-                                  {editingTimesShiftId === shift.id ? (
-                                    <div onClick={(e) => e.stopPropagation()} className="space-y-1">
-                                      <TimeInput
-                                        value={timesEdit.startTime}
-                                        onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))}
-                                        className="w-full text-xs px-1.5 py-0.5"
-                                      />
-                                      <TimeInput
-                                        value={timesEdit.endTime}
-                                        onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))}
-                                        className="w-full text-xs px-1.5 py-0.5"
-                                      />
-                                      {timesEditError && (
-                                        <p className="text-xs text-red-500">{timesEditError}</p>
-                                      )}
-                                      <div className="flex gap-2 pt-0.5">
-                                        <button
-                                          onClick={() => saveShiftTimes(shift.id)}
-                                          disabled={savingTimes}
-                                          className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-40"
-                                        >
-                                          {savingTimes ? 'Saving…' : 'Save'}
-                                        </button>
-                                        <button
-                                          onClick={() => { setEditingTimesShiftId(null); setTimesEditError('') }}
-                                          className="text-xs text-slate-400 hover:text-slate-600"
-                                        >
-                                          Cancel
-                                        </button>
                                       </div>
-                                    </div>
-                                  ) : removingShiftId === shift.id ? (
-                                    <div onClick={(e) => e.stopPropagation()} className="text-xs space-y-1">
-                                      <p className="text-slate-600">Remove this shift?</p>
-                                      <div className="flex gap-2">
+                                    ) : (
+                                      <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 text-xs text-slate-400">
+                                        <span>{formatTimeRange(shift.startTime, shift.endTime) || 'No times'}</span>
                                         <button
-                                          onClick={() => removeShift(shift.id)}
-                                          className="font-medium text-red-500 hover:text-red-700"
+                                          onClick={() => { setEditingTimesShiftId(shift.id); setTimesEdit({ startTime: shift.startTime ?? '', endTime: shift.endTime ?? '' }) }}
+                                          className="text-blue-400 hover:text-blue-600 transition-colors"
                                         >
+                                          Edit
+                                        </button>
+                                        <button onClick={() => setRemovingShiftId(shift.id)} className="text-red-400 hover:text-red-500 transition-colors">
                                           Remove
                                         </button>
-                                        <button
-                                          onClick={() => setRemovingShiftId(null)}
-                                          className="text-slate-400 hover:text-slate-600"
-                                        >
-                                          Cancel
-                                        </button>
                                       </div>
-                                    </div>
-                                  ) : (
-                                    <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 text-xs text-slate-400">
-                                      <span>{formatTimeRange(shift.startTime, shift.endTime) || 'No times'}</span>
-                                      <button
-                                        onClick={() => { setEditingTimesShiftId(shift.id); setTimesEdit({ startTime: shift.startTime ?? '', endTime: shift.endTime ?? '' }) }}
-                                        className="text-blue-400 hover:text-blue-600 transition-colors"
-                                      >
-                                        Edit
-                                      </button>
-                                      <button
-                                        onClick={() => setRemovingShiftId(shift.id)}
-                                        className="text-red-400 hover:text-red-500 transition-colors"
-                                      >
-                                        Remove
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                                    )}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </>
           )}
