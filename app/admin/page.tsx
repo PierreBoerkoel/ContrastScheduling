@@ -879,15 +879,18 @@ export default function AdminPage() {
                                 })
                                 setSavingClinicDefault(false)
                                 if (res.ok) {
+                                  const updated = {
+                                    clinic,
+                                    activeDays,
+                                    weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
+                                    weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
+                                    weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
+                                    weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
+                                  }
                                   setClinicDefaults((prev) =>
-                                    prev.map((d) => d.clinic === clinic ? {
-                                      ...d,
-                                      activeDays,
-                                      weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
-                                      weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
-                                      weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
-                                      weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
-                                    } : d)
+                                    prev.some((d) => d.clinic === clinic)
+                                      ? prev.map((d) => d.clinic === clinic ? updated : d)
+                                      : [...prev, updated]
                                   )
                                   setEditingClinicDefault(null)
                                 } else {
