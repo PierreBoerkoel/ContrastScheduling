@@ -41,7 +41,7 @@ function formatTime(t?: string): string {
 
 function currentYearMonth(): string {
   const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
 export default function InvoiceGenerator({ completed, from, onMissingProfile }: Props) {
@@ -270,7 +270,7 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
                     </span>
                     {priorInvoices.length > 0 && (
                       <span className="text-xs text-slate-400 italic">
-                        Downloaded {new Date(priorInvoices[0].generatedAt).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })}
+                        Downloaded {new Date(priorInvoices[0].generatedAt).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}
                       </span>
                     )}
                   </div>

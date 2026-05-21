@@ -168,8 +168,8 @@ export default function ProfilePage() {
   }, [])
 
   const now = new Date()
-  const [calYear, setCalYear] = useState(now.getFullYear())
-  const [calMonth, setCalMonth] = useState(now.getMonth())
+  const [calYear, setCalYear] = useState(now.getUTCFullYear())
+  const [calMonth, setCalMonth] = useState(now.getUTCMonth())
 
   useEffect(() => {
     Promise.all([
@@ -399,8 +399,8 @@ export default function ProfilePage() {
 
   const monthDays = daysInMonth(calYear, calMonth)
   const firstWeekday = new Date(Date.UTC(calYear, calMonth, 1)).getUTCDay()
-  const monthLabel = new Intl.DateTimeFormat('en-CA', { month: 'long', year: 'numeric' })
-    .format(new Date(calYear, calMonth, 1))
+  const monthLabel = new Intl.DateTimeFormat('en-CA', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(calYear, calMonth, 1)))
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-10 space-y-8">
