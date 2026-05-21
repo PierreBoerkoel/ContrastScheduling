@@ -47,3 +47,6 @@ next-env.d.ts
 # Sample invoice files (private billing data — never commit)
 /*.docx
 /*.xlsx
+
+# DB management commands (contains reset secret)
+db-commands.txt
