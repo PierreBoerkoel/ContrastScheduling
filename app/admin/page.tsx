@@ -209,6 +209,7 @@ export default function AdminPage() {
 
   // Schedule interaction
   const [selectedScheduleBlock, setSelectedScheduleBlock] = useState('')
+  const [scheduleClinicFilter, setScheduleClinicFilter] = useState<ClinicName | ''>('')
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [publishing, setPublishing] = useState(false)
@@ -546,6 +547,8 @@ export default function AdminPage() {
   const blockAssignments = schedule ? schedule.assignments.filter((a) => blockShiftIds.has(a.shiftId)) : []
   const blockIsPublished = schedule ? schedule.publishedAssignments.some((a) => blockShiftIds.has(a.shiftId)) : false
 
+  const visibleClinics: ClinicName[] = scheduleClinicFilter ? [scheduleClinicFilter] : [...CLINICS]
+
   const splitsByShift: Record<string, ShiftSplit[]> = {}
   for (const sp of splits) (splitsByShift[sp.shiftId] ??= []).push(sp)
   const blockShiftById = Object.fromEntries(blockShifts.map((s) => [s.id, s]))
@@ -632,6 +635,54 @@ export default function AdminPage() {
     } finally {
       setDeletingPeriodId(null)
     }
+  }
+
+  function downloadBlockCsv() {
+    if (!schedPeriod || !schedule) return
+    const pubMap: Record<string, string | null> = {}
+    for (const a of schedule.publishedAssignments) pubMap[a.shiftId] = a.residentName ?? null
+
+    function fmt(t: string) {
+      const [h, m] = t.split(':').map(Number)
+      const ampm = h < 12 ? 'AM' : 'PM'
+      const hour = h % 12 || 12
+      return m === 0 ? `${hour} ${ampm}` : `${hour}:${String(m).padStart(2, '0')} ${ampm}`
+    }
+
+    const dayName = (d: string) =>
+      new Intl.DateTimeFormat('en-CA', { weekday: 'long', timeZone: 'UTC' }).format(new Date(d + 'T00:00:00Z'))
+
+    const header = ['Block', 'Date', 'Day', 'Clinic', 'Assigned Resident', 'Start Time', 'End Time', 'Split Coverage']
+    const rows: string[][] = [header]
+
+    for (const date of sortedDates) {
+      for (const shift of (byDate[date] ?? []).slice().sort((a, b) => a.clinic.localeCompare(b.clinic))) {
+        const assigned = pubMap[shift.id] ?? null
+        const segs = computeCoverageSegments(shift, assigned, splitsByShift[shift.id] ?? [])
+        const splitCoverage = segs
+          .filter((sg) => sg.residentName.toLowerCase() !== (assigned ?? '').toLowerCase())
+          .map((sg) => `${fmt(sg.start)}–${fmt(sg.end)} → ${sg.residentName}`)
+          .join('; ')
+        rows.push([
+          selectedScheduleBlock,
+          date,
+          dayName(date),
+          shift.clinic,
+          assigned ?? 'Unassigned',
+          shift.startTime ? fmt(shift.startTime) : '',
+          shift.endTime ? fmt(shift.endTime) : '',
+          splitCoverage,
+        ])
+      }
+    }
+
+    const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selectedScheduleBlock}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const tabClass = (t: Tab) =>
@@ -1316,18 +1367,36 @@ export default function AdminPage() {
                       <span className="ml-1 text-slate-500">Publish after making any changes to update what residents see.</span>
                     )}
                   </span>
-                  <span className="text-xs text-slate-400 shrink-0">
-                    {schedPeriod?.publishedAt
-                      ? <span>Last published: {formatDateTime(schedPeriod.publishedAt)}</span>
-                      : <span className="text-amber-500">Not yet published</span>}
-                  </span>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <select
+                      value={scheduleClinicFilter}
+                      onChange={(e) => setScheduleClinicFilter(e.target.value as ClinicName | '')}
+                      className="text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    >
+                      <option value="">All clinics</option>
+                      {CLINICS.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    {blockIsPublished && (
+                      <button
+                        onClick={downloadBlockCsv}
+                        className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                      >
+                        Download CSV
+                      </button>
+                    )}
+                    <span className="text-xs text-slate-400">
+                      {schedPeriod?.publishedAt
+                        ? <span>Last published: {formatDateTime(schedPeriod.publishedAt)}</span>
+                        : <span className="text-amber-500">Not yet published</span>}
+                    </span>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-100">
                         <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Date</th>
-                        {CLINICS.map((clinic) => (
+                        {visibleClinics.map((clinic) => (
                           <th key={clinic} className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">
                             {CLINIC_ABBR[clinic] ?? clinic}
                           </th>
@@ -1342,7 +1411,7 @@ export default function AdminPage() {
                             <td className="px-4 py-3 font-medium text-slate-700 whitespace-nowrap">
                               {formatDate(date)}
                             </td>
-                            {CLINICS.map((clinic) => {
+                            {visibleClinics.map((clinic) => {
                               const shift = shiftsOnDay.find((s) => s.clinic === clinic)
                               if (!shift) {
                                 const isAddingHere = blockIsPublished &&
