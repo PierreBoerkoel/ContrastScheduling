@@ -1343,7 +1343,7 @@ export default function AdminPage() {
                       >
                         {publishing ? 'Publishing…' : 'Publish'}
                       </button>
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-slate-400 self-center">
                         {schedPeriod?.publishedAt
                           ? <>Last published: {formatDateTime(schedPeriod.publishedAt)}</>
                           : <span className="text-amber-500">Not yet published</span>}
