@@ -1335,13 +1335,20 @@ export default function AdminPage() {
                     </button>
                   )}
                   {blockAssignments.length > 0 && !confirmRegenerate && (
-                    <button
-                      onClick={publishSchedule}
-                      disabled={publishing}
-                      className="bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
-                    >
-                      {publishing ? 'Publishing…' : 'Publish'}
-                    </button>
+                    <>
+                      <button
+                        onClick={publishSchedule}
+                        disabled={publishing}
+                        className="bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
+                      >
+                        {publishing ? 'Publishing…' : 'Publish'}
+                      </button>
+                      <span className="text-xs text-slate-400">
+                        {schedPeriod?.publishedAt
+                          ? <>Last published: {formatDateTime(schedPeriod.publishedAt)}</>
+                          : <span className="text-amber-500">Not yet published</span>}
+                      </span>
+                    </>
                   )}
                 </>
               )}
@@ -1411,11 +1418,6 @@ export default function AdminPage() {
                         Download CSV
                       </button>
                     )}
-                    <span className="text-xs text-slate-400">
-                      {schedPeriod?.publishedAt
-                        ? <span>Last published: {formatDateTime(schedPeriod.publishedAt)}</span>
-                        : <span className="text-amber-500">Not yet published</span>}
-                    </span>
                   </div>
                 </div>
                 {scheduleClinicFilter ? (
