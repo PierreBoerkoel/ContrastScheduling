@@ -8,12 +8,19 @@ export function generateSchedule(
     a.date === b.date ? a.clinic.localeCompare(b.clinic) : a.date.localeCompare(b.date)
   )
 
-  // Track total assignments per resident for equalization
+  // Key each submission by userId when available, else residentName.
+  // This ensures a user who changed their name between submission and scheduling
+  // is still treated as a single person.
+  const subByKey = new Map<string, AvailabilitySubmission>()
+  for (const sub of submissions) {
+    subByKey.set(sub.userId ?? sub.residentName, sub)
+  }
+
   const totalAssignments: Record<string, number> = {}
   const maxShiftsMap: Record<string, number> = {}
-  for (const sub of submissions) {
-    totalAssignments[sub.residentName] = 0
-    if (sub.maxShifts && sub.maxShifts > 0) maxShiftsMap[sub.residentName] = sub.maxShifts
+  for (const [key, sub] of subByKey) {
+    totalAssignments[key] = 0
+    if (sub.maxShifts && sub.maxShifts > 0) maxShiftsMap[key] = sub.maxShifts
   }
 
   // Track who was already assigned on each date (one clinic per resident per day)
@@ -22,21 +29,21 @@ export function generateSchedule(
   const assignments: ShiftAssignment[] = []
 
   for (const shift of sortedShifts) {
-    if (!assignedOnDate[shift.date]) {
-      assignedOnDate[shift.date] = new Set()
-    }
+    if (!assignedOnDate[shift.date]) assignedOnDate[shift.date] = new Set()
 
-    const candidates = submissions
-      .filter(
-        (sub) =>
+    const candidates = [...subByKey.keys()].filter(
+      (key) => {
+        const sub = subByKey.get(key)!
+        return (
           sub.availableShiftIds.includes(shift.id) &&
-          !assignedOnDate[shift.date].has(sub.residentName) &&
-          totalAssignments[sub.residentName] < (maxShiftsMap[sub.residentName] ?? Infinity)
-      )
-      .map((sub) => sub.residentName)
+          !assignedOnDate[shift.date].has(key) &&
+          totalAssignments[key] < (maxShiftsMap[key] ?? Infinity)
+        )
+      }
+    )
 
     if (candidates.length === 0) {
-      assignments.push({ shiftId: shift.id, residentName: null })
+      assignments.push({ shiftId: shift.id, residentName: null, userId: null })
       continue
     }
 
@@ -46,10 +53,15 @@ export function generateSchedule(
       return diff !== 0 ? diff : Math.random() - 0.5
     })
 
-    const assigned = candidates[0]
-    assignments.push({ shiftId: shift.id, residentName: assigned })
-    totalAssignments[assigned]++
-    assignedOnDate[shift.date].add(assigned)
+    const assignedKey = candidates[0]
+    const sub = subByKey.get(assignedKey)!
+    assignments.push({
+      shiftId: shift.id,
+      residentName: sub.residentName,
+      userId: sub.userId ?? null,
+    })
+    totalAssignments[assignedKey]++
+    assignedOnDate[shift.date].add(assignedKey)
   }
 
   return assignments

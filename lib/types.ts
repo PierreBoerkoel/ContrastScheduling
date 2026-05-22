@@ -36,38 +36,6 @@ export function formatTimeRange(startTime?: string, endTime?: string): string {
   return `${fmt(startTime)} – ${fmt(endTime)}`
 }
 
-export function defaultShiftTimes(
-  clinic: ClinicName,
-  date: string
-): { startTime: string; endTime: string } | undefined {
-  const day = new Date(date + 'T00:00:00Z').getUTCDay() // 0=Sun, 6=Sat
-  const isWeekday = day >= 1 && day <= 5
-  const isWeekend = day === 0 || day === 6
-  const isSat = day === 6
-  switch (clinic) {
-    case 'BC Cancer Agency CT':
-      if (isWeekday) return { startTime: '17:00', endTime: '19:00' }
-      if (isWeekend) return { startTime: '08:00', endTime: '16:00' }
-      return undefined
-    case 'BC Cancer Agency MRI/PET':
-      if (isWeekday) return { startTime: '17:00', endTime: '22:00' }
-      if (isWeekend) return { startTime: '08:00', endTime: '21:00' }
-      return undefined
-    case 'INITIO Medical Imaging':
-      if (isWeekday) return { startTime: '17:30', endTime: '21:30' }
-      if (isWeekend) return { startTime: '08:00', endTime: '16:00' }
-      return undefined
-    case 'UBC Hospital':
-      if (isWeekday) return { startTime: '17:30', endTime: '22:30' }
-      return undefined
-    case "BC Women's Hospital":
-      if (isWeekday) return { startTime: '17:30', endTime: '21:30' }
-      return undefined
-    default:
-      return undefined
-  }
-}
-
 export interface ClinicDefault {
   clinic: string
   activeDays: number[]       // 0=Sun, 1=Mon, ..., 6=Sat
@@ -105,6 +73,7 @@ export function clinicDefaultActiveClinics(dateStr: string, defaults: ClinicDefa
 
 export interface AvailabilitySubmission {
   id: string
+  userId?: string
   residentName: string
   submittedAt: string
   availableShiftIds: string[]
@@ -115,6 +84,7 @@ export interface AvailabilitySubmission {
 export interface ShiftAssignment {
   shiftId: string
   residentName: string | null
+  userId?: string | null
   date?: string       // present on history records fetched from shift_history table
   clinic?: string     // present on history records fetched from shift_history table
   startTime?: string  // present on history records fetched from shift_history table
@@ -134,63 +104,71 @@ export interface ShiftSplit {
   id: string
   shiftId: string
   offerorName: string
+  offerorUserId?: string
   offeredStart: string   // HH:MM 24h
   offeredEnd: string     // HH:MM 24h
   status: 'pending' | 'accepted' | 'cancelled'
   acceptorName: string | null
+  acceptorUserId?: string | null
   offeredAt: string      // ISO timestamp
   acceptedAt: string | null
 }
 
 export interface ShiftCoverageSegment {
   residentName: string
+  userId?: string | null
   start: string   // HH:MM
   end: string     // HH:MM
 }
 
 // Recursively resolves who covers which time window for a shift.
 // Handles N-way chains: acceptors who sub-offer their window are expanded in-place.
+// Pass assignedUserId so segments are tagged with userId for reliable identity checks.
 export function computeCoverageSegments(
   shift: { startTime?: string; endTime?: string },
   assignedResident: string | null,
-  allSplits: ShiftSplit[]
+  allSplits: ShiftSplit[],
+  assignedUserId?: string | null
 ): ShiftCoverageSegment[] {
   if (!assignedResident) return []
   if (!shift.startTime || !shift.endTime) {
-    return [{ residentName: assignedResident, start: '', end: '' }]
+    return [{ residentName: assignedResident, userId: assignedUserId, start: '', end: '' }]
   }
   const accepted = allSplits.filter((s) => s.status === 'accepted')
 
-  function segments(owner: string, ownedStart: string, ownedEnd: string): ShiftCoverageSegment[] {
+  function segments(owner: string, ownerId: string | null | undefined, ownedStart: string, ownedEnd: string): ShiftCoverageSegment[] {
     const given = accepted
       .filter(
         (s) =>
-          s.offerorName.toLowerCase() === owner.toLowerCase() &&
+          s.offerorUserId === ownerId &&
           s.offeredStart >= ownedStart &&
           s.offeredEnd <= ownedEnd
       )
       .sort((a, b) => a.offeredStart.localeCompare(b.offeredStart))
 
-    if (given.length === 0) return [{ residentName: owner, start: ownedStart, end: ownedEnd }]
+    if (given.length === 0) return [{ residentName: owner, userId: ownerId, start: ownedStart, end: ownedEnd }]
 
     const result: ShiftCoverageSegment[] = []
     let pos = ownedStart
     for (const g of given) {
-      if (pos < g.offeredStart) result.push({ residentName: owner, start: pos, end: g.offeredStart })
-      result.push(...segments(g.acceptorName!, g.offeredStart, g.offeredEnd))
+      if (pos < g.offeredStart) result.push({ residentName: owner, userId: ownerId, start: pos, end: g.offeredStart })
+      result.push(...segments(g.acceptorName!, g.acceptorUserId, g.offeredStart, g.offeredEnd))
       pos = g.offeredEnd
     }
-    if (pos < ownedEnd) result.push({ residentName: owner, start: pos, end: ownedEnd })
+    if (pos < ownedEnd) result.push({ residentName: owner, userId: ownerId, start: pos, end: ownedEnd })
     return result
   }
 
-  const raw = segments(assignedResident, shift.startTime, shift.endTime)
+  const raw = segments(assignedResident, assignedUserId, shift.startTime, shift.endTime)
 
   const merged: ShiftCoverageSegment[] = []
   for (const seg of raw) {
     const prev = merged[merged.length - 1]
-    if (prev && prev.residentName.toLowerCase() === seg.residentName.toLowerCase() && prev.end === seg.start) {
-      prev.end = seg.end
+    const sameOwner = prev
+      ? (prev.userId && seg.userId ? prev.userId === seg.userId : prev.residentName.toLowerCase() === seg.residentName.toLowerCase())
+      : false
+    if (sameOwner && prev!.end === seg.start) {
+      prev!.end = seg.end
     } else {
       merged.push({ ...seg })
     }
@@ -242,8 +220,10 @@ export interface SwapRequest {
   requestedAt: string
   status: 'pending' | 'accepted' | 'cancelled'
   requestorName: string
+  requestorUserId?: string
   requestorShiftId: string
   acceptorName: string | null
+  acceptorUserId?: string | null
   acceptorShiftId: string | null
   acceptedAt: string | null
 }

@@ -64,15 +64,12 @@ export async function POST(request: Request) {
   // Determine the offeror's owned window
   const published = schedule?.publishedAssignments ?? []
   const assignment = published.find((a) => a.shiftId === shiftId)
-  const isOriginalAssignee =
-    assignment?.residentName?.toLowerCase() === offerorName.toLowerCase()
+  const isOriginalAssignee = assignment?.userId === userId
 
   const accepted = existingSplits.filter(
     (s) => s.shiftId === shiftId && s.status === 'accepted'
   )
-  const myAcceptedSplit = accepted.find(
-    (s) => s.acceptorName?.toLowerCase() === offerorName.toLowerCase()
-  )
+  const myAcceptedSplit = accepted.find((s) => s.acceptorUserId === userId)
 
   if (!isOriginalAssignee && !myAcceptedSplit) {
     return NextResponse.json(
@@ -95,9 +92,7 @@ export async function POST(request: Request) {
   }
 
   // Validate no overlap with portions already given away
-  const givenAway = accepted.filter(
-    (s) => s.offerorName.toLowerCase() === offerorName.toLowerCase()
-  )
+  const givenAway = accepted.filter((s) => s.offerorUserId === userId)
   for (const g of givenAway) {
     const overlapStart = Math.max(timeToMinutes(offeredStart), timeToMinutes(g.offeredStart))
     const overlapEnd = Math.min(timeToMinutes(offeredEnd), timeToMinutes(g.offeredEnd))
@@ -137,10 +132,7 @@ export async function POST(request: Request) {
 
   // One pending portion offer per person per shift
   const alreadyPending = existingSplits.find(
-    (s) =>
-      s.shiftId === shiftId &&
-      s.offerorName.toLowerCase() === offerorName.toLowerCase() &&
-      s.status === 'pending'
+    (s) => s.shiftId === shiftId && s.offerorUserId === userId && s.status === 'pending'
   )
   if (alreadyPending) {
     return NextResponse.json(

@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 
   const schedule = await getSchedule()
   if (schedule) {
-    const nullAssignment = { shiftId, residentName: null }
+    const nullAssignment = { shiftId, residentName: null, userId: null }
     const inAssignments = schedule.assignments.some((a) => a.shiftId === shiftId)
     const inPublished = schedule.publishedAssignments.some((a) => a.shiftId === shiftId)
     await setSchedule({

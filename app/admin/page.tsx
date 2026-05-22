@@ -39,6 +39,7 @@ interface ClerkUser {
   email: string
   role: string
   createdAt: string
+  phone?: string
 }
 
 function fmtBlockDate(dateStr: string): string {
@@ -149,10 +150,11 @@ function formatTimeValue(hhmm: string): string {
   return m === 0 ? `${hour} ${ampm}` : `${hour}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
-function TimeInput({ value, onChange, className }: {
+function TimeInput({ value, onChange, className, disabled }: {
   value: string
   onChange: (hhmm: string) => void
   className?: string
+  disabled?: boolean
 }) {
   const [raw, setRaw] = useState(() => formatTimeValue(value))
   const [error, setError] = useState(false)
@@ -181,7 +183,8 @@ function TimeInput({ value, onChange, className }: {
       onChange={(e) => { setRaw(e.target.value); setError(false) }}
       onBlur={handleBlur}
       placeholder="e.g. 8am"
-      className={`border rounded focus:outline-none focus:ring-1 ${error ? 'border-red-400 focus:ring-red-400' : 'border-slate-200 focus:ring-blue-400'} ${className ?? ''}`}
+      disabled={disabled}
+      className={`border rounded focus:outline-none focus:ring-1 disabled:opacity-40 ${error ? 'border-red-400 focus:ring-red-400' : 'border-slate-200 focus:ring-blue-400'} ${className ?? ''}`}
     />
   )
 }
@@ -474,10 +477,11 @@ export default function AdminPage() {
   }
 
   async function updateAssignment(shiftId: string, residentName: string | null) {
+    const matchingUser = residentName ? users.find((u) => u.fullName === residentName) : null
     await fetch('/api/schedule', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shiftId, residentName }),
+      body: JSON.stringify({ shiftId, residentName, userId: matchingUser?.id ?? null }),
     })
     setEditingShiftId(null)
     await fetchData()
@@ -565,7 +569,7 @@ export default function AdminPage() {
   function availableFor(shiftId: string): string[] {
     return blockSubmissions
       .filter((s) => s.availableShiftIds.includes(shiftId))
-      .map((s) => s.residentName)
+      .map((s) => (s.userId && userCurrentName[s.userId]) ? userCurrentName[s.userId] : s.residentName)
   }
 
   const blockAssignments = schedule ? schedule.assignments.filter((a) => blockShiftIds.has(a.shiftId)) : []
@@ -576,26 +580,50 @@ export default function AdminPage() {
   const splitsByShift: Record<string, ShiftSplit[]> = {}
   for (const sp of splits) (splitsByShift[sp.shiftId] ??= []).push(sp)
   const blockShiftById = Object.fromEntries(blockShifts.map((s) => [s.id, s]))
+
+  // Stable key per person: userId when available, name for legacy records
+  const userCurrentName = Object.fromEntries(users.map(u => [u.id, u.fullName]))
+  const cKey = (userId: string | null | undefined, name: string | null | undefined) => userId ?? name ?? ''
+  const cName = (key: string) => userCurrentName[key] ?? key
+
+  // shiftId → userId for resolving current names in the grid
+  const shiftToUserId: Record<string, string | null> = {}
+  for (const a of blockAssignments) shiftToUserId[a.shiftId] = a.userId ?? null
+
+  const currentNameForShift = (shiftId: string): string | null => {
+    const uid = shiftToUserId[shiftId]
+    if (uid && userCurrentName[uid]) return userCurrentName[uid]
+    return assignmentMap[shiftId] ?? null
+  }
+
+  const currentNameForSeg = (sg: { residentName: string; userId?: string | null }): string =>
+    (sg.userId && userCurrentName[sg.userId]) ? userCurrentName[sg.userId] : sg.residentName
+
   const counts: Record<string, number> = {}
   for (const a of blockAssignments) {
-    if (a.residentName) counts[a.residentName] = (counts[a.residentName] ?? 0) + 1
+    if (!a.residentName && !a.userId) continue
+    const k = cKey(a.userId, a.residentName)
+    counts[k] = (counts[k] ?? 0) + 1
   }
   for (const sp of splits) {
     if (sp.status !== 'accepted' || !sp.acceptorName) continue
+    if (!blockShiftIds.has(sp.shiftId)) continue
     const shift = blockShiftById[sp.shiftId]
     const frac = splitFraction(sp.offeredStart, sp.offeredEnd, shift?.startTime, shift?.endTime)
-    counts[sp.offerorName] = (counts[sp.offerorName] ?? 0) - frac
-    counts[sp.acceptorName] = (counts[sp.acceptorName] ?? 0) + frac
+    const offerorKey = cKey(sp.offerorUserId, sp.offerorName)
+    const acceptorKey = cKey(sp.acceptorUserId, sp.acceptorName)
+    counts[offerorKey] = (counts[offerorKey] ?? 0) - frac
+    counts[acceptorKey] = (counts[acceptorKey] ?? 0) + frac
   }
 
   const allNamesInView = new Set<string>()
   for (const a of blockAssignments) {
-    if (a.residentName) allNamesInView.add(a.residentName)
+    if (a.residentName || a.userId) allNamesInView.add(cName(cKey(a.userId, a.residentName)))
   }
   for (const sp of splits) {
     if (blockShiftIds.has(sp.shiftId)) {
-      allNamesInView.add(sp.offerorName)
-      if (sp.acceptorName) allNamesInView.add(sp.acceptorName)
+      allNamesInView.add(cName(cKey(sp.offerorUserId, sp.offerorName)))
+      if (sp.acceptorName || sp.acceptorUserId) allNamesInView.add(cName(cKey(sp.acceptorUserId, sp.acceptorName)))
     }
   }
   const displayMap = buildDisplayNames([...allNamesInView])
@@ -664,7 +692,11 @@ export default function AdminPage() {
   function downloadBlockCsv() {
     if (!schedPeriod || !schedule) return
     const pubMap: Record<string, string | null> = {}
-    for (const a of schedule.publishedAssignments) pubMap[a.shiftId] = a.residentName ?? null
+    const pubUserIdMap: Record<string, string | null> = {}
+    for (const a of schedule.publishedAssignments) {
+      pubMap[a.shiftId] = a.residentName ?? null
+      pubUserIdMap[a.shiftId] = a.userId ?? null
+    }
 
     function fmt(t: string) {
       const [h, m] = t.split(':').map(Number)
@@ -681,11 +713,13 @@ export default function AdminPage() {
 
     for (const date of sortedDates) {
       for (const shift of (byDate[date] ?? []).filter((s) => visibleClinics.includes(s.clinic)).sort((a, b) => a.clinic.localeCompare(b.clinic))) {
-        const assigned = pubMap[shift.id] ?? null
-        const segs = computeCoverageSegments(shift, assigned, splitsByShift[shift.id] ?? [])
+        const assignedStored = pubMap[shift.id] ?? null
+        const assignedUid = pubUserIdMap[shift.id]
+        const assigned = (assignedUid && userCurrentName[assignedUid]) ? userCurrentName[assignedUid] : assignedStored
+        const segs = computeCoverageSegments(shift, assignedStored, splitsByShift[shift.id] ?? [], assignedUid)
         const splitCoverage = segs
-          .filter((sg) => sg.residentName.toLowerCase() !== (assigned ?? '').toLowerCase())
-          .map((sg) => `${fmt(sg.start)}–${fmt(sg.end)} → ${sg.residentName}`)
+          .filter((sg) => currentNameForSeg(sg) !== (assigned ?? ''))
+          .map((sg) => `${fmt(sg.start)}-${fmt(sg.end)} -> ${currentNameForSeg(sg)}`)
           .join('; ')
         rows.push([
           selectedScheduleBlock,
@@ -701,7 +735,7 @@ export default function AdminPage() {
     }
 
     const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n')
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
     const a = document.createElement('a')
     a.href = url
     a.download = `${selectedScheduleBlock}.csv`
@@ -981,7 +1015,7 @@ export default function AdminPage() {
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  disabled={!selectedBlock}
+                  disabled={!selectedBlock || !!periods.find((p) => p.name === selectedBlock)?.publishedAt}
                   className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-40"
                 />
               </label>
@@ -991,7 +1025,7 @@ export default function AdminPage() {
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  disabled={!selectedBlock}
+                  disabled={!selectedBlock || !!periods.find((p) => p.name === selectedBlock)?.publishedAt}
                   className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-40"
                 />
               </label>
@@ -1003,21 +1037,21 @@ export default function AdminPage() {
 
             {selectedBlock && (() => {
               const cfgPeriod = periods.find((p) => p.name === selectedBlock)
-              const cfgPublished = cfgPeriod
-                ? shifts.filter((s) => s.periodId === cfgPeriod.id).some((s) => schedule?.publishedAssignments.some((a) => a.shiftId === s.id))
-                : false
-              return cfgPublished ? (
+              const cfgLocked = !!cfgPeriod?.publishedAt
+              return cfgLocked ? (
                 <div className="mb-4 flex gap-3 bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 text-sm text-amber-900">
                   <span className="text-amber-500 text-base leading-snug shrink-0">⚠</span>
                   <div>
-                    <p className="font-semibold mb-0.5">This block has already been published.</p>
-                    <p className="text-amber-800">Saving changes here will replace all shifts for this block and trigger a full schedule regeneration, which may create conflicts for residents already assigned. Use the <strong>Schedule tab</strong> to make targeted changes to a live schedule instead.</p>
+                    <p className="font-semibold mb-0.5">This block has been published and is locked.</p>
+                    <p className="text-amber-800">To reconfigure it from scratch, delete the block and create a new one with the same name. Use the <strong>Schedule tab</strong> to make targeted changes to a live schedule instead.</p>
                   </div>
                 </div>
               ) : null
             })()}
 
-            {selectedBlock && dateRange.length > 0 && (
+            {selectedBlock && dateRange.length > 0 && (() => {
+              const isLocked = !!periods.find((p) => p.name === selectedBlock)?.publishedAt
+              return (
               <>
                 <p className="text-xs text-slate-400 mb-3">
                   Check the clinics that have shifts on each day.
@@ -1051,7 +1085,8 @@ export default function AdminPage() {
                                     type="checkbox"
                                     checked={active}
                                     onChange={() => toggleClinic(date, clinic)}
-                                    className="w-4 h-4 accent-blue-600 cursor-pointer"
+                                    disabled={isLocked}
+                                    className="w-4 h-4 accent-blue-600 cursor-pointer disabled:opacity-40 disabled:cursor-default"
                                   />
                                   {active && (
                                     <div className="flex flex-col gap-0.5">
@@ -1059,11 +1094,13 @@ export default function AdminPage() {
                                         value={times?.startTime ?? ''}
                                         onChange={(v) => setTime(date, clinic, 'startTime', v)}
                                         className="w-24 text-xs px-1 py-0.5 text-slate-600"
+                                        disabled={isLocked}
                                       />
                                       <TimeInput
                                         value={times?.endTime ?? ''}
                                         onChange={(v) => setTime(date, clinic, 'endTime', v)}
                                         className="w-24 text-xs px-1 py-0.5 text-slate-600"
+                                        disabled={isLocked}
                                       />
                                     </div>
                                   )}
@@ -1078,13 +1115,22 @@ export default function AdminPage() {
                 </div>
                 <div className="mt-4 flex flex-col gap-1.5">
                   <div className="flex items-center gap-3">
-                    <button
-                      onClick={saveShifts}
-                      disabled={savingShifts}
-                      className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                    >
-                      {savingShifts ? 'Saving…' : `Save ${selectedBlock}`}
-                    </button>
+                    {isLocked ? (
+                      <span className="flex items-center gap-1.5 text-sm text-slate-400">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                        Published — delete this block to reconfigure it
+                      </span>
+                    ) : (
+                      <button
+                        onClick={saveShifts}
+                        disabled={savingShifts}
+                        className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                      >
+                        {savingShifts ? 'Saving…' : `Save ${selectedBlock}`}
+                      </button>
+                    )}
                     {saveError && <span className="text-sm text-red-500">{saveError}</span>}
                   </div>
                   {savedAt && (
@@ -1094,7 +1140,8 @@ export default function AdminPage() {
                   )}
                 </div>
               </>
-            )}
+              )
+            })()}
             </div>
           </div>
 
@@ -1128,12 +1175,21 @@ export default function AdminPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-4 shrink-0 ml-3">
-                          <button
-                            onClick={() => handleBlockSelect(p.name)}
-                            className="text-xs text-blue-500 hover:text-blue-700 transition-colors"
-                          >
-                            Edit
-                          </button>
+                          {p.publishedAt ? (
+                            <span className="text-xs text-slate-400 flex items-center gap-1" title="Published — delete this block to reconfigure it">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                              </svg>
+                              Published
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleBlockSelect(p.name)}
+                              className="text-xs text-blue-500 hover:text-blue-700 transition-colors"
+                            >
+                              Edit
+                            </button>
+                          )}
                           <button
                             onClick={() => deletePeriod(p.id)}
                             disabled={deletingPeriodId === p.id}
@@ -1176,15 +1232,18 @@ export default function AdminPage() {
                     .sort((a, b) => {
                       const pa = periods.find((p) => p.id === a.periodId)
                       const pb = periods.find((p) => p.id === b.periodId)
-                      return (pa?.startDate ?? '').localeCompare(pb?.startDate ?? '') || a.residentName.localeCompare(b.residentName)
+                      const aName = (a.userId && userCurrentName[a.userId]) ? userCurrentName[a.userId] : a.residentName
+                      const bName = (b.userId && userCurrentName[b.userId]) ? userCurrentName[b.userId] : b.residentName
+                      return (pa?.startDate ?? '').localeCompare(pb?.startDate ?? '') || aName.localeCompare(bName)
                     })
                     .map((sub) => {
                       const period = periods.find((p) => p.id === sub.periodId)
                       const periodShiftCount = shifts.filter((s) => s.periodId === sub.periodId).length
+                      const subCurrentName = (sub.userId && userCurrentName[sub.userId]) ? userCurrentName[sub.userId] : sub.residentName
                       return (
                         <div key={sub.id} className="px-4 py-3 space-y-2">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium text-slate-800 text-sm">{sub.residentName}</span>
+                            <span className="font-medium text-slate-800 text-sm">{subCurrentName}</span>
                             <span className="text-xs font-medium text-slate-600 shrink-0">{period?.name ?? '—'}</span>
                           </div>
                           <div>
@@ -1224,14 +1283,17 @@ export default function AdminPage() {
                       .sort((a, b) => {
                         const pa = periods.find((p) => p.id === a.periodId)
                         const pb = periods.find((p) => p.id === b.periodId)
-                        return (pa?.startDate ?? '').localeCompare(pb?.startDate ?? '') || a.residentName.localeCompare(b.residentName)
+                        const aName = (a.userId && userCurrentName[a.userId]) ? userCurrentName[a.userId] : a.residentName
+                        const bName = (b.userId && userCurrentName[b.userId]) ? userCurrentName[b.userId] : b.residentName
+                        return (pa?.startDate ?? '').localeCompare(pb?.startDate ?? '') || aName.localeCompare(bName)
                       })
                       .map((sub) => {
                         const period = periods.find((p) => p.id === sub.periodId)
                         const periodShiftCount = shifts.filter((s) => s.periodId === sub.periodId).length
+                        const subCurrentName = (sub.userId && userCurrentName[sub.userId]) ? userCurrentName[sub.userId] : sub.residentName
                         return (
                           <tr key={sub.id} className="border-b border-slate-100 last:border-0">
-                            <td className="px-4 py-3 font-medium text-slate-800">{sub.residentName}</td>
+                            <td className="px-4 py-3 font-medium text-slate-800">{subCurrentName}</td>
                             <td className="px-4 py-3 text-slate-600">
                               <span className="font-medium">{period?.name ?? '—'}</span>
                               {period && (
@@ -1375,12 +1437,12 @@ export default function AdminPage() {
                 <div className="flex flex-wrap gap-3">
                   {Object.entries(counts)
                     .sort((a, b) => b[1] - a[1])
-                    .map(([resident, count]) => (
+                    .map(([key, count]) => (
                       <span
-                        key={resident}
+                        key={key}
                         className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-700 text-sm px-3 py-1 rounded-full"
                       >
-                        <span className="font-medium">{displayMap[resident] ?? resident}</span>
+                        <span className="font-medium">{displayMap[cName(key)] ?? cName(key)}</span>
                         <span className="text-slate-400 text-xs">{formatShiftCount(count)}</span>
                       </span>
                     ))}
@@ -1503,11 +1565,11 @@ export default function AdminPage() {
 
                                       {/* Cell with shift */}
                                       {shift && (() => {
-                                        const resident = assignmentMap[shift.id] ?? null
+                                        const resident = currentNameForShift(shift.id)
                                         const isEditing = editingShiftId === shift.id
                                         const available = availableFor(shift.id)
-                                        const segs = computeCoverageSegments(shift, resident, splitsByShift[shift.id] ?? [])
-                                        const hasSplits = segs.length > 1 || segs.some((sg) => sg.residentName !== (resident ?? ''))
+                                        const segs = computeCoverageSegments(shift, assignmentMap[shift.id] ?? null, splitsByShift[shift.id] ?? [], shiftToUserId[shift.id])
+                                        const hasSplits = segs.length > 1 || segs.some((sg) => currentNameForSeg(sg) !== (resident ?? ''))
                                         return (
                                           <div>
                                             {/* Resident — click to reassign */}
@@ -1520,11 +1582,14 @@ export default function AdminPage() {
                                                 className="w-full border border-blue-400 rounded px-1 py-0.5 text-xs focus:outline-none mb-1"
                                               >
                                                 <option value="">Unassigned</option>
-                                                {blockSubmissions.map((sub) => (
-                                                  <option key={sub.residentName} value={sub.residentName}>
-                                                    {sub.residentName}{!available.includes(sub.residentName) ? ' (unavailable)' : ''}
-                                                  </option>
-                                                ))}
+                                                {blockSubmissions.map((sub) => {
+                                                  const subCurrentName = (sub.userId && userCurrentName[sub.userId]) ? userCurrentName[sub.userId] : sub.residentName
+                                                  return (
+                                                    <option key={sub.residentName} value={subCurrentName}>
+                                                      {subCurrentName}{!available.includes(subCurrentName) ? ' (unavailable)' : ''}
+                                                    </option>
+                                                  )
+                                                })}
                                               </select>
                                             ) : (
                                               <div
@@ -1537,14 +1602,17 @@ export default function AdminPage() {
                                                 {resident ? (
                                                   hasSplits ? (
                                                     <div className="space-y-1">
-                                                      {segs.map((sg, j) => (
-                                                        <div key={j}>
-                                                          <div className={`text-xs font-medium leading-tight transition-colors ${sg.residentName === resident ? 'text-slate-800 hover:text-blue-600' : 'text-violet-700'}`}>
-                                                            {displayMap[sg.residentName] ?? sg.residentName}
+                                                      {segs.map((sg, j) => {
+                                                        const sgName = currentNameForSeg(sg)
+                                                        return (
+                                                          <div key={j}>
+                                                            <div className={`text-xs font-medium leading-tight transition-colors ${sgName === resident ? 'text-slate-800 hover:text-blue-600' : 'text-violet-700'}`}>
+                                                              {displayMap[sgName] ?? sgName}
+                                                            </div>
+                                                            {sg.start && sg.end && <div className="text-xs text-slate-400">{formatTimeRange(sg.start, sg.end)}</div>}
                                                           </div>
-                                                          {sg.start && sg.end && <div className="text-xs text-slate-400">{formatTimeRange(sg.start, sg.end)}</div>}
-                                                        </div>
-                                                      ))}
+                                                        )
+                                                      })}
                                                     </div>
                                                   ) : (
                                                     <div className="text-xs font-medium text-slate-800 leading-tight hover:text-blue-600 transition-colors">
@@ -1663,7 +1731,7 @@ export default function AdminPage() {
                                   }
                                   return <td key={clinic} className="px-4 py-3 text-slate-200">—</td>
                                 }
-                                const resident = assignmentMap[shift.id]
+                                const resident = currentNameForShift(shift.id)
                                 const isEditing = editingShiftId === shift.id
                                 const available = availableFor(shift.id)
 
@@ -1678,12 +1746,15 @@ export default function AdminPage() {
                                         className="border border-blue-400 rounded px-2 py-1 text-sm focus:outline-none"
                                       >
                                         <option value="">Unassigned</option>
-                                        {blockSubmissions.map((sub) => (
-                                          <option key={sub.residentName} value={sub.residentName}>
-                                            {sub.residentName}
-                                            {!available.includes(sub.residentName) ? ' (unavailable)' : ''}
-                                          </option>
-                                        ))}
+                                        {blockSubmissions.map((sub) => {
+                                          const subCurrentName = (sub.userId && userCurrentName[sub.userId]) ? userCurrentName[sub.userId] : sub.residentName
+                                          return (
+                                            <option key={sub.residentName} value={subCurrentName}>
+                                              {subCurrentName}
+                                              {!available.includes(subCurrentName) ? ' (unavailable)' : ''}
+                                            </option>
+                                          )
+                                        })}
                                       </select>
                                     </td>
                                   )
@@ -1700,23 +1771,26 @@ export default function AdminPage() {
                                   >
                                     <div className="cursor-pointer mb-1">
                                       {resident ? (() => {
-                                        const segs = computeCoverageSegments(shift, resident, splitsByShift[shift.id] ?? [])
-                                        const hasSplits = segs.length > 1 || segs.some((sg) => sg.residentName !== resident)
+                                        const segs = computeCoverageSegments(shift, assignmentMap[shift.id] ?? null, splitsByShift[shift.id] ?? [], shiftToUserId[shift.id])
+                                        const hasSplits = segs.length > 1 || segs.some((sg) => currentNameForSeg(sg) !== resident)
                                         if (!hasSplits) {
                                           return <span className="font-medium text-slate-800 hover:text-blue-600 transition-colors">{displayMap[resident] ?? resident}</span>
                                         }
                                         return (
                                           <div className="space-y-0.5">
-                                            {segs.map((sg, i) => (
-                                              <div key={i} className="text-xs leading-snug">
-                                                <span className={sg.residentName === resident ? 'font-medium text-slate-800' : 'font-medium text-violet-700'}>
-                                                  {displayMap[sg.residentName] ?? sg.residentName}
-                                                </span>
-                                                {sg.start && sg.end && (
-                                                  <span className="text-slate-400 ml-1">{formatTimeRange(sg.start, sg.end)}</span>
-                                                )}
-                                              </div>
-                                            ))}
+                                            {segs.map((sg, i) => {
+                                              const sgName = currentNameForSeg(sg)
+                                              return (
+                                                <div key={i} className="text-xs leading-snug">
+                                                  <span className={sgName === resident ? 'font-medium text-slate-800' : 'font-medium text-violet-700'}>
+                                                    {displayMap[sgName] ?? sgName}
+                                                  </span>
+                                                  {sg.start && sg.end && (
+                                                    <span className="text-slate-400 ml-1">{formatTimeRange(sg.start, sg.end)}</span>
+                                                  )}
+                                                </div>
+                                              )
+                                            })}
                                           </div>
                                         )
                                       })() : (
@@ -1829,6 +1903,7 @@ export default function AdminPage() {
                         )}
                       </div>
                       <div className="text-xs text-slate-500 break-all">{u.email}</div>
+                      {u.phone && <div className="text-xs text-slate-500">{u.phone}</div>}
                       <div className="text-xs text-slate-400">
                         Joined {new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium' }).format(new Date(u.createdAt))}
                       </div>
@@ -1842,6 +1917,7 @@ export default function AdminPage() {
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Name</th>
                     <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Email</th>
+                    <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Phone</th>
                     <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Role</th>
                     <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Joined</th>
                     <th className="px-4 py-3" />
@@ -1855,6 +1931,7 @@ export default function AdminPage() {
                       <tr key={u.id} className="border-b border-slate-100 last:border-0">
                         <td className="px-4 py-3 font-medium text-slate-800">{u.fullName}</td>
                         <td className="px-4 py-3 text-slate-500">{u.email}</td>
+                        <td className="px-4 py-3 text-slate-500">{u.phone || <span className="text-slate-300">—</span>}</td>
                         <td className="px-4 py-3">
                           <span
                             className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -1927,6 +2004,8 @@ export default function AdminPage() {
                   .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
                   .map((req) => {
                     const offeredShift = shifts.find((s) => s.id === req.requestorShiftId)
+                    const reqName = (req.requestorUserId && userCurrentName[req.requestorUserId]) ? userCurrentName[req.requestorUserId] : req.requestorName
+                    const accName = req.acceptorUserId ? (userCurrentName[req.acceptorUserId] ?? req.acceptorName) : req.acceptorName
                     return (
                       <div key={req.id} className="px-4 py-3 space-y-1.5">
                         <div className="flex items-center justify-between gap-2">
@@ -1934,7 +2013,7 @@ export default function AdminPage() {
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${req.status === 'pending' ? 'bg-amber-100 text-amber-700' : req.status === 'accepted' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
                               {req.status}
                             </span>
-                            <span className="font-medium text-slate-800 text-sm">{req.requestorName}</span>
+                            <span className="font-medium text-slate-800 text-sm">{reqName}</span>
                           </div>
                           {req.status === 'pending' && (
                             <button
@@ -1958,8 +2037,8 @@ export default function AdminPage() {
                             <span className="text-slate-400 ml-1">· {CLINIC_ABBR[offeredShift.clinic] ?? offeredShift.clinic}</span>
                           </div>
                         ) : null}
-                        {req.acceptorName && (
-                          <div className="text-xs text-slate-500">Taken by {req.acceptorName}</div>
+                        {accName && (
+                          <div className="text-xs text-slate-500">Taken by {accName}</div>
                         )}
                         <div className="text-xs text-slate-400">
                           {new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(req.requestedAt))}
@@ -1986,6 +2065,8 @@ export default function AdminPage() {
                     .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
                     .map((req) => {
                       const offeredShift = shifts.find((s) => s.id === req.requestorShiftId)
+                      const reqName = (req.requestorUserId && userCurrentName[req.requestorUserId]) ? userCurrentName[req.requestorUserId] : req.requestorName
+                      const accName = req.acceptorUserId ? (userCurrentName[req.acceptorUserId] ?? req.acceptorName) : req.acceptorName
                       return (
                         <tr key={req.id} className="border-b border-slate-100 last:border-0">
                           <td className="px-4 py-3">
@@ -2001,7 +2082,7 @@ export default function AdminPage() {
                               {req.status}
                             </span>
                           </td>
-                          <td className="px-4 py-3 font-medium text-slate-800">{req.requestorName}</td>
+                          <td className="px-4 py-3 font-medium text-slate-800">{reqName}</td>
                           <td className="px-4 py-3 text-slate-600">
                             {offeredShift ? (
                               <>
@@ -2012,7 +2093,7 @@ export default function AdminPage() {
                               <span className="text-slate-300 text-xs">{req.requestorShiftId}</span>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-slate-600">{req.acceptorName ?? '—'}</td>
+                          <td className="px-4 py-3 text-slate-600">{accName ?? '—'}</td>
                           <td className="px-4 py-3">
                             {req.status === 'pending' && (
                               <button

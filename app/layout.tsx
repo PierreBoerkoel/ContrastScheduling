@@ -8,6 +8,7 @@ import {
   UserButton,
 } from '@clerk/nextjs'
 import OnboardingGuard from './components/OnboardingGuard'
+import { AdminLink } from './components/AdminLink'
 import './globals.css'
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
@@ -39,12 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <Link href="/schedule" className="hidden sm:block text-slate-600 hover:text-blue-600 transition-colors">
                     View Schedule
                   </Link>
-                  <Link
-                    href="/admin"
-                    className="hidden sm:block bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700 transition-colors"
-                  >
-                    Admin
-                  </Link>
+                  <AdminLink />
                   <UserButton />
                 </Show>
                 <Show when="signed-out">
@@ -63,7 +59,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <Link href="/profile" className="flex-1 text-center py-2 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition-colors">Profile</Link>
                   <Link href="/availability" className="flex-1 text-center py-2 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition-colors">Availability</Link>
                   <Link href="/schedule" className="flex-1 text-center py-2 text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition-colors">Schedule</Link>
-                  <Link href="/admin" className="flex-1 text-center py-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors">Admin</Link>
+                  <AdminLink mobile />
                 </div>
               </div>
             </Show>

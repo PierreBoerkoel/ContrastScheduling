@@ -30,7 +30,7 @@ export async function DELETE(
         .filter((a) => periodShiftIds.has(a.shiftId) && a.residentName && (shiftMap[a.shiftId]?.date ?? '') < today)
         .map((a) => {
           const shift = shiftMap[a.shiftId]
-          return { shiftId: a.shiftId, residentName: a.residentName!, date: shift?.date ?? '', clinic: shift?.clinic ?? '', startTime: shift?.startTime, endTime: shift?.endTime }
+          return { shiftId: a.shiftId, userId: a.userId ?? null, residentName: a.residentName!, date: shift?.date ?? '', clinic: shift?.clinic ?? '', startTime: shift?.startTime, endTime: shift?.endTime }
         })
         .filter((r) => r.date && r.clinic)
 

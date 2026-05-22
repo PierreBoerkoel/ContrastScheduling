@@ -27,7 +27,8 @@ export async function POST(request: Request) {
   }
 
   const assignment = schedule.publishedAssignments.find((a) => a.shiftId === requestorShiftId)
-  if (assignment?.residentName?.toLowerCase() !== requestorName.toLowerCase()) {
+  const isAssigned = assignment?.userId === userId
+  if (!isAssigned) {
     return NextResponse.json({ error: 'You are not assigned to that shift' }, { status: 400 })
   }
 

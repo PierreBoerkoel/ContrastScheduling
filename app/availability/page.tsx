@@ -25,6 +25,7 @@ function formatShortDate(dateStr: string) {
 export default function AvailabilityPage() {
   const { user, isLoaded } = useUser()
   const myName = (user?.fullName ?? '').toLowerCase()
+  const myUserId = user?.id ?? ''
 
   const [shifts, setShifts] = useState<Shift[]>([])
   const [schedule, setSchedule] = useState<Schedule | null>(null)
@@ -80,15 +81,15 @@ export default function AvailabilityPage() {
 
   // When the selected block changes, load that block's existing submission
   useEffect(() => {
-    if (!effectivePeriodId || !myName) return
+    if (!effectivePeriodId || !myUserId) return
     const existing = submissions.find(
-      (s) => s.periodId === effectivePeriodId && s.residentName?.toLowerCase() === myName
+      (s) => s.periodId === effectivePeriodId && s.userId === myUserId
     )
     setSelected(new Set(existing?.availableShiftIds ?? []))
     setMaxShifts(existing?.maxShifts ?? '')
     setSubmitted(false)
     setError('')
-  }, [effectivePeriodId, submissions, myName])
+  }, [effectivePeriodId, submissions, myUserId])
 
   function toggleShift(id: string) {
     setSelected((prev) => {
@@ -134,7 +135,7 @@ export default function AvailabilityPage() {
       }
       const updated: AvailabilitySubmission = await res.json()
       setSubmissions((prev) => {
-        const without = prev.filter((s) => !(s.periodId === effectivePeriodId && s.residentName?.toLowerCase() === myName))
+        const without = prev.filter((s) => !(s.periodId === effectivePeriodId && s.userId === myUserId))
         return [...without, updated]
       })
       setSubmitted(true)
@@ -367,11 +368,11 @@ export default function AvailabilityPage() {
                   disabled={submitting || !effectivePeriodId || selectedBlockPublished}
                   className="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  {submitting ? 'Submitting…' : submissions.some((s) => s.periodId === effectivePeriodId && s.residentName?.toLowerCase() === myName) ? 'Update Availability' : 'Submit Availability'}
+                  {submitting ? 'Submitting…' : submissions.some((s) => s.periodId === effectivePeriodId && s.userId === myUserId) ? 'Update Availability' : 'Submit Availability'}
                 </button>
                 {(() => {
                   const existing = submissions.find(
-                    (s) => s.periodId === effectivePeriodId && s.residentName?.toLowerCase() === myName
+                    (s) => s.periodId === effectivePeriodId && s.userId === myUserId
                   )
                   return existing ? (
                     <span className="text-xs text-slate-400">

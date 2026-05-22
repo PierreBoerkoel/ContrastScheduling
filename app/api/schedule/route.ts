@@ -100,7 +100,8 @@ export async function PUT(request: Request) {
 
   const targetDate = shiftId.split('|')[0]
   const existingOnDay = schedule.assignments.find(
-    (a) => a.shiftId !== shiftId && a.shiftId.startsWith(targetDate + '|') && a.residentName?.toLowerCase() === name.toLowerCase()
+    (a) => a.shiftId !== shiftId && a.shiftId.startsWith(targetDate + '|') &&
+      a.userId === userId
   )
 
   const [allShifts, allSplits, allSwaps] = await Promise.all([getShifts(), getShiftSplits(), getSwapRequests()])
@@ -111,8 +112,8 @@ export async function PUT(request: Request) {
     const existingShift = shiftById[existingOnDay.shiftId]
     if (!existingShift?.startTime || !existingShift?.endTime) return false
     const shiftSplits = allSplits.filter((sp) => sp.shiftId === existingOnDay.shiftId)
-    const segments = computeCoverageSegments(existingShift, existingOnDay.residentName, shiftSplits)
-    return segments.every((seg) => seg.residentName.toLowerCase() !== name.toLowerCase())
+    const segments = computeCoverageSegments(existingShift, existingOnDay.residentName, shiftSplits, userId)
+    return segments.every((seg) => seg.userId !== userId)
   })() : false
 
   const newShift = shiftById[shiftId]
@@ -125,7 +126,7 @@ export async function PUT(request: Request) {
   let fullCoverageSplitShiftId: string | null = null
   const myAcceptedSplitsOnDay = allSplits.filter(
     (sp) => sp.status === 'accepted' &&
-      sp.acceptorName?.toLowerCase() === name.toLowerCase() &&
+      sp.acceptorUserId === userId &&
       sp.shiftId.split('|')[0] === targetDate
   )
   if (myAcceptedSplitsOnDay.length > 0) {
@@ -134,8 +135,8 @@ export async function PUT(request: Request) {
       const parentShift = shiftById[sid]
       if (!parentShift?.startTime || !parentShift?.endTime) continue
       const parentAssignment = schedule.publishedAssignments.find((a) => a.shiftId === sid)
-      const segments = computeCoverageSegments(parentShift, parentAssignment?.residentName ?? null, allSplits.filter((sp) => sp.shiftId === sid))
-      const mySegs = segments.filter((seg) => seg.residentName.toLowerCase() === name.toLowerCase())
+      const segments = computeCoverageSegments(parentShift, parentAssignment?.residentName ?? null, allSplits.filter((sp) => sp.shiftId === sid), parentAssignment?.userId ?? null)
+      const mySegs = segments.filter((seg) => seg.userId === userId)
       if (mySegs.length === 0) continue
       const ownedStart = mySegs.reduce((min, s) => s.start < min ? s.start : min, mySegs[0].start)
       const ownedEnd = mySegs.reduce((max, s) => s.end > max ? s.end : max, mySegs[0].end)
@@ -151,7 +152,7 @@ export async function PUT(request: Request) {
   if (!fullCoverageSplitShiftId && newShift?.startTime && newShift?.endTime) {
     for (const sp of allSplits) {
       if (sp.status !== 'accepted') continue
-      if (sp.acceptorName?.toLowerCase() !== name.toLowerCase()) continue
+      if (sp.acceptorUserId !== userId) continue
       if (sp.shiftId.split('|')[0] !== targetDate) continue
       if (overlaps(newShift.startTime, newShift.endTime, sp.offeredStart, sp.offeredEnd)) {
         return NextResponse.json(
@@ -171,7 +172,7 @@ export async function PUT(request: Request) {
     if (newShift?.startTime && newShift?.endTime) {
       for (const sp of allSplits) {
         if (sp.status !== 'pending') continue
-        if (sp.offerorName.toLowerCase() !== name.toLowerCase()) continue
+        if (sp.offerorUserId !== userId) continue
         if (sp.shiftId.split('|')[0] !== targetDate) continue
         if (overlaps(newShift.startTime, newShift.endTime, sp.offeredStart, sp.offeredEnd)) {
           return NextResponse.json(
@@ -183,7 +184,7 @@ export async function PUT(request: Request) {
 
       for (const req of allSwaps) {
         if (req.status !== 'pending') continue
-        if (req.requestorName.toLowerCase() !== name.toLowerCase()) continue
+        if (req.requestorUserId !== userId) continue
         if (req.requestorShiftId.split('|')[0] !== targetDate) continue
         const reqShift = shiftById[req.requestorShiftId]
         if (!reqShift?.startTime || !reqShift?.endTime) continue
@@ -201,7 +202,7 @@ export async function PUT(request: Request) {
       (sp) =>
         sp.status === 'accepted' &&
         sp.shiftId === existingOnDay.shiftId &&
-        sp.offerorName.toLowerCase() === name.toLowerCase()
+        sp.offerorUserId === userId
     )
     if (hasGivenAwayPortion) {
       return NextResponse.json(
@@ -211,9 +212,9 @@ export async function PUT(request: Request) {
     }
 
     const oldIdx = schedule.assignments.findIndex((a) => a.shiftId === existingOnDay.shiftId)
-    if (oldIdx >= 0) schedule.assignments[oldIdx] = { shiftId: existingOnDay.shiftId, residentName: null }
+    if (oldIdx >= 0) schedule.assignments[oldIdx] = { shiftId: existingOnDay.shiftId, residentName: null, userId: null }
     const oldPubIdx = schedule.publishedAssignments.findIndex((a) => a.shiftId === existingOnDay.shiftId)
-    if (oldPubIdx >= 0) schedule.publishedAssignments[oldPubIdx] = { shiftId: existingOnDay.shiftId, residentName: null }
+    if (oldPubIdx >= 0) schedule.publishedAssignments[oldPubIdx] = { shiftId: existingOnDay.shiftId, residentName: null, userId: null }
   }
 
   // Full-coverage split acceptor swap: cancel their accepted splits on the old shift
@@ -221,19 +222,19 @@ export async function PUT(request: Request) {
   if (fullCoverageSplitShiftId) {
     const splitsToCancel = allSplits.filter(
       (sp) => sp.shiftId === fullCoverageSplitShiftId &&
-        sp.acceptorName?.toLowerCase() === name.toLowerCase() &&
+        sp.acceptorUserId === userId &&
         sp.status === 'accepted'
     )
     await Promise.all(splitsToCancel.map((sp) => updateShiftSplit(sp.id, { status: 'cancelled' })))
     const oldIdx = schedule.assignments.findIndex((a) => a.shiftId === fullCoverageSplitShiftId)
-    if (oldIdx >= 0) schedule.assignments[oldIdx] = { shiftId: fullCoverageSplitShiftId, residentName: null }
+    if (oldIdx >= 0) schedule.assignments[oldIdx] = { shiftId: fullCoverageSplitShiftId, residentName: null, userId: null }
     const oldPubIdx = schedule.publishedAssignments.findIndex((a) => a.shiftId === fullCoverageSplitShiftId)
-    if (oldPubIdx >= 0) schedule.publishedAssignments[oldPubIdx] = { shiftId: fullCoverageSplitShiftId, residentName: null }
+    if (oldPubIdx >= 0) schedule.publishedAssignments[oldPubIdx] = { shiftId: fullCoverageSplitShiftId, residentName: null, userId: null }
   }
 
-  schedule.assignments[idx] = { shiftId, residentName: name }
+  schedule.assignments[idx] = { shiftId, residentName: name, userId }
   const pubIdx = schedule.publishedAssignments.findIndex((a) => a.shiftId === shiftId)
-  if (pubIdx >= 0) schedule.publishedAssignments[pubIdx] = { shiftId, residentName: name }
+  if (pubIdx >= 0) schedule.publishedAssignments[pubIdx] = { shiftId, residentName: name, userId }
   await setSchedule(schedule)
   return NextResponse.json(schedule)
 }
@@ -243,9 +244,10 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   }
 
-  const { shiftId, residentName } = (await request.json()) as {
+  const { shiftId, residentName, userId: residentUserId } = (await request.json()) as {
     shiftId: string
     residentName: string | null
+    userId?: string | null
   }
 
   const schedule = await getSchedule()
@@ -258,7 +260,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Shift not in schedule' }, { status: 404 })
   }
 
-  schedule.assignments[idx] = { shiftId, residentName }
+  schedule.assignments[idx] = { shiftId, residentName, userId: residentUserId ?? null }
   schedule.isPublished = false
   schedule.publishedAt = null
   // publishedAssignments unchanged — admin must re-publish to make edit live

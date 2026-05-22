@@ -21,6 +21,7 @@ export async function GET() {
       email: u.emailAddresses[0]?.emailAddress ?? '—',
       role: (u.publicMetadata as { role?: string })?.role ?? 'resident',
       createdAt: new Date(u.createdAt).toISOString(),
+      phone: (u.unsafeMetadata as { phone?: string })?.phone ?? '',
     }))
   )
 }

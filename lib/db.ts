@@ -108,6 +108,8 @@ export async function initDb(): Promise<void> {
   `
   await sql`ALTER TABLE shift_history ADD COLUMN IF NOT EXISTS start_time TEXT`
   await sql`ALTER TABLE shift_history ADD COLUMN IF NOT EXISTS end_time TEXT`
+  await sql`ALTER TABLE shift_history ADD COLUMN IF NOT EXISTS user_id TEXT`
+  await sql`ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS acceptor_user_id TEXT`
   await sql`
     CREATE TABLE IF NOT EXISTS invoice_sequences (
       resident_name TEXT NOT NULL,
@@ -115,6 +117,12 @@ export async function initDb(): Promise<void> {
       next_number   INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (resident_name, series)
     )
+  `
+  await sql`ALTER TABLE invoice_sequences ADD COLUMN IF NOT EXISTS user_id TEXT`
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS invoice_seq_user_series_idx
+    ON invoice_sequences (user_id, series)
+    WHERE user_id IS NOT NULL
   `
   await sql`
     CREATE TABLE IF NOT EXISTS invoice_history (
@@ -239,12 +247,13 @@ export async function setShifts(shifts: Shift[], periodId?: string): Promise<voi
 export async function getSubmissions(): Promise<AvailabilitySubmission[]> {
   await ensureDb()
   const { rows } = await sql`
-    SELECT id, resident_name, submitted_at, available_shift_ids, period_id, max_shifts
+    SELECT id, user_id, resident_name, submitted_at, available_shift_ids, period_id, max_shifts
     FROM availability_submissions
     ORDER BY submitted_at
   `
   return rows.map((r) => ({
     id: r.id,
+    userId: (r.user_id as string) ?? undefined,
     residentName: r.resident_name,
     submittedAt: r.submitted_at,
     availableShiftIds: r.available_shift_ids as string[],
@@ -259,27 +268,41 @@ export async function upsertSubmission(
   await ensureDb()
   const periodId = submission.periodId ?? null
   const maxShifts = submission.maxShifts ?? null
-  const { rows } = await sql`
-    SELECT id FROM availability_submissions
-    WHERE user_id = ${submission.userId}
-      AND (period_id = ${periodId} OR (period_id IS NULL AND ${periodId}::TEXT IS NULL))
-  `
-  if (rows.length > 0) {
-    await sql`
-      UPDATE availability_submissions SET
-        id                  = ${submission.id},
-        resident_name       = ${submission.residentName},
-        submitted_at        = ${submission.submittedAt},
-        available_shift_ids = ${submission.availableShiftIds as unknown as string},
-        max_shifts          = ${maxShifts}
-      WHERE user_id = ${submission.userId}
-        AND (period_id = ${periodId} OR (period_id IS NULL AND ${periodId}::TEXT IS NULL))
-    `
-  } else {
+
+  if (periodId !== null) {
+    // Use the partial unique index (user_id, period_id) WHERE both NOT NULL
     await sql`
       INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids, period_id, max_shifts)
       VALUES (${submission.id}, ${submission.userId}, ${submission.residentName}, ${submission.submittedAt}, ${submission.availableShiftIds as unknown as string}, ${periodId}, ${maxShifts})
+      ON CONFLICT (user_id, period_id) WHERE user_id IS NOT NULL AND period_id IS NOT NULL
+      DO UPDATE SET
+        id                  = EXCLUDED.id,
+        resident_name       = EXCLUDED.resident_name,
+        submitted_at        = EXCLUDED.submitted_at,
+        available_shift_ids = EXCLUDED.available_shift_ids,
+        max_shifts          = EXCLUDED.max_shifts
     `
+  } else {
+    const { rows } = await sql`
+      SELECT id FROM availability_submissions
+      WHERE user_id = ${submission.userId} AND period_id IS NULL
+    `
+    if (rows.length > 0) {
+      await sql`
+        UPDATE availability_submissions SET
+          id                  = ${submission.id},
+          resident_name       = ${submission.residentName},
+          submitted_at        = ${submission.submittedAt},
+          available_shift_ids = ${submission.availableShiftIds as unknown as string},
+          max_shifts          = ${maxShifts}
+        WHERE user_id = ${submission.userId} AND period_id IS NULL
+      `
+    } else {
+      await sql`
+        INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids, period_id, max_shifts)
+        VALUES (${submission.id}, ${submission.userId}, ${submission.residentName}, ${submission.submittedAt}, ${submission.availableShiftIds as unknown as string}, NULL, ${maxShifts})
+      `
+    }
   }
 }
 
@@ -387,8 +410,8 @@ export async function updateSchedulingPeriod(
 
 export async function getSwapRequests(): Promise<SwapRequest[]> {
   const { rows } = await sql`
-    SELECT id, requested_at, status, requestor_name, requestor_shift_id,
-           acceptor_name, acceptor_shift_id, accepted_at
+    SELECT id, requested_at, status, requestor_user_id, requestor_name, requestor_shift_id,
+           acceptor_name, acceptor_user_id, acceptor_shift_id, accepted_at
     FROM swap_requests
     ORDER BY requested_at DESC
   `
@@ -397,8 +420,10 @@ export async function getSwapRequests(): Promise<SwapRequest[]> {
     requestedAt: r.requested_at,
     status: r.status as SwapRequest['status'],
     requestorName: r.requestor_name,
+    requestorUserId: (r.requestor_user_id as string) ?? undefined,
     requestorShiftId: r.requestor_shift_id,
     acceptorName: r.acceptor_name ?? null,
+    acceptorUserId: (r.acceptor_user_id as string) ?? null,
     acceptorShiftId: r.acceptor_shift_id ?? null,
     acceptedAt: r.accepted_at ?? null,
   }))
@@ -416,15 +441,16 @@ export async function addSwapRequest(
 // ── Shift history (permanent record, survives block deletion) ─────────────────
 
 export async function upsertShiftHistory(
-  records: Array<{ shiftId: string; residentName: string; date: string; clinic: string; startTime?: string | null; endTime?: string | null }>
+  records: Array<{ shiftId: string; userId?: string | null; residentName: string; date: string; clinic: string; startTime?: string | null; endTime?: string | null }>
 ): Promise<void> {
   await ensureDb()
   for (const r of records) {
     await sql`
-      INSERT INTO shift_history (shift_id, date, clinic, resident_name, start_time, end_time)
-      VALUES (${r.shiftId}, ${r.date}, ${r.clinic}, ${r.residentName}, ${r.startTime ?? null}, ${r.endTime ?? null})
+      INSERT INTO shift_history (shift_id, date, clinic, resident_name, user_id, start_time, end_time)
+      VALUES (${r.shiftId}, ${r.date}, ${r.clinic}, ${r.residentName}, ${r.userId ?? null}, ${r.startTime ?? null}, ${r.endTime ?? null})
       ON CONFLICT (shift_id) DO UPDATE SET
         resident_name = EXCLUDED.resident_name,
+        user_id = COALESCE(EXCLUDED.user_id, shift_history.user_id),
         start_time = EXCLUDED.start_time,
         end_time = EXCLUDED.end_time
     `
@@ -433,10 +459,11 @@ export async function upsertShiftHistory(
 
 export async function getShiftHistory(): Promise<ShiftAssignment[]> {
   await ensureDb()
-  const { rows } = await sql`SELECT shift_id, date, clinic, resident_name, start_time, end_time FROM shift_history ORDER BY date DESC`
+  const { rows } = await sql`SELECT shift_id, date, clinic, resident_name, user_id, start_time, end_time FROM shift_history ORDER BY date DESC`
   return rows.map((r) => ({
     shiftId: r.shift_id as string,
     residentName: r.resident_name as string,
+    userId: (r.user_id as string) ?? null,
     date: r.date as string,
     clinic: r.clinic as string,
     startTime: r.start_time as string | null ?? undefined,
@@ -451,10 +478,12 @@ function rowToSplit(r: Record<string, unknown>): ShiftSplit {
     id: r.id as string,
     shiftId: r.shift_id as string,
     offerorName: r.offeror_name as string,
+    offerorUserId: (r.offeror_user_id as string) ?? undefined,
     offeredStart: r.offered_start as string,
     offeredEnd: r.offered_end as string,
     status: r.status as ShiftSplit['status'],
     acceptorName: (r.acceptor_name as string) ?? null,
+    acceptorUserId: (r.acceptor_user_id as string) ?? null,
     offeredAt: r.offered_at as string,
     acceptedAt: (r.accepted_at as string) ?? null,
   }
@@ -463,8 +492,8 @@ function rowToSplit(r: Record<string, unknown>): ShiftSplit {
 export async function getShiftSplits(): Promise<ShiftSplit[]> {
   await ensureDb()
   const { rows } = await sql`
-    SELECT id, shift_id, offeror_name, offered_start, offered_end,
-           status, acceptor_name, offered_at, accepted_at
+    SELECT id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end,
+           status, acceptor_name, acceptor_user_id, offered_at, accepted_at
     FROM shift_splits ORDER BY offered_at ASC
   `
   return rows.map(rowToSplit)
@@ -477,7 +506,7 @@ export async function addShiftSplit(
   const { rows } = await sql`
     INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status)
     VALUES (${split.id}, ${split.shiftId}, ${split.offerorName}, ${split.offerorUserId}, ${split.offeredStart}, ${split.offeredEnd}, 'pending')
-    RETURNING id, shift_id, offeror_name, offered_start, offered_end, status, acceptor_name, offered_at, accepted_at
+    RETURNING id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, offered_at, accepted_at
   `
   return rowToSplit(rows[0])
 }
@@ -493,7 +522,7 @@ export async function updateShiftSplit(
       acceptor_user_id = COALESCE(${patch.acceptorUserId ?? null}, acceptor_user_id),
       accepted_at      = COALESCE(${patch.acceptedAt ?? null}, accepted_at)
     WHERE id = ${id}
-    RETURNING id, shift_id, offeror_name, offered_start, offered_end, status, acceptor_name, offered_at, accepted_at
+    RETURNING id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, offered_at, accepted_at
   `
   if (rows.length === 0) return null
   return rowToSplit(rows[0])
@@ -542,22 +571,28 @@ export async function getInvoiceHistory(userId: string): Promise<InvoiceHistoryR
 
 // ── Invoice sequences ─────────────────────────────────────────────────────────
 
-export async function peekInvoiceNumber(residentName: string, series: string): Promise<number> {
+export async function peekInvoiceNumber(userId: string, series: string): Promise<number> {
   await ensureDb()
   const { rows } = await sql`
     SELECT next_number FROM invoice_sequences
-    WHERE resident_name = ${residentName} AND series = ${series}
+    WHERE user_id = ${userId} AND series = ${series}
   `
   return rows.length > 0 ? (rows[0].next_number as number) : 1
 }
 
-export async function setInvoiceSequence(residentName: string, series: string, nextNumber: number): Promise<void> {
+export async function setInvoiceSequence(userId: string, series: string, nextNumber: number): Promise<void> {
   await ensureDb()
-  await sql`
-    INSERT INTO invoice_sequences (resident_name, series, next_number)
-    VALUES (${residentName}, ${series}, ${nextNumber})
-    ON CONFLICT (resident_name, series) DO UPDATE SET next_number = ${nextNumber}
+  const { rowCount } = await sql`
+    UPDATE invoice_sequences SET next_number = ${nextNumber}
+    WHERE user_id = ${userId} AND series = ${series}
   `
+  if ((rowCount ?? 0) === 0) {
+    await sql`
+      INSERT INTO invoice_sequences (resident_name, user_id, series, next_number)
+      VALUES (${userId}, ${userId}, ${series}, ${nextNumber})
+      ON CONFLICT (resident_name, series) DO NOTHING
+    `
+  }
 }
 
 // ── Clinic defaults ───────────────────────────────────────────────────────────
@@ -646,6 +681,7 @@ export async function updateSwapRequest(
     UPDATE swap_requests SET
       status            = COALESCE(${patch.status ?? null}, status),
       acceptor_name     = COALESCE(${patch.acceptorName ?? null}, acceptor_name),
+      acceptor_user_id  = COALESCE(${patch.acceptorUserId ?? null}, acceptor_user_id),
       acceptor_shift_id = COALESCE(${patch.acceptorShiftId ?? null}, acceptor_shift_id),
       accepted_at       = COALESCE(${patch.acceptedAt ?? null}, accepted_at)
     WHERE id = ${id}
@@ -658,8 +694,10 @@ export async function updateSwapRequest(
     requestedAt: r.requested_at,
     status: r.status as SwapRequest['status'],
     requestorName: r.requestor_name,
+    requestorUserId: (r.requestor_user_id as string) ?? undefined,
     requestorShiftId: r.requestor_shift_id,
     acceptorName: r.acceptor_name ?? null,
+    acceptorUserId: (r.acceptor_user_id as string) ?? null,
     acceptorShiftId: r.acceptor_shift_id ?? null,
     acceptedAt: r.accepted_at ?? null,
   }

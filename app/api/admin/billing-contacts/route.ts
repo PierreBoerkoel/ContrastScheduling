@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { getBillingContacts, setBillingContact } from '@/lib/db'
 
 const VALID_ENTITIES = new Set(['MRCT', 'PET', 'UBCMR', 'BCWHMR'])
+
+async function requireAdmin() {
+  const user = await currentUser()
+  return (user?.publicMetadata as { role?: string })?.role === 'admin'
+}
 
 export async function GET() {
   const { userId } = await auth()
@@ -11,8 +16,9 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireAdmin()) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  }
 
   const body = (await request.json()) as {
     entity: string

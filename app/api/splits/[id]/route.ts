@@ -30,12 +30,9 @@ export async function PATCH(
 
   if (action === 'cancel') {
     const user = await currentUser()
-    const userName =
-      user?.fullName ??
-      [user?.firstName, user?.lastName].filter(Boolean).join(' ') ??
-      'Unknown'
     const isAdmin = (user?.publicMetadata as { role?: string })?.role === 'admin'
-    if (!isAdmin && split.offerorName.toLowerCase() !== userName.toLowerCase()) {
+    const isOfferor = split.offerorUserId === userId
+    if (!isAdmin && !isOfferor) {
       return NextResponse.json({ error: 'Only the offeror can withdraw' }, { status: 403 })
     }
     return NextResponse.json(await updateShiftSplit(id, { status: 'cancelled' }))
@@ -48,7 +45,7 @@ export async function PATCH(
       [user?.firstName, user?.lastName].filter(Boolean).join(' ') ??
       'Unknown'
 
-    if (split.offerorName.toLowerCase() === acceptorName.toLowerCase()) {
+    if (split.offerorUserId === userId) {
       return NextResponse.json({ error: 'You cannot accept your own offer' }, { status: 400 })
     }
 
@@ -59,7 +56,7 @@ export async function PATCH(
 
     // 1. Check direct published assignments on the same day (skip the shift being split)
     for (const a of (schedule?.publishedAssignments ?? [])) {
-      if (a.residentName?.toLowerCase() !== acceptorName.toLowerCase()) continue
+      if (a.userId !== userId) continue
       if (a.shiftId === split.shiftId) continue
       if (a.shiftId.split('|')[0] !== splitDate) continue
       const s = shiftById[a.shiftId]
@@ -76,7 +73,7 @@ export async function PATCH(
     for (const s of splits) {
       if (s.id === split.id) continue
       if (s.status !== 'accepted') continue
-      if (s.acceptorName?.toLowerCase() !== acceptorName.toLowerCase()) continue
+      if (s.acceptorUserId !== userId) continue
       if (s.shiftId.split('|')[0] !== splitDate) continue
       if (overlaps(split.offeredStart, split.offeredEnd, s.offeredStart, s.offeredEnd)) {
         return NextResponse.json(

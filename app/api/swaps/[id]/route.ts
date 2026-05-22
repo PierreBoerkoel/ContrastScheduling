@@ -49,7 +49,8 @@ export async function PATCH(
     const published = schedule.publishedAssignments
 
     const requestorAssignment = published.find((a) => a.shiftId === swapReq.requestorShiftId)
-    if (requestorAssignment?.residentName?.toLowerCase() !== swapReq.requestorName.toLowerCase()) {
+    const requestorStillAssigned = requestorAssignment?.userId === swapReq.requestorUserId && !!swapReq.requestorUserId
+    if (!requestorStillAssigned) {
       return NextResponse.json(
         { error: 'The offering resident is no longer assigned to that shift' },
         { status: 409 }
@@ -59,9 +60,7 @@ export async function PATCH(
     // Check the taker doesn't already have a shift on the same day
     const offerDate = swapReq.requestorShiftId.split('|')[0]
     const acceptorDayConflict = published.some(
-      (a) =>
-        a.residentName?.toLowerCase() === acceptorName.toLowerCase() &&
-        a.shiftId.startsWith(offerDate + '|')
+      (a) => a.userId === userId && a.shiftId.startsWith(offerDate + '|')
     )
     if (acceptorDayConflict && !swap) {
       return NextResponse.json(
@@ -73,9 +72,9 @@ export async function PATCH(
     // Transfer shift: requestor loses it, acceptor gains it.
     // If swap=true, also vacate the acceptor's existing shift on that day.
     const transfer = (a: typeof published[number]) => {
-      if (a.shiftId === swapReq.requestorShiftId) return { ...a, residentName: acceptorName }
-      if (swap && a.residentName?.toLowerCase() === acceptorName.toLowerCase() && a.shiftId.startsWith(offerDate + '|')) {
-        return { ...a, residentName: null }
+      if (a.shiftId === swapReq.requestorShiftId) return { ...a, residentName: acceptorName, userId }
+      if (swap && a.userId === userId && a.shiftId.startsWith(offerDate + '|')) {
+        return { ...a, residentName: null, userId: null }
       }
       return a
     }
@@ -90,6 +89,7 @@ export async function PATCH(
       await updateSwapRequest(id, {
         status: 'accepted',
         acceptorName,
+        acceptorUserId: userId,
         acceptedAt: new Date().toISOString(),
       })
     )

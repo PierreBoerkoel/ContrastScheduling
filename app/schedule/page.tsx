@@ -89,12 +89,14 @@ function formatWeekRange(weekKey: string): string {
 export default function SchedulePage() {
   const { user } = useUser()
   const myName = user?.fullName ?? [user?.firstName, user?.lastName].filter(Boolean).join(' ') ?? ''
+  const myUserId = user?.id ?? ''
 
   const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [shifts, setShifts] = useState<Shift[]>([])
   const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([])
   const [periods, setPeriods] = useState<SchedulingPeriod[]>([])
   const [splits, setSplits] = useState<ShiftSplit[]>([])
+  const [userNames, setUserNames] = useState<Record<string, string>>({})
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -127,18 +129,20 @@ export default function SchedulePage() {
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set())
 
   const fetchAll = useCallback(async () => {
-    const [sched, shiftList, swaps, periodList, splitList] = await Promise.all([
+    const [sched, shiftList, swaps, periodList, splitList, names] = await Promise.all([
       fetch('/api/schedule').then((r) => r.json()),
       fetch('/api/shifts').then((r) => r.json()),
       fetch('/api/swaps').then((r) => r.json()),
       fetch('/api/periods').then((r) => r.json()),
       fetch('/api/splits').then((r) => r.json()),
+      fetch('/api/users/names').then((r) => r.json()),
     ])
     if (sched && 'isPublished' in sched) setSchedule(sched)
     if (Array.isArray(shiftList)) setShifts(shiftList)
     if (Array.isArray(swaps)) setSwapRequests(swaps)
     if (Array.isArray(periodList)) setPeriods(periodList)
     if (Array.isArray(splitList)) setSplits(splitList)
+    if (names && typeof names === 'object' && !names.error) setUserNames(names)
     setLoading(false)
   }, [])
 
@@ -168,7 +172,7 @@ export default function SchedulePage() {
 
   const myAssignedDates = new Set(
     filteredPublished
-      .filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase())
+      .filter((a) => a.userId === myUserId)
       .map((a) => shiftById[a.shiftId]?.date ?? a.shiftId.split('|')[0])
   )
 
@@ -178,12 +182,12 @@ export default function SchedulePage() {
 
   // Dates where the user's accepted splits cover the entire shift window
   const mySplitFullShiftDates = new Set<string>()
-  if (myName) {
+  if (myUserId) {
     for (const a of filteredPublished) {
       const shift = shiftById[a.shiftId]
       if (!shift?.startTime || !shift?.endTime) continue
-      const segments = computeCoverageSegments(shift, a.residentName, splitsByShift[a.shiftId] ?? [])
-      const mySegs = segments.filter((seg) => seg.residentName.toLowerCase() === myName.toLowerCase())
+      const segments = computeCoverageSegments(shift, a.residentName, splitsByShift[a.shiftId] ?? [], a.userId)
+      const mySegs = segments.filter((seg) => seg.userId === myUserId)
       if (mySegs.length === 0) continue
       const ownedStart = mySegs.reduce((min, s) => s.start < min ? s.start : min, mySegs[0].start)
       const ownedEnd = mySegs.reduce((max, s) => s.end > max ? s.end : max, mySegs[0].end)
@@ -195,31 +199,29 @@ export default function SchedulePage() {
 
   // Dates where the user is the primary assignee but has given away 100% of their shift through chained splits
   const myFullyGivenAwayDates = new Set<string>()
-  if (myName) {
+  if (myUserId) {
     for (const a of filteredPublished) {
-      if (a.residentName?.toLowerCase() !== myName.toLowerCase()) continue
+      if (a.userId !== myUserId) continue
       const shift = shiftById[a.shiftId]
       if (!shift?.startTime || !shift?.endTime) continue
-      const segments = computeCoverageSegments(shift, a.residentName, splitsByShift[a.shiftId] ?? [])
-      const mySegs = segments.filter((seg) => seg.residentName.toLowerCase() === myName.toLowerCase())
+      const segments = computeCoverageSegments(shift, a.residentName, splitsByShift[a.shiftId] ?? [], a.userId)
+      const mySegs = segments.filter((seg) => seg.userId === myUserId)
       if (mySegs.length === 0) myFullyGivenAwayDates.add(shift.date)
     }
   }
 
   function myShifts() {
-    if (!myName) return []
-    return filteredPublished.filter(
-      (a) => a.residentName?.toLowerCase() === myName.toLowerCase()
-    )
+    if (!myUserId) return []
+    return filteredPublished.filter((a) => a.userId === myUserId)
   }
 
-  // Shifts where myName is a split acceptor — one entry per shift (deduplicated)
+  // Shifts where the current user is a split acceptor — one entry per shift (deduplicated)
   function mySplitAcceptances() {
-    if (!myName) return []
+    if (!myUserId) return []
     const seen = new Set<string>()
     return splits.filter((s) => {
       if (s.status !== 'accepted') return false
-      if (s.acceptorName?.toLowerCase() !== myName.toLowerCase()) return false
+      if (s.acceptorUserId !== myUserId) return false
       if (!filteredPublished.some((a) => a.shiftId === s.shiftId)) return false
       if (seen.has(s.shiftId)) return false
       seen.add(s.shiftId)
@@ -233,8 +235,9 @@ export default function SchedulePage() {
     const shift = shiftById[shiftId]
     if (!shift?.startTime || !shift?.endTime) return null
     const assignedResident = assignmentMap[shiftId] ?? null
-    const segments = computeCoverageSegments(shift, assignedResident, splitsByShift[shiftId] ?? [])
-    const mySegments = segments.filter((s) => s.residentName.toLowerCase() === myName.toLowerCase())
+    const assignment = filteredPublished.find((a) => a.shiftId === shiftId)
+    const segments = computeCoverageSegments(shift, assignedResident, splitsByShift[shiftId] ?? [], assignment?.userId)
+    const mySegments = segments.filter((s) => s.userId === myUserId)
     if (mySegments.length === 0) return null
     const ownedStart = mySegments.reduce((min, s) => s.start < min ? s.start : min, mySegments[0].start)
     const ownedEnd = mySegments.reduce((max, s) => s.end > max ? s.end : max, mySegments[0].end)
@@ -401,9 +404,19 @@ export default function SchedulePage() {
     })
   }
 
+  // Stable key per person: userId when available, name for legacy records
+  // userNames comes from Clerk (current names), so cName always resolves to the current name
+  const cKey = (userId: string | null | undefined, name: string | null | undefined) => userId ?? name ?? ''
+  const cName = (key: string) => userNames[key] ?? key
+
+  const currentNameFor = (userId: string | null | undefined, fallback: string | null | undefined): string =>
+    (userId && userNames[userId]) ? userNames[userId] : (fallback ?? '')
+
   const counts: Record<string, number> = {}
   for (const a of filteredPublished) {
-    if (a.residentName) counts[a.residentName] = (counts[a.residentName] ?? 0) + 1
+    if (!a.residentName && !a.userId) continue
+    const k = cKey(a.userId, a.residentName)
+    counts[k] = (counts[k] ?? 0) + 1
   }
   const filteredShiftIds = new Set(filteredPublished.map((a) => a.shiftId))
   for (const sp of splits) {
@@ -411,17 +424,23 @@ export default function SchedulePage() {
     if (!filteredShiftIds.has(sp.shiftId)) continue
     const shift = shiftById[sp.shiftId]
     const frac = splitFraction(sp.offeredStart, sp.offeredEnd, shift?.startTime, shift?.endTime)
-    counts[sp.offerorName] = (counts[sp.offerorName] ?? 0) - frac
-    counts[sp.acceptorName] = (counts[sp.acceptorName] ?? 0) + frac
+    const offerorKey = cKey(sp.offerorUserId, sp.offerorName)
+    const acceptorKey = cKey(sp.acceptorUserId, sp.acceptorName)
+    counts[offerorKey] = (counts[offerorKey] ?? 0) - frac
+    counts[acceptorKey] = (counts[acceptorKey] ?? 0) + frac
   }
 
   const allNamesInView = new Set<string>()
   for (const a of filteredPublished) {
-    if (a.residentName) allNamesInView.add(a.residentName)
+    const n = currentNameFor(a.userId, a.residentName)
+    if (n) allNamesInView.add(n)
   }
   for (const sp of splits) {
     if (sp.status === 'accepted' && filteredPublished.some((a) => a.shiftId === sp.shiftId)) {
-      if (sp.acceptorName) allNamesInView.add(sp.acceptorName)
+      const offerorN = currentNameFor(sp.offerorUserId, sp.offerorName)
+      if (offerorN) allNamesInView.add(offerorN)
+      const acceptorN = currentNameFor(sp.acceptorUserId, sp.acceptorName)
+      if (acceptorN) allNamesInView.add(acceptorN)
     }
   }
   const displayMap = buildDisplayNames([...allNamesInView])
@@ -438,13 +457,13 @@ export default function SchedulePage() {
     const isClaiming = claimingShiftId === shift.id
     const shiftDate = shift.date
     const alreadyOnDay = (myAssignedDates.has(shiftDate) && !myFullyGivenAwayDates.has(shiftDate)) || mySplitFullShiftDates.has(shiftDate)
-    const hasGivenAwayPortionOnDay = myName !== '' && splits.some(
-      (sp) => sp.status === 'accepted' && sp.offerorName.toLowerCase() === myName.toLowerCase() &&
+    const hasGivenAwayPortionOnDay = !!myUserId && splits.some(
+      (sp) => sp.status === 'accepted' && sp.offerorUserId === myUserId &&
         (shiftById[sp.shiftId]?.date ?? sp.shiftId.split('|')[0]) === shiftDate
     )
-    const hasOverlappingSplit = !!shift.startTime && !!shift.endTime && myName !== '' &&
+    const hasOverlappingSplit = !!shift.startTime && !!shift.endTime && !!myUserId &&
       splits.some(
-        (sp) => sp.status === 'accepted' && sp.acceptorName?.toLowerCase() === myName.toLowerCase() &&
+        (sp) => sp.status === 'accepted' && sp.acceptorUserId === myUserId &&
           (shiftById[sp.shiftId]?.date ?? sp.shiftId.split('|')[0]) === shiftDate &&
           sp.shiftId !== shift.id &&
           timeToMinutes(shift.startTime!) < timeToMinutes(sp.offeredEnd) &&
@@ -452,22 +471,26 @@ export default function SchedulePage() {
       )
 
     if (resident) {
-      const segments = computeCoverageSegments(shift, resident, shiftSplits)
+      const assignment = filteredPublished.find((a) => a.shiftId === shift.id)
+      const segments = computeCoverageSegments(shift, resident, shiftSplits, assignment?.userId)
       return (
         <div className={segments.length > 1 ? 'space-y-1.5' : ''}>
-          {segments.map((seg, i) => (
-            <div key={i} className={segments.length > 1 ? 'border-b border-slate-100 last:border-0 pb-1.5 last:pb-0' : ''}>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="font-medium text-slate-800">{displayMap[seg.residentName] ?? seg.residentName}</span>
-                {hasPendingSwap && i === 0 && segments.length === 1 && (
-                  <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">offered</span>
+          {segments.map((seg, i) => {
+            const segName = currentNameFor(seg.userId, seg.residentName)
+            return (
+              <div key={i} className={segments.length > 1 ? 'border-b border-slate-100 last:border-0 pb-1.5 last:pb-0' : ''}>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-medium text-slate-800">{displayMap[segName] ?? segName}</span>
+                  {hasPendingSwap && i === 0 && segments.length === 1 && (
+                    <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">offered</span>
+                  )}
+                </div>
+                {seg.start && seg.end && (
+                  <div className="text-xs text-slate-400 mt-0.5">{formatTimeRange(seg.start, seg.end)}</div>
                 )}
               </div>
-              {seg.start && seg.end && (
-                <div className="text-xs text-slate-400 mt-0.5">{formatTimeRange(seg.start, seg.end)}</div>
-              )}
-            </div>
-          ))}
+            )
+          })}
           {hasPendingSplitOffer && (
             <div className="text-xs text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full inline-block mt-0.5">portion offered</div>
           )}
@@ -631,12 +654,12 @@ export default function SchedulePage() {
         <div className="flex flex-wrap gap-3">
           {Object.entries(counts)
             .sort((a, b) => b[1] - a[1])
-            .map(([resident, count]) => (
+            .map(([key, count]) => (
               <span
-                key={resident}
+                key={key}
                 className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-800 text-sm px-3 py-1 rounded-full"
               >
-                <span className="font-medium">{displayMap[resident] ?? resident}</span>
+                <span className="font-medium">{displayMap[cName(key)] ?? cName(key)}</span>
                 <span className="text-blue-400 text-xs">{formatShiftCount(count)} shift{count === 1 ? '' : 's'}</span>
               </span>
             ))}
@@ -778,15 +801,12 @@ export default function SchedulePage() {
                 {offerableItems.map(({ shiftId, label, isSplitAcceptance }) => {
                   const alreadyPending = pendingSwaps.some((r) => r.requestorShiftId === shiftId)
                   const myPendingSplit = splits.find(
-                    (s) =>
-                      s.shiftId === shiftId &&
-                      s.offerorName.toLowerCase() === myName.toLowerCase() &&
-                      s.status === 'pending'
+                    (s) => s.shiftId === shiftId && s.offerorUserId === myUserId && s.status === 'pending'
                   )
                   const ownedWindow = getMyOwnedWindow(shiftId)
                   const canSplit = !!(ownedWindow && thirtyMinSlots(ownedWindow.start, ownedWindow.end).length > 2)
                   const hasGivenAwayPortion = splits.some(
-                    (sp) => sp.shiftId === shiftId && sp.offerorName.toLowerCase() === myName.toLowerCase() && sp.status === 'accepted'
+                    (sp) => sp.shiftId === shiftId && sp.offerorUserId === myUserId && sp.status === 'accepted'
                   )
 
                   return (
@@ -962,20 +982,21 @@ export default function SchedulePage() {
         ) : (
           <div className="divide-y divide-slate-100">
             {pendingSwaps.map((req) => {
-              const isMyOffer = req.requestorName.toLowerCase() === myName.toLowerCase()
+              const isMyOffer = req.requestorUserId === myUserId
               const offerDate = shiftById[req.requestorShiftId]?.date ?? req.requestorShiftId.split('|')[0]
               const myConflict = !isMyOffer ? filteredPublished.find(
                 (a) => a.shiftId !== req.requestorShiftId &&
                   (shiftById[a.shiftId]?.date ?? a.shiftId.split('|')[0]) === offerDate &&
-                  a.residentName?.toLowerCase() === myName.toLowerCase()
+                  a.userId === myUserId
               ) : null
               const myConflictClinic = myConflict
                 ? (CLINIC_ABBR[shiftById[myConflict.shiftId]?.clinic ?? ''] ?? shiftById[myConflict.shiftId]?.clinic ?? '')
                 : null
+              const requestorDisplayName = currentNameFor(req.requestorUserId, req.requestorName)
               return (
                 <div key={req.id} className="p-5">
                   <p className="text-sm text-slate-700 mb-1">
-                    <strong>{req.requestorName}</strong> is offering{' '}
+                    <strong>{requestorDisplayName}</strong> is offering{' '}
                     <span className="font-medium text-slate-800">{shiftLabel(req.requestorShiftId)}</span>
                   </p>
                   <p className="text-xs text-slate-400 mb-3">
@@ -990,7 +1011,7 @@ export default function SchedulePage() {
                         </p>
                       ) : (
                         <p className="text-sm text-green-800">
-                          Take <strong>{shiftLabel(req.requestorShiftId)}</strong> from <strong>{req.requestorName}</strong>? No shift needed in return.
+                          Take <strong>{shiftLabel(req.requestorShiftId)}</strong> from <strong>{requestorDisplayName}</strong>? No shift needed in return.
                         </p>
                       )}
                       <div className="flex gap-2">
@@ -1046,11 +1067,12 @@ export default function SchedulePage() {
           </div>
           <div className="divide-y divide-slate-100">
             {pendingSplits.map((split) => {
-              const isMyOffer = split.offerorName.toLowerCase() === myName.toLowerCase()
+              const isMyOffer = split.offerorUserId === myUserId
+              const offerorDisplayName = currentNameFor(split.offerorUserId, split.offerorName)
               return (
                 <div key={split.id} className="p-5">
                   <p className="text-sm text-slate-700 mb-0.5">
-                    <strong>{split.offerorName}</strong> is offering a portion of{' '}
+                    <strong>{offerorDisplayName}</strong> is offering a portion of{' '}
                     <span className="font-medium text-slate-800">{shiftLabel(split.shiftId)}</span>
                   </p>
                   <p className="text-sm font-medium text-violet-700 mb-1">
@@ -1064,7 +1086,7 @@ export default function SchedulePage() {
                     <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
                       <p className="text-sm text-green-800">
                         Cover the <strong>{formatTimeRange(split.offeredStart, split.offeredEnd)}</strong> portion
-                        of <strong>{shiftLabel(split.shiftId)}</strong> for <strong>{split.offerorName}</strong>?
+                        of <strong>{shiftLabel(split.shiftId)}</strong> for <strong>{offerorDisplayName}</strong>?
                       </p>
                       <div className="flex gap-2">
                         <button
@@ -1139,7 +1161,7 @@ export default function SchedulePage() {
                       {item.status}
                     </span>
                     <span>
-                      {item.requestorName} offered → {item.status === 'accepted' ? item.acceptorName : '–'}
+                      {currentNameFor(item.requestorUserId, item.requestorName)} offered → {item.status === 'accepted' ? currentNameFor(item.acceptorUserId, item.acceptorName) : '–'}
                       {' · '}
                       {shiftLabel(item.requestorShiftId)}
                     </span>
@@ -1156,7 +1178,7 @@ export default function SchedulePage() {
                       {item.status === 'accepted' ? 'split' : item.status}
                     </span>
                     <span>
-                      {item.offerorName} offered portion → {item.status === 'accepted' ? item.acceptorName : '–'}
+                      {currentNameFor(item.offerorUserId, item.offerorName)} offered portion → {item.status === 'accepted' ? currentNameFor(item.acceptorUserId, item.acceptorName) : '–'}
                       {' · '}
                       {shiftLabel(item.shiftId)}
                       {' · '}

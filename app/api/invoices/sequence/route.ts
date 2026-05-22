@@ -16,6 +16,6 @@ export async function GET(request: Request) {
   const name = user?.fullName ?? [user?.firstName, user?.lastName].filter(Boolean).join(' ') ?? ''
   const initials = deriveInitials(name)
 
-  const n = await peekInvoiceNumber(name, entity)
+  const n = await peekInvoiceNumber(userId, entity)
   return NextResponse.json({ number: n, formatted: formatInvoiceNumber(initials, entity, n) })
 }

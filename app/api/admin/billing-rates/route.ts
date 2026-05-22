@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { getBillingRates, setBillingRate } from '@/lib/db'
 import { DEFAULT_RATES } from '@/lib/invoices'
 
 const VALID_KEYS = new Set(Object.keys(DEFAULT_RATES))
+
+async function requireAdmin() {
+  const user = await currentUser()
+  return (user?.publicMetadata as { role?: string })?.role === 'admin'
+}
 
 export async function GET() {
   const { userId } = await auth()
@@ -14,8 +19,9 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireAdmin()) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  }
 
   const body = (await request.json()) as { key: string; value: number }
   const { key, value } = body

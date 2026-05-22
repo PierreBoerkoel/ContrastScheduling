@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
 import type { Shift, Schedule, ShiftAssignment, ShiftSplit, ClinicName } from '@/lib/types'
 import { CLINIC_ABBR, formatTimeRange, computeCoverageSegments } from '@/lib/types'
@@ -101,6 +101,23 @@ function generateICS(shifts: Shift[]): string {
     'PRODID:-//Contrast Scheduling//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
+    'BEGIN:VTIMEZONE',
+    'TZID:America/Vancouver',
+    'BEGIN:STANDARD',
+    'TZOFFSETFROM:-0700',
+    'TZOFFSETTO:-0800',
+    'TZNAME:PST',
+    'DTSTART:19701101T020000',
+    'RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU',
+    'END:STANDARD',
+    'BEGIN:DAYLIGHT',
+    'TZOFFSETFROM:-0800',
+    'TZOFFSETTO:-0700',
+    'TZNAME:PDT',
+    'DTSTART:19700308T020000',
+    'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU',
+    'END:DAYLIGHT',
+    'END:VTIMEZONE',
   ]
   for (const s of shifts) {
     const dateBase = s.date.replace(/-/g, '')
@@ -109,10 +126,10 @@ function generateICS(shifts: Shift[]): string {
       'BEGIN:VEVENT',
       `UID:${s.id}@contrast-scheduling`,
       timed
-        ? `DTSTART:${dateBase}T${s.startTime!.replace(':', '')}00`
+        ? `DTSTART;TZID=America/Vancouver:${dateBase}T${s.startTime!.replace(':', '')}00`
         : `DTSTART;VALUE=DATE:${dateBase}`,
       timed
-        ? `DTEND:${dateBase}T${s.endTime!.replace(':', '')}00`
+        ? `DTEND;TZID=America/Vancouver:${dateBase}T${s.endTime!.replace(':', '')}00`
         : `DTEND;VALUE=DATE:${nextDayStr(s.date)}`,
       `SUMMARY:Contrast Call – ${s.clinic}`,
       `DESCRIPTION:Contrast coverage call shift at ${s.clinic}${timed ? `\\n${formatTimeRange(s.startTime, s.endTime)}` : ''}`,
@@ -136,6 +153,7 @@ function downloadICS(shifts: Shift[]) {
 export default function ProfilePage() {
   const { user, isLoaded } = useUser()
   const myName = user?.fullName ?? [user?.firstName, user?.lastName].filter(Boolean).join(' ') ?? ''
+  const myUserId = user?.id ?? ''
 
   const [shifts, setShifts] = useState<Shift[]>([])
   const [schedule, setSchedule] = useState<Schedule | null>(null)
@@ -144,13 +162,9 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [showGoogleLinks, setShowGoogleLinks] = useState(false)
 
-  const [editingName, setEditingName] = useState(false)
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [nameSaving, setNameSaving] = useState(false)
-  const [nameError, setNameError] = useState('')
-
   const [editingContact, setEditingContact] = useState(false)
+  const [contactFirstName, setContactFirstName] = useState('')
+  const [contactLastName, setContactLastName] = useState('')
   const [contactAddress, setContactAddress] = useState('')
   const [contactPhone, setContactPhone] = useState('')
   const [contactEmail, setContactEmail] = useState('')
@@ -159,6 +173,8 @@ export default function ProfilePage() {
 
   const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false)
   const [showEarningsCsv, setShowEarningsCsv] = useState(false)
+  const [contactPrompt, setContactPrompt] = useState(false)
+  const contactCardRef = useRef<HTMLDivElement>(null)
   const [earningsFrom, setEarningsFrom] = useState(() => `${new Date().getUTCFullYear()}-01-01`)
   const [earningsTo, setEarningsTo] = useState(() => new Date().toISOString().split('T')[0])
   const [downloadingCsv, setDownloadingCsv] = useState(false)
@@ -190,33 +206,14 @@ export default function ProfilePage() {
     })
   }, [])
 
-  async function saveName() {
-    if (!user) return
-    setNameSaving(true)
-    setNameError('')
-    try {
-      await user.update({ firstName: firstName.trim(), lastName: lastName.trim() })
-      setEditingName(false)
-    } catch (e) {
-      setNameError(e instanceof Error ? e.message : 'Failed to update name')
-    } finally {
-      setNameSaving(false)
-    }
-  }
-
-  function startEditName() {
-    setFirstName(user?.firstName ?? '')
-    setLastName(user?.lastName ?? '')
-    setNameError('')
-    setEditingName(true)
-  }
-
   async function saveContact() {
     if (!user) return
     setContactSaving(true)
     setContactError('')
     try {
       await user.update({
+        firstName: contactFirstName.trim(),
+        lastName: contactLastName.trim(),
         unsafeMetadata: {
           ...(user.unsafeMetadata ?? {}),
           address: contactAddress.trim(),
@@ -234,6 +231,8 @@ export default function ProfilePage() {
 
   function startEditContact() {
     const meta = user?.unsafeMetadata as { address?: string; phone?: string; email?: string } | undefined
+    setContactFirstName(user?.firstName ?? '')
+    setContactLastName(user?.lastName ?? '')
     setContactAddress(meta?.address ?? '')
     setContactPhone(meta?.phone ?? '')
     setContactEmail(meta?.email ?? user?.primaryEmailAddress?.emailAddress ?? '')
@@ -260,12 +259,10 @@ export default function ProfilePage() {
 
   // My coverage from the published schedule (direct assignments, split-aware)
   const myScheduleCoverage: Shift[] = []
-  for (const a of (schedule?.publishedAssignments ?? []).filter(
-    (a) => a.residentName?.toLowerCase() === myName.toLowerCase()
-  )) {
+  for (const a of (schedule?.publishedAssignments ?? []).filter((a) => a.userId === myUserId)) {
     const base = assignmentToShift(a)
-    const segs = computeCoverageSegments(base, a.residentName, splitsByShift[a.shiftId] ?? [])
-    for (const seg of segs.filter((s) => s.residentName.toLowerCase() === myName.toLowerCase())) {
+    const segs = computeCoverageSegments(base, a.residentName, splitsByShift[a.shiftId] ?? [], a.userId)
+    for (const seg of segs.filter((s) => s.userId === myUserId)) {
       myScheduleCoverage.push({
         ...base,
         startTime: seg.start || base.startTime,
@@ -279,7 +276,7 @@ export default function ProfilePage() {
   const mySplitCoverage: Shift[] = []
   const acceptorShiftIds = [...new Set(
     allSplits
-      .filter((s) => s.status === 'accepted' && s.acceptorName?.toLowerCase() === myName.toLowerCase())
+      .filter((s) => s.status === 'accepted' && s.acceptorUserId === myUserId)
       .map((s) => s.shiftId)
   )]
   for (const sid of acceptorShiftIds) {
@@ -291,8 +288,8 @@ export default function ProfilePage() {
       continue
     }
     const assignment = (schedule?.publishedAssignments ?? []).find((a) => a.shiftId === sid)
-    const segs = computeCoverageSegments(shift, assignment?.residentName ?? null, splitsByShift[sid] ?? [])
-    for (const seg of segs.filter((s) => s.residentName.toLowerCase() === myName.toLowerCase())) {
+    const segs = computeCoverageSegments(shift, assignment?.residentName ?? null, splitsByShift[sid] ?? [], assignment?.userId ?? null)
+    for (const seg of segs.filter((s) => s.userId === myUserId)) {
       mySplitCoverage.push({
         ...base,
         startTime: seg.start || base.startTime,
@@ -311,15 +308,15 @@ export default function ProfilePage() {
   // Completed: ended from live schedule + permanent history (for deleted blocks)
   const scheduleCoverageIds = new Set(myScheduleCoverage.map((s) => s.id))
   const completedMap = new Map<string, Shift>()
-  for (const a of history.filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase())) {
+  for (const a of history.filter((a) => a.userId === myUserId)) {
     if (scheduleCoverageIds.has(a.shiftId)) continue
     // If this base-shift history record has accepted splits, compute actual segments
     // (splits survive block deletion, so we can derive the real coverage windows)
     const acceptedSplits = (splitsByShift[a.shiftId] ?? []).filter(sp => sp.status === 'accepted')
     if (acceptedSplits.length > 0 && a.startTime && a.endTime) {
-      const segs = computeCoverageSegments({ startTime: a.startTime, endTime: a.endTime }, a.residentName!, acceptedSplits)
+      const segs = computeCoverageSegments({ startTime: a.startTime, endTime: a.endTime }, a.residentName!, acceptedSplits, a.userId)
       segs
-        .filter(seg => seg.residentName.toLowerCase() === myName.toLowerCase())
+        .filter(seg => seg.userId === myUserId)
         .forEach((seg, i) => {
           completedMap.set(`${a.shiftId}::hseg::${i}`, {
             ...assignmentToShift(a),
@@ -451,7 +448,7 @@ export default function ProfilePage() {
         : ''
 
       const csv = header + body + footer + note
-      const blob = new Blob([csv], { type: 'text/csv' })
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -465,55 +462,16 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-10 space-y-8">
-      {/* ── Header / Name ── */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800 mb-2">My Profile</h1>
-        {editingName ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              placeholder="First name"
-              className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-            />
-            <input
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              placeholder="Last name"
-              className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-            />
-            <button
-              onClick={saveName}
-              disabled={nameSaving}
-              className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
-            >
-              {nameSaving ? 'Saving…' : 'Save'}
-            </button>
-            <button
-              onClick={() => setEditingName(false)}
-              className="text-sm text-slate-500 hover:text-slate-700 px-2 py-1.5"
-            >
-              Cancel
-            </button>
-            {nameError && <span className="text-sm text-red-500">{nameError}</span>}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <p className="text-slate-500 text-sm">{myName}</p>
-            <button
-              onClick={startEditName}
-              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-0.5 transition-colors"
-            >
-              Edit name
-            </button>
-          </div>
-        )}
-      </div>
+      {/* ── Header ── */}
+      <h1 className="text-2xl font-bold text-slate-800">My Profile</h1>
 
-      {/* ── Contact info (for invoices) ── */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-slate-700">Invoice Contact Details</h2>
+      {/* ── Contact details ── */}
+      <div ref={contactCardRef} className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-start justify-between mb-1">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-700">Contact Details</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Required for invoice generation</p>
+          </div>
           {!editingContact && (
             <button
               onClick={startEditContact}
@@ -525,9 +483,29 @@ export default function ProfilePage() {
         </div>
 
         {editingContact ? (
-          <div className="space-y-3">
+          <div className="space-y-3 mt-3">
+            <div className="flex gap-3 flex-wrap">
+              <div className="flex-1 min-w-36">
+                <label className="block text-xs text-slate-500 mb-1">First name</label>
+                <input
+                  value={contactFirstName}
+                  onChange={(e) => setContactFirstName(e.target.value)}
+                  placeholder="Jane"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+              <div className="flex-1 min-w-36">
+                <label className="block text-xs text-slate-500 mb-1">Last name</label>
+                <input
+                  value={contactLastName}
+                  onChange={(e) => setContactLastName(e.target.value)}
+                  placeholder="Smith"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+              </div>
+            </div>
             <div>
-              <label className="block text-xs text-slate-500 mb-1">Address (for invoice header)</label>
+              <label className="block text-xs text-slate-500 mb-1">Address</label>
               <textarea
                 value={contactAddress}
                 onChange={(e) => setContactAddress(e.target.value)}
@@ -575,17 +553,18 @@ export default function ProfilePage() {
             </div>
           </div>
         ) : hasContactInfo ? (
-          <div className="text-sm text-slate-500 space-y-0.5">
+          <div className="text-sm text-slate-500 space-y-0.5 mt-3">
+            <p className="font-medium text-slate-700">{myName}</p>
             {invoiceFrom.address.split('\n').map((l, i) => <p key={i}>{l}</p>)}
             <p>{invoiceFrom.phone}</p>
             <p>{invoiceFrom.email}</p>
           </div>
         ) : (
-          <p className="text-sm text-slate-400">Add your address, phone, and email to enable invoice generation.</p>
+          <p className="text-sm text-slate-400 mt-3">Add your name, address, phone, and email to enable invoice generation.</p>
         )}
       </div>
 
-      {!schedule && history.filter((a) => a.residentName?.toLowerCase() === myName.toLowerCase()).length === 0 ? (
+      {!schedule && history.filter((a) => a.userId === myUserId).length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm">
           No schedule has been published yet. Check back after the admin publishes the schedule.
         </div>
@@ -761,10 +740,20 @@ export default function ProfilePage() {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
-                      {showEarningsCsv ? 'Hide' : 'Download CSV'}
+                      {showEarningsCsv ? 'Hide CSV' : 'Download CSV'}
                     </button>
                     <button
-                      onClick={() => { setShowInvoiceGenerator((v) => !v); setShowEarningsCsv(false) }}
+                      onClick={() => {
+                        if (!hasContactInfo) {
+                          startEditContact()
+                          setContactPrompt(true)
+                          contactCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                          return
+                        }
+                        setContactPrompt(false)
+                        setShowInvoiceGenerator((v) => !v)
+                        setShowEarningsCsv(false)
+                      }}
                       className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -776,6 +765,12 @@ export default function ProfilePage() {
                 )}
               </div>
             </div>
+
+            {contactPrompt && !hasContactInfo && (
+              <div className="px-5 py-2.5 border-b border-amber-100 bg-amber-50 text-xs text-amber-700">
+                Fill in your contact details to generate an invoice.
+              </div>
+            )}
 
             {showEarningsCsv && invoiceableCompleted.length > 0 && (
               <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex flex-wrap items-end gap-4">

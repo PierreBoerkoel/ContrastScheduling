@@ -67,7 +67,7 @@ export async function POST(request: Request) {
   // Advance the sequence to one past whatever number the resident used
   const trailingDigits = /(\d+)$/.exec(invoiceNumber)
   if (trailingDigits) {
-    await setInvoiceSequence(residentName, entity, parseInt(trailingDigits[1]) + 1)
+    await setInvoiceSequence(userId!, entity, parseInt(trailingDigits[1]) + 1)
   }
 
   const invoiceOpts = { entity, invoiceNumber, invoiceDate, contact, from, lineItems: allLineItems }

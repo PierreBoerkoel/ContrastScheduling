@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { getClinicDefaults, setClinicDefault } from '@/lib/db'
 import { CLINICS } from '@/lib/types'
 
 const VALID_CLINICS = new Set<string>(CLINICS)
+
+async function requireAdmin() {
+  const user = await currentUser()
+  return (user?.publicMetadata as { role?: string })?.role === 'admin'
+}
 
 export async function GET() {
   const { userId } = await auth()
@@ -13,8 +18,9 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!await requireAdmin()) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  }
 
   const body = (await request.json()) as {
     clinic: string

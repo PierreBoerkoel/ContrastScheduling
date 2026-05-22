@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import type { BillingEntity, CompletedShiftForInvoice, MriPetMode } from '@/lib/invoices'
+import type { BillingEntity, CompletedShiftForInvoice, MriPetMode, BillingContact } from '@/lib/invoices'
 import { clinicEntities, BILLING_CONTACTS } from '@/lib/invoices'
 import type { InvoiceHistoryRecord } from '@/lib/db'
 
@@ -59,11 +59,24 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
   const [invoicePrefix, setInvoicePrefix] = useState('')
   const [invoiceSeq, setInvoiceSeq] = useState('')
   const [sequenceLoading, setSequenceLoading] = useState(false)
+  const [dbContacts, setDbContacts] = useState<Partial<Record<BillingEntity, BillingContact>>>({})
 
   useEffect(() => {
     fetch('/api/invoices/history')
       .then((r) => r.json())
       .then((data) => { if (Array.isArray(data)) setHistory(data) })
+      .catch(() => {})
+    fetch('/api/admin/billing-contacts')
+      .then((r) => r.json())
+      .then((data: { entity: string; contactName: string; org: string; address: string; email: string | null }[]) => {
+        if (Array.isArray(data)) {
+          const map: Partial<Record<BillingEntity, BillingContact>> = {}
+          for (const c of data) {
+            map[c.entity as BillingEntity] = { name: c.contactName, org: c.org, address: c.address, email: c.email ?? undefined }
+          }
+          setDbContacts(map)
+        }
+      })
       .catch(() => {})
   }, [])
 
@@ -191,7 +204,7 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
     }
   }
 
-  const contact = BILLING_CONTACTS[activeEntity]
+  const contact = dbContacts[activeEntity] ?? BILLING_CONTACTS[activeEntity]
   const selectedCount = eligibleShifts.filter((s) => selected.has(s.shiftId)).length
 
   return (
