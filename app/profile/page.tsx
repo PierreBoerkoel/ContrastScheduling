@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
 import type { Shift, Schedule, ShiftAssignment, ShiftSplit, ClinicName } from '@/lib/types'
 import { CLINIC_ABBR, formatTimeRange, computeCoverageSegments } from '@/lib/types'
-import { clinicEntities } from '@/lib/invoices'
+import { clinicEntities, calculateLineItems, ratesToBillingRates } from '@/lib/invoices'
 import type { CompletedShiftForInvoice } from '@/lib/invoices'
 import InvoiceGenerator from '@/app/components/InvoiceGenerator'
 
@@ -158,6 +158,10 @@ export default function ProfilePage() {
   const [contactError, setContactError] = useState('')
 
   const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false)
+  const [showEarningsCsv, setShowEarningsCsv] = useState(false)
+  const [earningsFrom, setEarningsFrom] = useState(() => `${new Date().getUTCFullYear()}-01-01`)
+  const [earningsTo, setEarningsTo] = useState(() => new Date().toISOString().split('T')[0])
+  const [downloadingCsv, setDownloadingCsv] = useState(false)
   const [toggledMonths, setToggledMonths] = useState<Set<string>>(new Set())
 
   // Re-render every 60 s so isShiftEnded() stays current without a page refresh
@@ -401,6 +405,63 @@ export default function ProfilePage() {
   const firstWeekday = new Date(Date.UTC(calYear, calMonth, 1)).getUTCDay()
   const monthLabel = new Intl.DateTimeFormat('en-CA', { month: 'long', year: 'numeric', timeZone: 'UTC' })
     .format(new Date(Date.UTC(calYear, calMonth, 1)))
+
+  async function downloadEarningsCsv() {
+    setDownloadingCsv(true)
+    try {
+      const rawRates = await fetch('/api/admin/billing-rates').then((r) => r.json())
+      const rates = ratesToBillingRates(rawRates)
+
+      const inRange = invoiceableCompleted.filter(
+        (s) => s.date >= earningsFrom && s.date <= earningsTo
+      )
+
+      type Row = { date: string; clinic: string; entity: string; description: string; hours: number; rate: number; amount: number }
+      const rows: Row[] = []
+
+      for (const shift of inRange) {
+        const entities = clinicEntities(shift.clinic)
+        for (const entity of entities) {
+          const items = calculateLineItems(shift, null, rates)[entity]
+          for (const item of items) {
+            rows.push({
+              date: shift.date,
+              clinic: shift.clinic,
+              entity,
+              description: item.description,
+              hours: item.hours,
+              rate: item.ratePerHour,
+              amount: item.amount,
+            })
+          }
+        }
+      }
+
+      const total = rows.reduce((sum, r) => sum + r.amount, 0)
+      const fmt = (n: number) => n.toFixed(2)
+      const fmtDate = (d: string) => new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(d + 'T00:00:00Z'))
+
+      const header = 'Date,Clinic,Entity,Description,Hours,Rate ($/hr),Amount ($)\n'
+      const body = rows.map((r) =>
+        `${fmtDate(r.date)},"${r.clinic}",${r.entity},"${r.description}",${fmt(r.hours)},${fmt(r.rate)},${fmt(r.amount)}`
+      ).join('\n')
+      const footer = `\n,,,,,,${fmt(total)}`
+      const note = rows.some((r) => r.clinic === 'BC Cancer Agency MRI/PET')
+        ? '\n"Note: BC Cancer Agency MRI/PET amounts assume standard MRI + PET mode."'
+        : ''
+
+      const csv = header + body + footer + note
+      const blob = new Blob([csv], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `earnings_${earningsFrom}_to_${earningsTo}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setDownloadingCsv(false)
+    }
+  }
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-10 space-y-8">
@@ -692,19 +753,62 @@ export default function ProfilePage() {
               <div className="flex items-center gap-3">
                 <span className="text-xs text-slate-400">{completed.length} total</span>
                 {invoiceableCompleted.length > 0 && (
-                  <button
-                    onClick={() => setShowInvoiceGenerator((v) => !v)}
-                    className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    {showInvoiceGenerator ? 'Hide invoice' : 'Generate invoice'}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => { setShowEarningsCsv((v) => !v); setShowInvoiceGenerator(false) }}
+                      className="flex items-center gap-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg px-2.5 py-1 hover:bg-slate-50 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      {showEarningsCsv ? 'Hide' : 'Download earnings CSV'}
+                    </button>
+                    <button
+                      onClick={() => { setShowInvoiceGenerator((v) => !v); setShowEarningsCsv(false) }}
+                      className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      {showInvoiceGenerator ? 'Hide invoice' : 'Generate invoice'}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
 
+            {showEarningsCsv && invoiceableCompleted.length > 0 && (
+              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex flex-wrap items-end gap-4">
+                <label className="flex flex-col gap-1 text-xs text-slate-500">
+                  From
+                  <input
+                    type="date"
+                    value={earningsFrom}
+                    onChange={(e) => setEarningsFrom(e.target.value)}
+                    className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-slate-500">
+                  To
+                  <input
+                    type="date"
+                    value={earningsTo}
+                    onChange={(e) => setEarningsTo(e.target.value)}
+                    className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                </label>
+                <button
+                  onClick={downloadEarningsCsv}
+                  disabled={downloadingCsv || !earningsFrom || !earningsTo}
+                  className="flex items-center gap-2 bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-40 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  {downloadingCsv ? 'Downloading…' : 'Download CSV'}
+                </button>
+              </div>
+            )}
             {showInvoiceGenerator && invoiceableCompleted.length > 0 && (
               <div className="px-5 py-4 border-b border-slate-100 bg-blue-50">
                 <InvoiceGenerator
