@@ -443,7 +443,7 @@ export default function ProfilePage() {
 
       const header = 'Date,Clinic,Entity,Description,Hours,Rate ($/hr),Amount ($)\n'
       const body = rows.map((r) =>
-        `${fmtDate(r.date)},"${r.clinic}",${r.entity},"${r.description}",${fmt(r.hours)},${fmt(r.rate)},${fmt(r.amount)}`
+        `"${fmtDate(r.date)}","${r.clinic}",${r.entity},"${r.description}",${fmt(r.hours)},${fmt(r.rate)},${fmt(r.amount)}`
       ).join('\n')
       const footer = `\n,,,,,,${fmt(total)}`
       const note = rows.some((r) => r.clinic === 'BC Cancer Agency MRI/PET')
