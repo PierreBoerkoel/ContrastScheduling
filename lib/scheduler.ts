@@ -5,14 +5,8 @@ function isWeekend(date: string): boolean {
   return [0, 6].includes(new Date(date + 'T00:00:00Z').getUTCDay())
 }
 
-function weightedRandom(keys: string[], weight: (k: string) => number): string {
-  const total = keys.reduce((sum, k) => sum + weight(k), 0)
-  let r = Math.random() * total
-  for (const k of keys) {
-    r -= weight(k)
-    if (r <= 0) return k
-  }
-  return keys[keys.length - 1]
+function fairRandom<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)]
 }
 
 export function generateSchedule(
@@ -34,20 +28,6 @@ export function generateSchedule(
     availableIds.set(key, new Set(sub.availableShiftIds))
   }
 
-  // Pre-compute: for each (key, date) → set of clinics the candidate is available at
-  const availClinics = new Map<string, Map<string, Set<string>>>()
-  for (const [key] of subByKey) {
-    const byDate = new Map<string, Set<string>>()
-    availClinics.set(key, byDate)
-    const ids = availableIds.get(key)!
-    for (const shift of shifts) {
-      if (!ids.has(shift.id)) continue
-      let clinics = byDate.get(shift.date)
-      if (!clinics) { clinics = new Set(); byDate.set(shift.date, clinics) }
-      clinics.add(shift.clinic)
-    }
-  }
-
   // Clinics running on each date
   const runningClinics = new Map<string, Set<string>>()
   for (const shift of shifts) {
@@ -56,31 +36,34 @@ export function generateSchedule(
     s.add(shift.clinic)
   }
 
-  // Budget-neutral preference weight for a candidate on a specific shift.
-  // weight(R, K) = 2(K+1-R)/(K+1) for ranked clinics, (K-M+1)/(K+1) for unranked, 1 for no prefs.
-  function computeWeight(key: string, shift: Shift, weekend: boolean): number {
+  // Build a candidate's ordered proposal list for one day.
+  // Ranked clinics (filtered to running + available today) come first in preference order.
+  // Unranked available shifts are appended in stable order after.
+  function buildProposalList(key: string, dayShifts: Shift[], weekend: boolean): Shift[] {
     const sub = subByKey.get(key)!
-    if (!sub.userId) return 1
-    const prefs = prefsByUserId[sub.userId]
-    if (!prefs) return 1
+    const ids = availableIds.get(key)!
+    const eligible = dayShifts.filter((s) => ids.has(s.id))
+    if (eligible.length === 0) return []
 
-    const ranking = weekend ? prefs.weekendRanking : prefs.weekdayRanking
-    if (!ranking || ranking.length === 0) return 1
+    const prefs = sub.userId ? prefsByUserId[sub.userId] : undefined
+    const rawRanking = prefs ? (weekend ? prefs.weekendRanking : prefs.weekdayRanking) : []
+    const todayRunning = runningClinics.get(dayShifts[0].date) ?? new Set<string>()
 
-    const todayRunning = runningClinics.get(shift.date) ?? new Set<string>()
-    const candidateClinics = availClinics.get(key)?.get(shift.date) ?? new Set<string>()
-    const K = candidateClinics.size
-    if (K === 0) return 1
+    // Keep only clinics that are running today and the candidate is available for
+    const filteredRanking = (rawRanking ?? []).filter(
+      (clinic) => todayRunning.has(clinic) && eligible.some((s) => s.clinic === clinic)
+    )
 
-    const filteredRanking = ranking.filter((c) => todayRunning.has(c) && candidateClinics.has(c))
-    const M = filteredRanking.length
-
-    const rankIndex = filteredRanking.indexOf(shift.clinic)
-    if (rankIndex >= 0) {
-      const R = rankIndex + 1
-      return 2 * (K + 1 - R) / (K + 1)
+    const ranked: Shift[] = []
+    for (const clinic of filteredRanking) {
+      const shift = eligible.find((s) => s.clinic === clinic)
+      if (shift) ranked.push(shift)
     }
-    return (K - M + 1) / (K + 1)
+
+    const rankedClinics = new Set(filteredRanking)
+    const unranked = eligible.filter((s) => !rankedClinics.has(s.clinic))
+
+    return [...ranked, ...unranked]
   }
 
   // Group shifts by date (dates sorted ascending)
@@ -91,47 +74,41 @@ export function generateSchedule(
     dayShifts.push(shift)
   }
 
-  const allAssignments = new Map<string, ShiftAssignment>() // shiftId -> assignment
+  const allAssignments = new Map<string, ShiftAssignment>()
 
   for (const [date, dayShifts] of shiftsByDate) {
     const weekend = isWeekend(date)
 
-    // Candidates eligible for at least one shift on this day
+    // Candidates eligible for at least one shift this day and not over their max
     const dayEligible = [...subByKey.keys()].filter(
       (key) =>
         dayShifts.some((s) => availableIds.get(key)!.has(s.id)) &&
         totalAssignments[key] < (maxShiftsMap[key] ?? Infinity)
     )
 
-    // Build each candidate's ranked proposal list for this day
-    // (shifts they're available for, sorted by preference weight descending)
     const proposalLists = new Map<string, Shift[]>()
     for (const key of dayEligible) {
-      const eligible = dayShifts.filter((s) => availableIds.get(key)!.has(s.id))
-      proposalLists.set(
-        key,
-        eligible.sort((a, b) => computeWeight(key, b, weekend) - computeWeight(key, a, weekend))
-      )
+      proposalLists.set(key, buildProposalList(key, dayShifts, weekend))
     }
 
-    // Deferred acceptance (proposal-based matching):
-    // Each round, every unmatched candidate with remaining proposals proposes to their next
-    // preferred shift. proposalIdx advances when the proposal is made (not on rejection) so
-    // a bumped candidate correctly moves to their next preference and never re-proposes to
-    // a shift they've already been rejected from. Termination is guaranteed because each
-    // candidate's proposalIdx is monotonically non-decreasing and bounded by their list length.
+    // Deferred acceptance with fair random conflict resolution.
+    //
+    // Each round every unmatched candidate proposes to their next preferred shift.
+    // proposalIdx advances when the proposal is made — a bumped candidate's index
+    // is already past the shift they lost, so they never re-propose to it.
+    // Conflicts are resolved by fair random draw (no weighting); ranking only
+    // determines proposal ORDER, not proposal strength.
     const proposalIdx = new Map<string, number>()
     for (const key of dayEligible) proposalIdx.set(key, 0)
 
-    const tentativeMatch = new Map<string, string>() // shiftId -> currently matched key
-    const isMatched = new Set<string>()              // keys with a tentative match
+    const tentativeMatch = new Map<string, string>() // shiftId → key
+    const isMatched = new Set<string>()
 
     let anyProposal = true
     while (anyProposal) {
       anyProposal = false
 
-      // Collect proposals from all unmatched candidates
-      const pendingByShift = new Map<string, string[]>() // shiftId -> new proposers
+      const pendingByShift = new Map<string, string[]>()
       for (const key of dayEligible) {
         if (isMatched.has(key)) continue
         const idx = proposalIdx.get(key)!
@@ -139,30 +116,19 @@ export function generateSchedule(
         if (idx >= list.length) continue
 
         const shiftId = list[idx].id
-        proposalIdx.set(key, idx + 1) // advance before resolution so bumped candidates don't re-propose here
+        proposalIdx.set(key, idx + 1)
         if (!pendingByShift.has(shiftId)) pendingByShift.set(shiftId, [])
         pendingByShift.get(shiftId)!.push(key)
         anyProposal = true
       }
 
-      // Resolve each shift that received new proposals
       for (const [shiftId, newProposers] of pendingByShift) {
-        const shift = dayShifts.find((s) => s.id === shiftId)!
         const currentMatch = tentativeMatch.get(shiftId)
-
-        // All competitors: new proposers + current match (if any)
         const competitors = currentMatch ? [...newProposers, currentMatch] : newProposers
+        const winner = competitors.length === 1 ? competitors[0] : fairRandom(competitors)
 
-        const winner =
-          competitors.length === 1
-            ? competitors[0]
-            : weightedRandom(competitors, (k) => computeWeight(k, shift, weekend))
-
-        // Unseat the previous match if they lost
         if (currentMatch && currentMatch !== winner) {
           isMatched.delete(currentMatch)
-          // currentMatch's proposalIdx already advanced past this shift when they originally
-          // proposed, so they will correctly propose to their next preference next round
         }
 
         tentativeMatch.set(shiftId, winner)
@@ -170,12 +136,15 @@ export function generateSchedule(
       }
     }
 
-    // Finalise assignments for this day
     for (const shift of dayShifts) {
       const key = tentativeMatch.get(shift.id) ?? null
       if (key) {
         const sub = subByKey.get(key)!
-        allAssignments.set(shift.id, { shiftId: shift.id, residentName: sub.residentName, userId: sub.userId ?? null })
+        allAssignments.set(shift.id, {
+          shiftId: shift.id,
+          residentName: sub.residentName,
+          userId: sub.userId ?? null,
+        })
         totalAssignments[key]++
       } else {
         allAssignments.set(shift.id, { shiftId: shift.id, residentName: null, userId: null })
@@ -183,6 +152,7 @@ export function generateSchedule(
     }
   }
 
-  // Return in original shift order
-  return shifts.map((s) => allAssignments.get(s.id) ?? { shiftId: s.id, residentName: null, userId: null })
+  return shifts.map(
+    (s) => allAssignments.get(s.id) ?? { shiftId: s.id, residentName: null, userId: null }
+  )
 }
