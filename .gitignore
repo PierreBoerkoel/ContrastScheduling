@@ -50,3 +50,6 @@ next-env.d.ts
 
 # DB management commands (contains reset secret)
 db-commands.txt
+
+# Claude Code local memory
+.claude/
