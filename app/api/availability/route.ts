@@ -47,5 +47,5 @@ export async function POST(request: Request) {
   }
 
   await upsertSubmission({ ...submission, userId })
-  return NextResponse.json(submission)
+  return NextResponse.json({ ...submission, userId })
 }
