@@ -761,12 +761,12 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {/* ── Clinic Preferences ── */}
+      {/* ── Shift Preferences ── */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
         <div className="flex items-start justify-between mb-1">
           <div>
-            <h2 className="text-sm font-semibold text-slate-700">Clinic Preferences</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Rank preferred clinics — used to weight random shift assignment</p>
+            <h2 className="text-sm font-semibold text-slate-700">Shift Preferences</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Rank the shifts you'd prefer to work — set separately for weekdays and weekends</p>
           </div>
           {!editingPrefs && (
             <button
@@ -782,6 +782,10 @@ export default function ProfilePage() {
             </button>
           )}
         </div>
+
+        <p className="text-xs text-slate-500 mt-3 mb-1 leading-relaxed">
+          Scheduling works by random draw — all available residents have equal odds of being selected regardless of their rankings. When selected, you&apos;re placed at your top-ranked shift still available that day. If preferences aren&apos;t set, you&apos;re placed randomly among your remaining available options.
+        </p>
 
         {editingPrefs ? (
           <div className="mt-3 space-y-4">
@@ -914,7 +918,7 @@ export default function ProfilePage() {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-slate-400 mt-3">No preferences set. All eligible shifts are weighted equally.</p>
+          <p className="text-sm text-slate-400 mt-2">No preferences set.</p>
         )}
       </div>
 
