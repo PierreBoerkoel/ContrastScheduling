@@ -6,11 +6,20 @@ import { buildInvoiceDocx } from '@/lib/docx-invoice'
 import { buildInvoicePdf } from '@/lib/pdf-invoice'
 import type { BillingEntity, CompletedShiftForInvoice, MriPetMode, BillingLineItem } from '@/lib/invoices'
 
+function formatPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '')
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  if (digits.length === 11 && digits[0] === '1') return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
+  return raw
+}
+
 interface GenerateRequest {
   entity: BillingEntity
   invoiceNumber: string                   // formatted string, possibly edited by resident
   shifts: CompletedShiftForInvoice[]
   modes: Record<string, MriPetMode>       // shiftId → mode, for MRI/PET shifts
+  ctEndTimes: Record<string, string>      // shiftId → CT shift endTime, for ct-pet and ct-also modes
+  ctStartTimes: Record<string, string>    // shiftId → CT shift startTime, for ct-also mode
   parkingAmounts: Record<string, number>  // shiftId → parking amount
   invoiceDate: string
   format?: 'pdf' | 'docx'
@@ -27,7 +36,7 @@ export async function POST(request: Request) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = (await request.json()) as GenerateRequest
-  const { entity, invoiceNumber, shifts, modes, parkingAmounts, invoiceDate, format = 'pdf', from } = body
+  const { entity, invoiceNumber, shifts, modes, ctEndTimes, ctStartTimes, parkingAmounts, invoiceDate, format = 'pdf', from } = body
 
   if (!entity || !invoiceNumber || !shifts?.length || !from?.name) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -41,7 +50,7 @@ export async function POST(request: Request) {
     : undefined
 
   const allLineItems: BillingLineItem[] = shifts.flatMap((shift) => {
-    const items = [...calculateLineItems(shift, modes[shift.shiftId] ?? null, rates)[entity]]
+    const items = [...calculateLineItems(shift, modes[shift.shiftId] ?? null, rates, ctEndTimes?.[shift.shiftId], ctStartTimes?.[shift.shiftId])[entity]]
     const parking = parkingAmounts?.[shift.shiftId] ?? 0
     if (parking > 0) {
       items.push({
@@ -70,7 +79,8 @@ export async function POST(request: Request) {
     await setInvoiceSequence(userId!, entity, parseInt(trailingDigits[1]) + 1)
   }
 
-  const invoiceOpts = { entity, invoiceNumber, invoiceDate, contact, from, lineItems: allLineItems }
+  const formattedFrom = { ...from, phone: formatPhone(from.phone) }
+  const invoiceOpts = { entity, invoiceNumber, invoiceDate, contact, from: formattedFrom, lineItems: allLineItems }
   const isPdf = format !== 'docx'
   const buffer = isPdf
     ? await buildInvoicePdf(invoiceOpts)

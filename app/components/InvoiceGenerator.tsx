@@ -15,12 +15,25 @@ const ENTITY_LABELS: Record<BillingEntity, string> = {
 const MRI_PET_MODE_LABELS: Partial<Record<MriPetMode, string>> = {
   'normal': 'MRI + PET',
   'ct-also': 'MRI + PET + CT',
-  'mri-down': 'MRI scanner down',
-  'pet-down': 'PET scanner down',
+  'ct-pet': 'CT + PET (MRI down)',
+  'pet-down': 'MRI only (PET down)',
+  'mri-down': 'PET only (MRI down)',
+}
+
+// Modes hidden per entity tab because they produce no billable items for that entity
+const EXCLUDED_MODES: Partial<Record<BillingEntity, MriPetMode>> = {
+  MRCT: 'mri-down', // PET-only shift — nothing to bill to MRCT
+  PET: 'pet-down',  // MRI-only shift — nothing to bill to PET
+}
+
+const EXCLUDED_REASON: Partial<Record<MriPetMode, string>> = {
+  'mri-down': 'PET only (MRI down) — no MRI/CT billing',
+  'pet-down': 'MRI only (PET down) — no PET billing',
 }
 
 interface Props {
   completed: CompletedShiftForInvoice[]
+  allShifts: { date: string; clinic: string; startTime?: string; endTime?: string }[]
   from: { name: string; address: string; phone: string; email: string }
   onMissingProfile: () => void
 }
@@ -44,7 +57,17 @@ function currentYearMonth(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
-export default function InvoiceGenerator({ completed, from, onMissingProfile }: Props) {
+export default function InvoiceGenerator({ completed, allShifts, from, onMissingProfile }: Props) {
+  // date → start/end times of the companion BC Cancer Agency CT shift
+  const ctShiftByDate = Object.fromEntries(
+    allShifts
+      .filter((s) => s.clinic === 'BC Cancer Agency CT' && s.endTime)
+      .map((s) => [s.date, { startTime: s.startTime, endTime: s.endTime! }])
+  )
+  const ctEndTimeByDate = Object.fromEntries(Object.entries(ctShiftByDate).map(([d, v]) => [d, v.endTime]))
+  const ctStartTimeByDate = Object.fromEntries(
+    Object.entries(ctShiftByDate).filter(([, v]) => v.startTime).map(([d, v]) => [d, v.startTime!])
+  )
   const now = new Date()
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const [activeEntity, setActiveEntity] = useState<BillingEntity>('MRCT')
@@ -134,7 +157,11 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
       return
     }
 
-    const shifts = eligibleShifts.filter((s) => selected.has(s.shiftId))
+    const excludedMode = EXCLUDED_MODES[activeEntity]
+    const shifts = eligibleShifts.filter((s) =>
+      selected.has(s.shiftId) &&
+      !(s.clinic === 'BC Cancer Agency MRI/PET' && excludedMode && modes[s.shiftId] === excludedMode)
+    )
     if (shifts.length === 0) {
       setError('Select at least one shift.')
       return
@@ -152,6 +179,16 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
           invoiceNumber,
           shifts,
           modes,
+          ctEndTimes: Object.fromEntries(
+            shifts
+              .filter((s) => (modes[s.shiftId] === 'ct-pet' || modes[s.shiftId] === 'ct-also') && ctEndTimeByDate[s.date])
+              .map((s) => [s.shiftId, ctEndTimeByDate[s.date]])
+          ),
+          ctStartTimes: Object.fromEntries(
+            shifts
+              .filter((s) => modes[s.shiftId] === 'ct-also' && ctStartTimeByDate[s.date])
+              .map((s) => [s.shiftId, ctStartTimeByDate[s.date]])
+          ),
           format,
           parkingAmounts: activeEntity === 'UBCMR'
             ? Object.fromEntries(
@@ -205,7 +242,11 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
   }
 
   const contact = dbContacts[activeEntity] ?? BILLING_CONTACTS[activeEntity]
-  const selectedCount = eligibleShifts.filter((s) => selected.has(s.shiftId)).length
+  const tabExcludedMode = EXCLUDED_MODES[activeEntity]
+  const selectedCount = eligibleShifts.filter((s) =>
+    selected.has(s.shiftId) &&
+    !(s.clinic === 'BC Cancer Agency MRI/PET' && tabExcludedMode && modes[s.shiftId] === tabExcludedMode)
+  ).length
 
   return (
     <div className="space-y-4">
@@ -259,11 +300,39 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
         <div className="space-y-2">
           {eligibleShifts.map((shift) => {
             const isMriPet = shift.clinic === 'BC Cancer Agency MRI/PET'
+            const currentMode = modes[shift.shiftId] as MriPetMode | undefined
+            const excludedMode = EXCLUDED_MODES[activeEntity]
+            const isExcluded = isMriPet && !!excludedMode && currentMode === excludedMode
             const isSelected = selected.has(shift.shiftId)
             const timeLabel = shift.startTime && shift.endTime
               ? ` · ${formatTime(shift.startTime)}–${formatTime(shift.endTime)}`
               : ''
             const priorInvoices = (invoicedShifts.get(shift.shiftId) ?? []).filter((inv) => inv.entity === activeEntity)
+            // Dropdown options: hide the mode that produces no items for the current entity tab
+            const availableModes = (Object.entries(MRI_PET_MODE_LABELS) as [MriPetMode, string][])
+              .filter(([k]) => k !== excludedMode)
+
+            if (isExcluded) {
+              return (
+                <div
+                  key={shift.shiftId}
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-3 opacity-50"
+                >
+                  <div className="flex items-start gap-3">
+                    <input type="checkbox" disabled className="mt-0.5 accent-blue-600" />
+                    <div className="flex-1 min-w-0 flex flex-wrap items-center gap-2">
+                      <span className="text-sm text-slate-700 font-medium">
+                        {formatDateShort(shift.date)}{timeLabel}
+                      </span>
+                      <span className="text-xs text-slate-400 italic">
+                        {EXCLUDED_REASON[currentMode!]}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+
             return (
               <div
                 key={shift.shiftId}
@@ -291,16 +360,29 @@ export default function InvoiceGenerator({ completed, from, onMissingProfile }: 
                 </label>
 
                 {isMriPet && isSelected && (
-                  <div className="mt-2 ml-7">
+                  <div className="mt-2 ml-7 space-y-1.5">
                     <select
-                      value={modes[shift.shiftId] ?? 'normal'}
+                      value={currentMode ?? 'normal'}
                       onChange={(e) => setMode(shift.shiftId, e.target.value as MriPetMode)}
                       className="text-xs border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 w-full max-w-xs"
                     >
-                      {(Object.entries(MRI_PET_MODE_LABELS) as [MriPetMode, string][]).map(([k, v]) => (
+                      {availableModes.map(([k, v]) => (
                         <option key={k} value={k}>{v}</option>
                       ))}
                     </select>
+                    {(currentMode === 'ct-pet' || currentMode === 'ct-also') && (
+                      <p className="text-xs text-slate-500">
+                        {ctShiftByDate[shift.date]
+                          ? <>
+                              CT shift: <span className="font-medium">
+                                {ctStartTimeByDate[shift.date] ? formatTime(ctStartTimeByDate[shift.date]) + ' – ' : ''}
+                                {formatTime(ctEndTimeByDate[shift.date])}
+                              </span> (from schedule)
+                            </>
+                          : <span className="text-amber-600">No CT shift found for this date — add it to the schedule first.</span>
+                        }
+                      </p>
+                    )}
                   </div>
                 )}
 

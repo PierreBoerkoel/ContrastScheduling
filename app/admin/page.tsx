@@ -7,6 +7,13 @@ import { CLINICS, CLINIC_ABBR, formatTimeRange, computeCoverageSegments, buildDi
 import type { ClinicDefault } from '@/lib/types'
 import type { BillingContactRecord } from '@/lib/invoices'
 
+function formatPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '')
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  if (digits.length === 11 && digits[0] === '1') return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
+  return raw
+}
+
 type Tab = 'shifts' | 'availability' | 'schedule' | 'swaps' | 'users' | 'billing'
 
 interface RateRow {
@@ -1903,7 +1910,7 @@ export default function AdminPage() {
                         )}
                       </div>
                       <div className="text-xs text-slate-500 break-all">{u.email}</div>
-                      {u.phone && <div className="text-xs text-slate-500">{u.phone}</div>}
+                      {u.phone && <div className="text-xs text-slate-500">{formatPhone(u.phone)}</div>}
                       <div className="text-xs text-slate-400">
                         Joined {new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium' }).format(new Date(u.createdAt))}
                       </div>
@@ -1931,7 +1938,7 @@ export default function AdminPage() {
                       <tr key={u.id} className="border-b border-slate-100 last:border-0">
                         <td className="px-4 py-3 font-medium text-slate-800">{u.fullName}</td>
                         <td className="px-4 py-3 text-slate-500">{u.email}</td>
-                        <td className="px-4 py-3 text-slate-500">{u.phone || <span className="text-slate-300">—</span>}</td>
+                        <td className="px-4 py-3 text-slate-500">{u.phone ? formatPhone(u.phone) : <span className="text-slate-300">—</span>}</td>
                         <td className="px-4 py-3">
                           <span
                             className={`text-xs px-2 py-0.5 rounded-full font-medium ${

@@ -3,12 +3,30 @@
 import { useEffect, useRef, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
 import type { Shift, Schedule, ShiftAssignment, ShiftSplit, ClinicName } from '@/lib/types'
-import { CLINIC_ABBR, formatTimeRange, computeCoverageSegments } from '@/lib/types'
+import { CLINICS, CLINIC_ABBR, formatTimeRange, computeCoverageSegments } from '@/lib/types'
 import { clinicEntities, calculateLineItems, ratesToBillingRates } from '@/lib/invoices'
 import type { CompletedShiftForInvoice } from '@/lib/invoices'
 import InvoiceGenerator from '@/app/components/InvoiceGenerator'
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const VAN_TZ = 'America/Vancouver'
+
+function formatPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '')
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  if (digits.length === 11 && digits[0] === '1') return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
+  return raw
+}
+
+// Returns current Vancouver date as YYYY-MM-DD
+function vanToday(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: VAN_TZ })
+}
+
+// Returns current Vancouver time as HH:MM (24h)
+function vanNowTime(): string {
+  return new Date().toLocaleTimeString('en-CA', { timeZone: VAN_TZ, hour12: false }).slice(0, 5)
+}
 
 function formatDateLong(dateStr: string) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -44,10 +62,11 @@ function clinicAbbr(clinic: string) {
 }
 
 function isShiftEnded(shift: { date: string; endTime?: string }): boolean {
+  const today = vanToday()
   if (shift.endTime) {
-    return new Date() >= new Date(`${shift.date}T${shift.endTime}:00`)
+    return today > shift.date || (today === shift.date && vanNowTime() >= shift.endTime)
   }
-  return new Date().toISOString().split('T')[0] > shift.date
+  return today > shift.date
 }
 
 function nextDayStr(dateStr: string) {
@@ -175,10 +194,17 @@ export default function ProfilePage() {
   const [showEarningsCsv, setShowEarningsCsv] = useState(false)
   const [contactPrompt, setContactPrompt] = useState(false)
   const contactCardRef = useRef<HTMLDivElement>(null)
-  const [earningsFrom, setEarningsFrom] = useState(() => `${new Date().getUTCFullYear()}-01-01`)
-  const [earningsTo, setEarningsTo] = useState(() => new Date().toISOString().split('T')[0])
+  const [earningsFrom, setEarningsFrom] = useState(() => `${vanToday().slice(0, 4)}-01-01`)
+  const [earningsTo, setEarningsTo] = useState(() => vanToday())
   const [downloadingCsv, setDownloadingCsv] = useState(false)
   const [toggledMonths, setToggledMonths] = useState<Set<string>>(new Set())
+
+  type ShiftDefaults = Record<string, { weekday: boolean; weekend: boolean }>
+  const [shiftDefaults, setShiftDefaults] = useState<ShiftDefaults>({})
+  const [editingDefaults, setEditingDefaults] = useState(false)
+  const [defaultsSaving, setDefaultsSaving] = useState(false)
+  const [defaultsError, setDefaultsError] = useState('')
+  const defaultsSnapshot = useRef<ShiftDefaults>({})
 
   // Re-render every 60 s so isShiftEnded() stays current without a page refresh
   const [, forceUpdate] = useState(0)
@@ -187,9 +213,9 @@ export default function ProfilePage() {
     return () => clearInterval(id)
   }, [])
 
-  const now = new Date()
-  const [calYear, setCalYear] = useState(now.getUTCFullYear())
-  const [calMonth, setCalMonth] = useState(now.getUTCMonth())
+  const [vanYear, vanMonth] = vanToday().split('-').map(Number)
+  const [calYear, setCalYear] = useState(vanYear)
+  const [calMonth, setCalMonth] = useState(vanMonth - 1) // 0-indexed
 
   useEffect(() => {
     Promise.all([
@@ -205,6 +231,12 @@ export default function ProfilePage() {
       setLoading(false)
     })
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+    const meta = user.unsafeMetadata as { shiftDefaults?: ShiftDefaults } | undefined
+    setShiftDefaults(meta?.shiftDefaults ?? {})
+  }, [user])
 
   async function saveContact() {
     if (!user) return
@@ -240,9 +272,25 @@ export default function ProfilePage() {
     setEditingContact(true)
   }
 
+  async function saveDefaults() {
+    if (!user) return
+    setDefaultsSaving(true)
+    setDefaultsError('')
+    try {
+      await user.update({
+        unsafeMetadata: { ...(user.unsafeMetadata ?? {}), shiftDefaults },
+      })
+      setEditingDefaults(false)
+    } catch (e) {
+      setDefaultsError(e instanceof Error ? e.message : 'Failed to save preferences')
+    } finally {
+      setDefaultsSaving(false)
+    }
+  }
+
   if (!isLoaded || loading) return null
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = vanToday()
 
   const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
 
@@ -556,11 +604,115 @@ export default function ProfilePage() {
           <div className="text-sm text-slate-500 space-y-0.5 mt-3">
             <p className="font-medium text-slate-700">{myName}</p>
             {invoiceFrom.address.split('\n').map((l, i) => <p key={i}>{l}</p>)}
-            <p>{invoiceFrom.phone}</p>
+            <p>{formatPhone(invoiceFrom.phone)}</p>
             <p>{invoiceFrom.email}</p>
           </div>
         ) : (
           <p className="text-sm text-slate-400 mt-3">Add your name, address, phone, and email to enable invoice generation.</p>
+        )}
+      </div>
+
+      {/* ── Default Shift Availability ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-start justify-between mb-1">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-700">Default Shift Availability</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Pre-fills your availability form each block</p>
+          </div>
+          {!editingDefaults && (
+            <button
+              onClick={() => {
+                defaultsSnapshot.current = { ...shiftDefaults }
+                setShiftDefaults((prev) => {
+                  const next = { ...prev }
+                  for (const clinic of CLINICS) {
+                    if (!next[clinic]) next[clinic] = { weekday: true, weekend: true }
+                  }
+                  return next
+                })
+                setEditingDefaults(true)
+                setDefaultsError('')
+              }}
+              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-0.5 transition-colors"
+            >
+              {Object.keys(shiftDefaults).length > 0 ? 'Edit' : 'Set up'}
+            </button>
+          )}
+        </div>
+
+        {editingDefaults ? (
+          <div className="mt-3 space-y-3">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="text-left text-xs font-medium text-slate-500 pb-2 pr-6">Clinic</th>
+                    <th className="text-xs font-medium text-slate-500 pb-2 px-4 text-center">Weekdays</th>
+                    <th className="text-xs font-medium text-slate-500 pb-2 px-4 text-center">Weekends</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {CLINICS.map((clinic) => {
+                    const d = shiftDefaults[clinic] ?? { weekday: true, weekend: true }
+                    return (
+                      <tr key={clinic}>
+                        <td className="py-2.5 pr-6 text-sm text-slate-700 whitespace-nowrap">{CLINIC_ABBR[clinic] ?? clinic}</td>
+                        <td className="py-2.5 px-4 text-center">
+                          <input
+                            type="checkbox"
+                            checked={d.weekday}
+                            onChange={(e) => setShiftDefaults((prev) => ({ ...prev, [clinic]: { ...d, weekday: e.target.checked } }))}
+                            className="w-4 h-4 accent-blue-600 cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-2.5 px-4 text-center">
+                          <input
+                            type="checkbox"
+                            checked={d.weekend}
+                            onChange={(e) => setShiftDefaults((prev) => ({ ...prev, [clinic]: { ...d, weekend: e.target.checked } }))}
+                            className="w-4 h-4 accent-blue-600 cursor-pointer"
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={saveDefaults}
+                disabled={defaultsSaving}
+                className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+              >
+                {defaultsSaving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                onClick={() => { setShiftDefaults(defaultsSnapshot.current); setEditingDefaults(false); setDefaultsError('') }}
+                className="text-sm text-slate-500 hover:text-slate-700 px-2 py-1.5"
+              >
+                Cancel
+              </button>
+              {defaultsError && <span className="text-sm text-red-500">{defaultsError}</span>}
+            </div>
+          </div>
+        ) : Object.keys(shiftDefaults).length > 0 ? (
+          <div className="mt-3 divide-y divide-slate-100">
+            {CLINICS.map((clinic) => {
+              const d = shiftDefaults[clinic] ?? { weekday: true, weekend: true }
+              const parts = [...(d.weekday ? ['weekdays'] : []), ...(d.weekend ? ['weekends'] : [])]
+              return (
+                <div key={clinic} className="flex items-center justify-between py-1.5">
+                  <span className="text-sm text-slate-600">{CLINIC_ABBR[clinic] ?? clinic}</span>
+                  <span className={`text-xs font-medium ${parts.length === 0 ? 'text-slate-300' : 'text-slate-500'}`}>
+                    {parts.length === 0 ? 'Not available' : parts.join(' & ')}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400 mt-3">Not configured. The availability form will start empty until you set your defaults.</p>
         )}
       </div>
 
@@ -740,7 +892,7 @@ export default function ProfilePage() {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
-                      {showEarningsCsv ? 'Hide CSV' : 'Download CSV'}
+                      {showEarningsCsv ? 'Hide CSV' : 'CSV'}
                     </button>
                     <button
                       onClick={() => {
@@ -808,6 +960,7 @@ export default function ProfilePage() {
               <div className="px-5 py-4 border-b border-slate-100 bg-blue-50">
                 <InvoiceGenerator
                   completed={invoiceableCompleted}
+                  allShifts={shifts}
                   from={invoiceFrom}
                   onMissingProfile={() => {
                     setShowInvoiceGenerator(false)

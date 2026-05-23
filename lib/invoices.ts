@@ -39,6 +39,7 @@ export type MriPetMode =
   | 'ct-also'       // sole BCCA resident covering CT too: $75/hr MRCT during CT, then $50/hr MRCT + $25/hr PET
   | 'mri-down'      // MRI scanner down, PET standalone: $75/hr PET until 21:00
   | 'pet-down'      // PET down, MRI standalone: $75/hr MRCT full shift
+  | 'ct-pet'        // MRI down, CT + PET running: $50/hr CT + $25/hr PET concurrent, then $75/hr for whichever continues alone
 
 export interface CompletedShiftForInvoice {
   shiftId: string
@@ -178,6 +179,8 @@ export function calculateLineItems(
   shift: CompletedShiftForInvoice,
   mode: MriPetMode | null,
   rates: BillingRates = DEFAULT_RATES,
+  ctEndTime?: string,   // required when mode === 'ct-pet'; sourced from the companion CT shift
+  ctStartTime?: string, // optional for mode === 'ct-also'; overrides ctPeriod default when actual CT shift is known
 ): Record<BillingEntity, BillingLineItem[]> {
   const result: Record<BillingEntity, BillingLineItem[]> = { MRCT: [], PET: [], UBCMR: [], BCWHMR: [] }
   const { date, clinic, startTime: sS, endTime: sE } = shift
@@ -189,7 +192,10 @@ export function calculateLineItems(
 
   if (clinic === 'BC Cancer Agency MRI/PET') {
     const petEnd = mins(sE) > mins(PET_END) ? PET_END : sE
-    const ct = ctPeriod(date)
+    const defaultCt = ctPeriod(date)
+    const ct = (ctEndTime && mode === 'ct-also')
+      ? { start: ctStartTime ?? defaultCt.start, end: ctEndTime }
+      : defaultCt
 
     switch (mode ?? 'normal') {
       case 'normal': {
@@ -230,6 +236,27 @@ export function calculateLineItems(
 
       case 'pet-down': {
         result.MRCT.push(item(date, sS, sE, 'MRI standalone coverage', rates.MRCT_standalone))
+        break
+      }
+
+      case 'ct-pet': {
+        // MRI is down; resident covers CT + PET from the companion CT shift.
+        // ctEndTime is the end of the CT shift for this date.
+        if (!ctEndTime) break
+        const petEnd = mins(sE) > mins(PET_END) ? PET_END : sE
+        // Window where CT is running (shift start → CT end)
+        const ctWindow = overlapInterval(sS, sE, sS, ctEndTime)
+        // Split CT window: before 9 pm (PET also active) vs after 9 pm (PET done, CT solo)
+        const bothActive = ctWindow ? overlapInterval(ctWindow.start, ctWindow.end, sS, petEnd) : null
+        const ctAfterPet = ctWindow ? overlapInterval(ctWindow.start, ctWindow.end, PET_END, sE) : null
+        // After CT ends but before 9 pm: PET runs alone
+        const petAlone = overlapInterval(sS, sE, ctEndTime, petEnd)
+        if (bothActive) {
+          result.MRCT.push(item(date, bothActive.start, bothActive.end, 'CT coverage', rates.MRCT_base))
+          result.PET.push(item(date, bothActive.start, bothActive.end, 'PET coverage', rates.PET_base))
+        }
+        if (ctAfterPet) result.MRCT.push(item(date, ctAfterPet.start, ctAfterPet.end, 'CT standalone coverage', rates.MRCT_ct))
+        if (petAlone) result.PET.push(item(date, petAlone.start, petAlone.end, 'PET standalone coverage', rates.PET_standalone))
         break
       }
     }

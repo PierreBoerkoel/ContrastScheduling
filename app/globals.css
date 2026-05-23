@@ -7,3 +7,14 @@
 body {
   font-family: var(--font-sans, system-ui, sans-serif);
 }
+
+@layer base {
+  button:not(:disabled),
+  a[href] {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
