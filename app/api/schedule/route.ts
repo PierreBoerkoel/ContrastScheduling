@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getShifts, getSubmissions, getSchedule, setSchedule, updatePeriodPublishedAt, getShiftSplits, getSwapRequests, updateShiftSplit } from '@/lib/db'
+import { getShifts, getSubmissions, getSchedule, setSchedule, updatePeriodPublishedAt, getShiftSplits, getSwapRequests, updateShiftSplit, getAllResidentPreferences } from '@/lib/db'
 import { generateSchedule } from '@/lib/scheduler'
 import { computeCoverageSegments } from '@/lib/types'
 import type { Schedule, ShiftAssignment } from '@/lib/types'
@@ -26,11 +26,13 @@ export async function POST(request: Request) {
 
   if (action === 'generate') {
     const { periodId } = body as { periodId?: string }
-    const [allShifts, allSubmissions, existing] = await Promise.all([getShifts(), getSubmissions(), getSchedule()])
+    const [allShifts, allSubmissions, existing, prefsByUserId] = await Promise.all([
+      getShifts(), getSubmissions(), getSchedule(), getAllResidentPreferences(),
+    ])
 
     const shifts = periodId ? allShifts.filter((s) => s.periodId === periodId) : allShifts
     const submissions = periodId ? allSubmissions.filter((s) => s.periodId === periodId) : allSubmissions
-    const newAssignments = generateSchedule(shifts, submissions)
+    const newAssignments = generateSchedule(shifts, submissions, prefsByUserId)
 
     // Keep other blocks' draft assignments intact
     const blockShiftIds = new Set(shifts.map((s) => s.id))

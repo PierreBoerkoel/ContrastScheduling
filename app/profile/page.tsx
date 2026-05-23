@@ -199,12 +199,19 @@ export default function ProfilePage() {
   const [downloadingCsv, setDownloadingCsv] = useState(false)
   const [toggledMonths, setToggledMonths] = useState<Set<string>>(new Set())
 
-  type ShiftDefaults = Record<string, { weekday: boolean; weekend: boolean }>
-  const [shiftDefaults, setShiftDefaults] = useState<ShiftDefaults>({})
+  type ClinicDayPrefs = Record<string, { weekday: boolean; weekend: boolean }>
+  const [shiftDefaults, setShiftDefaults] = useState<ClinicDayPrefs>({})
   const [editingDefaults, setEditingDefaults] = useState(false)
+  const [editingPrefs, setEditingPrefs] = useState(false)
   const [defaultsSaving, setDefaultsSaving] = useState(false)
   const [defaultsError, setDefaultsError] = useState('')
-  const defaultsSnapshot = useRef<ShiftDefaults>({})
+  const [prefsSaving, setPrefsSaving] = useState(false)
+  const [prefsError, setPrefsError] = useState('')
+  const defaultsSnapshot = useRef<ClinicDayPrefs>({})
+  const [weekdayRanking, setWeekdayRanking] = useState<string[]>([])
+  const [weekendRanking, setWeekendRanking] = useState<string[]>([])
+  const weekdayRankingSnapshot = useRef<string[]>([])
+  const weekendRankingSnapshot = useRef<string[]>([])
 
   // Re-render every 60 s so isShiftEnded() stays current without a page refresh
   const [, forceUpdate] = useState(0)
@@ -234,8 +241,26 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!user) return
-    const meta = user.unsafeMetadata as { shiftDefaults?: ShiftDefaults } | undefined
-    setShiftDefaults(meta?.shiftDefaults ?? {})
+    fetch('/api/preferences')
+      .then((r) => r.json())
+      .then(async (data) => {
+        // Migrate shiftDefaults from Clerk metadata if not yet in DB
+        const meta = user.unsafeMetadata as { shiftDefaults?: ClinicDayPrefs } | undefined
+        if (Object.keys(data.shiftDefaults ?? {}).length === 0 && meta?.shiftDefaults && Object.keys(meta.shiftDefaults).length > 0) {
+          await fetch('/api/preferences', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shiftDefaults: meta.shiftDefaults }),
+          })
+          await user.update({ unsafeMetadata: { ...user.unsafeMetadata, shiftDefaults: undefined } })
+          setShiftDefaults(meta.shiftDefaults)
+        } else {
+          setShiftDefaults(data.shiftDefaults ?? {})
+        }
+        setWeekdayRanking(data.weekdayRanking ?? [])
+        setWeekendRanking(data.weekendRanking ?? [])
+      })
+      .catch(() => {})
   }, [user])
 
   async function saveContact() {
@@ -273,18 +298,38 @@ export default function ProfilePage() {
   }
 
   async function saveDefaults() {
-    if (!user) return
     setDefaultsSaving(true)
     setDefaultsError('')
     try {
-      await user.update({
-        unsafeMetadata: { ...(user.unsafeMetadata ?? {}), shiftDefaults },
+      const res = await fetch('/api/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shiftDefaults }),
       })
+      if (!res.ok) throw new Error('Failed to save')
       setEditingDefaults(false)
     } catch (e) {
       setDefaultsError(e instanceof Error ? e.message : 'Failed to save preferences')
     } finally {
       setDefaultsSaving(false)
+    }
+  }
+
+  async function savePrefs() {
+    setPrefsSaving(true)
+    setPrefsError('')
+    try {
+      const res = await fetch('/api/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weekdayRanking, weekendRanking }),
+      })
+      if (!res.ok) throw new Error('Failed to save')
+      setEditingPrefs(false)
+    } catch (e) {
+      setPrefsError(e instanceof Error ? e.message : 'Failed to save preferences')
+    } finally {
+      setPrefsSaving(false)
     }
   }
 
@@ -713,6 +758,163 @@ export default function ProfilePage() {
           </div>
         ) : (
           <p className="text-sm text-slate-400 mt-3">Not configured. The availability form will start empty until you set your defaults.</p>
+        )}
+      </div>
+
+      {/* ── Clinic Preferences ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-start justify-between mb-1">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-700">Clinic Preferences</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Rank preferred clinics — used to weight random shift assignment</p>
+          </div>
+          {!editingPrefs && (
+            <button
+              onClick={() => {
+                weekdayRankingSnapshot.current = [...weekdayRanking]
+                weekendRankingSnapshot.current = [...weekendRanking]
+                setEditingPrefs(true)
+                setPrefsError('')
+              }}
+              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-0.5 transition-colors"
+            >
+              {(weekdayRanking.length > 0 || weekendRanking.length > 0) ? 'Edit' : 'Set up'}
+            </button>
+          )}
+        </div>
+
+        {editingPrefs ? (
+          <div className="mt-3 space-y-4">
+            <div className="grid grid-cols-2 gap-6">
+              {/* Weekday ranking */}
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-2">Weekday</p>
+                <div className="space-y-0.5">
+                  {weekdayRanking.map((clinic, idx) => (
+                    <div key={clinic} className="flex items-center gap-1 py-1 border-b border-slate-100">
+                      <span className="text-xs text-slate-400 w-4 shrink-0 text-right">{idx + 1}.</span>
+                      <span className="flex-1 text-xs text-slate-700 truncate ml-1">{CLINIC_ABBR[clinic] ?? clinic}</span>
+                      <button
+                        disabled={idx === 0}
+                        onClick={() => setWeekdayRanking((r) => { const n = [...r]; [n[idx - 1], n[idx]] = [n[idx], n[idx - 1]]; return n })}
+                        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 px-0.5 leading-none"
+                      >↑</button>
+                      <button
+                        disabled={idx === weekdayRanking.length - 1}
+                        onClick={() => setWeekdayRanking((r) => { const n = [...r]; [n[idx], n[idx + 1]] = [n[idx + 1], n[idx]]; return n })}
+                        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 px-0.5 leading-none"
+                      >↓</button>
+                      <button
+                        onClick={() => setWeekdayRanking((r) => r.filter((_, i) => i !== idx))}
+                        className="text-slate-300 hover:text-red-500 px-0.5 ml-0.5 leading-none"
+                      >×</button>
+                    </div>
+                  ))}
+                  {CLINICS.filter((c) => !weekdayRanking.includes(c)).map((clinic) => (
+                    <div key={clinic} className="flex items-center gap-1 py-1">
+                      <span className="w-4 shrink-0" />
+                      <span className="flex-1 text-xs text-slate-400 truncate ml-1">{CLINIC_ABBR[clinic] ?? clinic}</span>
+                      <button
+                        onClick={() => setWeekdayRanking((r) => [...r, clinic])}
+                        className="text-slate-300 hover:text-blue-500 px-1 text-base leading-none"
+                        title={`Add to weekday ranking`}
+                      >+</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Weekend ranking */}
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-2">Weekend</p>
+                <div className="space-y-0.5">
+                  {weekendRanking.map((clinic, idx) => (
+                    <div key={clinic} className="flex items-center gap-1 py-1 border-b border-slate-100">
+                      <span className="text-xs text-slate-400 w-4 shrink-0 text-right">{idx + 1}.</span>
+                      <span className="flex-1 text-xs text-slate-700 truncate ml-1">{CLINIC_ABBR[clinic] ?? clinic}</span>
+                      <button
+                        disabled={idx === 0}
+                        onClick={() => setWeekendRanking((r) => { const n = [...r]; [n[idx - 1], n[idx]] = [n[idx], n[idx - 1]]; return n })}
+                        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 px-0.5 leading-none"
+                      >↑</button>
+                      <button
+                        disabled={idx === weekendRanking.length - 1}
+                        onClick={() => setWeekendRanking((r) => { const n = [...r]; [n[idx], n[idx + 1]] = [n[idx + 1], n[idx]]; return n })}
+                        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 px-0.5 leading-none"
+                      >↓</button>
+                      <button
+                        onClick={() => setWeekendRanking((r) => r.filter((_, i) => i !== idx))}
+                        className="text-slate-300 hover:text-red-500 px-0.5 ml-0.5 leading-none"
+                      >×</button>
+                    </div>
+                  ))}
+                  {CLINICS.filter((c) => !weekendRanking.includes(c)).map((clinic) => (
+                    <div key={clinic} className="flex items-center gap-1 py-1">
+                      <span className="w-4 shrink-0" />
+                      <span className="flex-1 text-xs text-slate-400 truncate ml-1">{CLINIC_ABBR[clinic] ?? clinic}</span>
+                      <button
+                        onClick={() => setWeekendRanking((r) => [...r, clinic])}
+                        className="text-slate-300 hover:text-blue-500 px-1 text-base leading-none"
+                        title={`Add to weekend ranking`}
+                      >+</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                onClick={savePrefs}
+                disabled={prefsSaving}
+                className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+              >
+                {prefsSaving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                onClick={() => { setWeekdayRanking(weekdayRankingSnapshot.current); setWeekendRanking(weekendRankingSnapshot.current); setEditingPrefs(false); setPrefsError('') }}
+                className="text-sm text-slate-500 hover:text-slate-700 px-2 py-1.5"
+              >
+                Cancel
+              </button>
+              {prefsError && <span className="text-sm text-red-500">{prefsError}</span>}
+            </div>
+          </div>
+        ) : (weekdayRanking.length > 0 || weekendRanking.length > 0) ? (
+          <div className="mt-3 grid grid-cols-2 gap-6">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-1.5">Weekday</p>
+              {weekdayRanking.length > 0 ? (
+                <ol className="space-y-1">
+                  {weekdayRanking.map((clinic, idx) => (
+                    <li key={clinic} className="flex items-center gap-1.5 text-xs text-slate-600">
+                      <span className="text-slate-400 w-4 text-right shrink-0">{idx + 1}.</span>
+                      <span>{CLINIC_ABBR[clinic] ?? clinic}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-xs text-slate-400 italic">No preference</p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-1.5">Weekend</p>
+              {weekendRanking.length > 0 ? (
+                <ol className="space-y-1">
+                  {weekendRanking.map((clinic, idx) => (
+                    <li key={clinic} className="flex items-center gap-1.5 text-xs text-slate-600">
+                      <span className="text-slate-400 w-4 text-right shrink-0">{idx + 1}.</span>
+                      <span>{CLINIC_ABBR[clinic] ?? clinic}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-xs text-slate-400 italic">No preference</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400 mt-3">No preferences set. All eligible shifts are weighted equally.</p>
         )}
       </div>
 

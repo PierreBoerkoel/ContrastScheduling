@@ -204,6 +204,14 @@ export async function initDb(): Promise<void> {
       ON CONFLICT (entity) DO NOTHING
     `
   }
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS resident_preferences (
+      user_id       TEXT PRIMARY KEY,
+      shift_defaults JSONB NOT NULL DEFAULT '{}'::jsonb,
+      clinic_prefs  JSONB NOT NULL DEFAULT '{}'::jsonb
+    )
+  `
 }
 
 // ── Shifts ────────────────────────────────────────────────────────────────────
@@ -701,4 +709,60 @@ export async function updateSwapRequest(
     acceptorShiftId: r.acceptor_shift_id ?? null,
     acceptedAt: r.accepted_at ?? null,
   }
+}
+
+// ── Resident preferences ──────────────────────────────────────────────────────
+
+export interface ResidentPreferences {
+  shiftDefaults:  Record<string, { weekday: boolean; weekend: boolean }>
+  weekdayRanking: string[]   // ordered clinic names, most preferred first
+  weekendRanking: string[]
+}
+
+function parsePrefs(shiftDefaultsRaw: unknown, clinicPrefsRaw: unknown): ResidentPreferences {
+  const shiftDefaults = (shiftDefaultsRaw ?? {}) as ResidentPreferences['shiftDefaults']
+  const raw = (clinicPrefsRaw ?? {}) as Record<string, unknown>
+  // Support both old format (Record<clinic, {weekday,weekend}>) and new format ({weekdayRanking, weekendRanking})
+  const weekdayRanking = Array.isArray(raw.weekdayRanking) ? raw.weekdayRanking as string[] : []
+  const weekendRanking = Array.isArray(raw.weekendRanking) ? raw.weekendRanking as string[] : []
+  return { shiftDefaults, weekdayRanking, weekendRanking }
+}
+
+export async function getResidentPreferences(userId: string): Promise<ResidentPreferences> {
+  await ensureDb()
+  const { rows } = await sql`SELECT shift_defaults, clinic_prefs FROM resident_preferences WHERE user_id = ${userId}`
+  if (rows.length === 0) return { shiftDefaults: {}, weekdayRanking: [], weekendRanking: [] }
+  return parsePrefs(rows[0].shift_defaults, rows[0].clinic_prefs)
+}
+
+export async function setResidentPreferences(
+  userId: string,
+  prefs: Partial<ResidentPreferences>
+): Promise<void> {
+  await ensureDb()
+  // Merge with existing so partial updates don't clobber unrelated fields
+  const existing = await getResidentPreferences(userId)
+  const merged: ResidentPreferences = {
+    shiftDefaults:  prefs.shiftDefaults  ?? existing.shiftDefaults,
+    weekdayRanking: prefs.weekdayRanking ?? existing.weekdayRanking,
+    weekendRanking: prefs.weekendRanking ?? existing.weekendRanking,
+  }
+  const shiftDefaultsJson = JSON.stringify(merged.shiftDefaults)
+  const clinicPrefsJson   = JSON.stringify({ weekdayRanking: merged.weekdayRanking, weekendRanking: merged.weekendRanking })
+  await sql`
+    INSERT INTO resident_preferences (user_id, shift_defaults, clinic_prefs)
+    VALUES (${userId}, ${shiftDefaultsJson}::jsonb, ${clinicPrefsJson}::jsonb)
+    ON CONFLICT (user_id) DO UPDATE SET
+      shift_defaults = ${shiftDefaultsJson}::jsonb,
+      clinic_prefs   = ${clinicPrefsJson}::jsonb
+  `
+}
+
+export async function getAllResidentPreferences(): Promise<Record<string, ResidentPreferences>> {
+  await ensureDb()
+  const { rows } = await sql`SELECT user_id, shift_defaults, clinic_prefs FROM resident_preferences`
+  return Object.fromEntries(rows.map((r) => [
+    r.user_id as string,
+    parsePrefs(r.shift_defaults, r.clinic_prefs),
+  ]))
 }

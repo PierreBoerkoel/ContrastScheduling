@@ -79,17 +79,38 @@ export default function AvailabilityPage() {
   const selectedBlockPublished = !loading && visibleShifts.length > 0 &&
     visibleShifts.some((s) => publishedIds.has(s.id))
 
-  // When the selected block changes, load that block's existing submission
+  // When the selected block changes, restore existing submission or auto-populate from defaults
   useEffect(() => {
     if (!effectivePeriodId || !myUserId) return
     const existing = submissions.find(
       (s) => s.periodId === effectivePeriodId && s.userId === myUserId
     )
-    setSelected(new Set(existing?.availableShiftIds ?? []))
-    setMaxShifts(existing?.maxShifts ?? '')
+    if (existing) {
+      setSelected(new Set(existing.availableShiftIds))
+      setMaxShifts(existing.maxShifts ?? '')
+    } else {
+      const meta = user?.unsafeMetadata as { shiftDefaults?: Record<string, { weekday: boolean; weekend: boolean }> } | undefined
+      const defaults = meta?.shiftDefaults
+      if (defaults && Object.keys(defaults).length > 0) {
+        const blockShifts = shifts.filter((s) => s.periodId === effectivePeriodId)
+        const autoSelected = new Set<string>()
+        for (const shift of blockShifts) {
+          const day = new Date(shift.date + 'T00:00:00Z').getUTCDay()
+          const isWeekend = day === 0 || day === 6
+          const d = defaults[shift.clinic]
+          if (!d || (isWeekend ? d.weekend : d.weekday)) {
+            autoSelected.add(shift.id)
+          }
+        }
+        setSelected(autoSelected)
+      } else {
+        setSelected(new Set())
+      }
+      setMaxShifts('')
+    }
     setSubmitted(false)
     setError('')
-  }, [effectivePeriodId, submissions, myUserId])
+  }, [effectivePeriodId, submissions, myUserId, user, shifts])
 
   function toggleShift(id: string) {
     setSelected((prev) => {
