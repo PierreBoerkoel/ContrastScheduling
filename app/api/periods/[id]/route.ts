@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { deleteSchedulingPeriod, setShifts, getShifts, getSchedule, setSchedule, upsertShiftHistory, getShiftSplits } from '@/lib/db'
+import { deleteSchedulingPeriod, setShifts, getShifts, getSchedule, setSchedule, upsertShiftHistory, getShiftSplits, deleteShiftSplit } from '@/lib/db'
 
 export async function DELETE(
   _request: Request,
@@ -60,6 +60,9 @@ export async function DELETE(
       })
     }
   }
+
+  const periodSplits = allSplits.filter((sp) => periodShiftIds.has(sp.shiftId))
+  await Promise.all(periodSplits.map((sp) => deleteShiftSplit(sp.id)))
 
   await setShifts([], id)
   await deleteSchedulingPeriod(id)

@@ -52,30 +52,87 @@ function computeCoverageSegments(shift, assignedResident, allSplits, assignedUse
   return merged
 }
 
-function generateSchedule(shifts, submissions) {
-  const sorted = [...shifts].sort((a, b) =>
-    a.date === b.date ? a.clinic.localeCompare(b.clinic) : a.date.localeCompare(b.date))
+function generateSchedule(shifts, submissions, prefsByUserId = {}) {
+  function isWeekend(date) { return [0, 6].includes(new Date(date + 'T00:00:00Z').getUTCDay()) }
+  function fairRandom(items) { return items[Math.floor(Math.random() * items.length)] }
+  function topAvailable(remaining, ranking) {
+    for (const clinic of ranking) {
+      const match = remaining.find((s) => s.clinic === clinic)
+      if (match) return match
+    }
+    return fairRandom(remaining)
+  }
+
   const subByKey = new Map()
   for (const sub of submissions) subByKey.set(sub.userId ?? sub.residentName, sub)
-  const counts = {}, caps = {}, onDate = {}
-  for (const [k, sub] of subByKey) {
-    counts[k] = 0
-    if (sub.maxShifts > 0) caps[k] = sub.maxShifts
+
+  const totalAssignments = {}, maxShiftsMap = {}, availableIds = new Map()
+  for (const [key, sub] of subByKey) {
+    totalAssignments[key] = 0
+    if (sub.maxShifts && sub.maxShifts > 0) maxShiftsMap[key] = sub.maxShifts
+    availableIds.set(key, new Set(sub.availableShiftIds))
   }
-  const assignments = []
-  for (const shift of sorted) {
-    if (!onDate[shift.date]) onDate[shift.date] = new Set()
-    const cands = [...subByKey.keys()].filter(k => {
-      const sub = subByKey.get(k)
-      return sub.availableShiftIds.includes(shift.id) && !onDate[shift.date].has(k) && counts[k] < (caps[k] ?? Infinity)
-    })
-    if (!cands.length) { assignments.push({ shiftId: shift.id, residentName: null, userId: null }); continue }
-    cands.sort((a, b) => (counts[a] - counts[b]) || (Math.random() - 0.5))
-    const key = cands[0]; const sub = subByKey.get(key)
-    assignments.push({ shiftId: shift.id, residentName: sub.residentName, userId: sub.userId ?? null })
-    counts[key]++; onDate[shift.date].add(key)
+
+  const shiftsByDate = new Map()
+  for (const shift of [...shifts].sort((a, b) => a.date.localeCompare(b.date))) {
+    let dayShifts = shiftsByDate.get(shift.date)
+    if (!dayShifts) { dayShifts = []; shiftsByDate.set(shift.date, dayShifts) }
+    dayShifts.push(shift)
   }
-  return assignments
+
+  const dayEntries = [...shiftsByDate.entries()]
+  for (let i = dayEntries.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [dayEntries[i], dayEntries[j]] = [dayEntries[j], dayEntries[i]]
+  }
+
+  const allAssignments = new Map()
+
+  for (const [date, dayShifts] of dayEntries) {
+    const weekend = isWeekend(date)
+    const remaining = new Map(dayShifts.map((s) => [s.id, s]))
+    const pool = new Set(
+      [...subByKey.keys()].filter(
+        (key) =>
+          dayShifts.some((s) => availableIds.get(key).has(s.id)) &&
+          totalAssignments[key] < (maxShiftsMap[key] ?? Infinity)
+      )
+    )
+
+    while (remaining.size > 0 && pool.size > 0) {
+      const drawn = fairRandom([...pool])
+      pool.delete(drawn)
+      const ids = availableIds.get(drawn)
+      const available = [...remaining.values()].filter((s) => ids.has(s.id))
+      if (available.length === 0) continue
+
+      const sub = subByKey.get(drawn)
+      const prefs = sub.userId ? prefsByUserId[sub.userId] : undefined
+      const rawRanking = prefs ? (weekend ? prefs.weekendRanking : prefs.weekdayRanking) : []
+      const availableClinics = new Set(available.map((s) => s.clinic))
+      const ranking = (rawRanking ?? []).filter((c) => availableClinics.has(c))
+      const assigned = topAvailable(available, ranking)
+
+      allAssignments.set(assigned.id, {
+        shiftId: assigned.id,
+        residentName: sub.residentName,
+        userId: sub.userId ?? null,
+      })
+      remaining.delete(assigned.id)
+      totalAssignments[drawn]++
+
+      for (const key of pool) {
+        const keyIds = availableIds.get(key)
+        if (![...remaining.keys()].some((id) => keyIds.has(id))) pool.delete(key)
+      }
+    }
+
+    for (const [id] of remaining) allAssignments.set(id, { shiftId: id, residentName: null, userId: null })
+  }
+
+  return shifts.map(
+    (s) => allAssignments.get(s.id) ?? { shiftId: s.id, residentName: null, userId: null }
+  )
 }
 
 function validateSplit({ offeredStart, offeredEnd, ownedStart, ownedEnd, givenAway = [], hasPending = false }) {
@@ -209,6 +266,116 @@ assert(validateSplit({
 }) !== null, 'rejects overlap with given portion')
 assert(validateSplit({ offeredStart: '12:00', offeredEnd: '18:00', ownedStart: '08:00', ownedEnd: '21:00', hasPending: true }) !== null, 'rejects when already pending')
 
+section('1.15 generateSchedule — top-ranked clinic chosen (single user, two clinics same day)')
+// 2026-07-15 = Wednesday (weekday). Alice available for both; weekdayRanking = [CT, BCWH].
+// She must be placed at CT (her top preference) since she is the only person drawn.
+const pref1Shifts = [
+  { id: 'P1', date: '2026-07-15', clinic: 'BCWH' },
+  { id: 'P2', date: '2026-07-15', clinic: 'CT' },
+]
+const pref1Subs = [{ residentName: 'Alice', userId: 'uA', availableShiftIds: ['P1', 'P2'] }]
+const pref1Prefs = { uA: { weekdayRanking: ['CT', 'BCWH'], weekendRanking: [] } }
+const pref1Result = generateSchedule(pref1Shifts, pref1Subs, pref1Prefs)
+assert(pref1Result.find(a => a.shiftId === 'P2')?.userId === 'uA', 'Alice placed at top-ranked clinic CT')
+assert(pref1Result.find(a => a.shiftId === 'P1')?.residentName === null, 'BCWH unassigned (only one resident, placed at CT)')
+
+section('1.16 generateSchedule — two users, different top preferences (deterministic, no conflict)')
+// Alice prefers A, Bob prefers B. Both available for both. Whoever is drawn first gets their
+// top choice; the other resident's top choice is still available when they are drawn → both
+// end up at their preferred clinic regardless of draw order.
+const pref2Shifts = [
+  { id: 'Q1', date: '2026-07-16', clinic: 'A' },
+  { id: 'Q2', date: '2026-07-16', clinic: 'B' },
+]
+const pref2Subs = [
+  { residentName: 'Alice', userId: 'uA', availableShiftIds: ['Q1', 'Q2'] },
+  { residentName: 'Bob',   userId: 'uB', availableShiftIds: ['Q1', 'Q2'] },
+]
+const pref2Prefs = {
+  uA: { weekdayRanking: ['A', 'B'], weekendRanking: [] },
+  uB: { weekdayRanking: ['B', 'A'], weekendRanking: [] },
+}
+const pref2Result = generateSchedule(pref2Shifts, pref2Subs, pref2Prefs)
+assert(pref2Result.find(a => a.shiftId === 'Q1')?.userId === 'uA', 'Alice gets clinic A (her top preference)')
+assert(pref2Result.find(a => a.shiftId === 'Q2')?.userId === 'uB', 'Bob gets clinic B (his top preference)')
+
+section('1.17 generateSchedule — two users, same top preference (one gets it, other falls back)')
+// Both Alice and Bob rank A first. The first drawn gets A; the second draws falls back to B.
+// Both shifts must be filled.
+const pref3Shifts = [
+  { id: 'R1', date: '2026-07-17', clinic: 'A' },
+  { id: 'R2', date: '2026-07-17', clinic: 'B' },
+]
+const pref3Subs = [
+  { residentName: 'Alice', userId: 'uA', availableShiftIds: ['R1', 'R2'] },
+  { residentName: 'Bob',   userId: 'uB', availableShiftIds: ['R1', 'R2'] },
+]
+const pref3Prefs = {
+  uA: { weekdayRanking: ['A', 'B'], weekendRanking: [] },
+  uB: { weekdayRanking: ['A', 'B'], weekendRanking: [] },
+}
+const pref3Result = generateSchedule(pref3Shifts, pref3Subs, pref3Prefs)
+const r3A = pref3Result.find(a => a.shiftId === 'R1')
+const r3B = pref3Result.find(a => a.shiftId === 'R2')
+assert(r3A?.userId !== null && r3B?.userId !== null, 'both shifts assigned when 2 users share top preference')
+assert(
+  (r3A.userId === 'uA' && r3B.userId === 'uB') || (r3A.userId === 'uB' && r3B.userId === 'uA'),
+  'each user assigned exactly one shift'
+)
+assert(r3A.userId !== r3B.userId, 'different users on each shift (no double-booking)')
+
+section('1.18 generateSchedule — pool pruning (resident with no remaining available shifts excluded)')
+// R1 available for shift A only. R2 available for shift A only (not B).
+// R1 is drawn first → placed at A → B remains. Pool prune removes R2 (B not in their available set).
+// B must be unassigned.
+const pref4Shifts = [
+  { id: 'T1', date: '2026-07-18', clinic: 'A' },
+  { id: 'T2', date: '2026-07-18', clinic: 'B' },
+]
+const pref4Subs = [
+  { residentName: 'R1', userId: 'u1', availableShiftIds: ['T1'] },
+  { residentName: 'R2', userId: 'u2', availableShiftIds: ['T1'] },
+]
+// Run 10 times — both outcomes assign exactly 1 shift and leave T2 unassigned
+let poolPruneOk = true
+for (let i = 0; i < 10; i++) {
+  const r = generateSchedule(pref4Shifts, pref4Subs)
+  const assigned = r.filter(a => a.residentName !== null)
+  if (assigned.length !== 1 || r.find(a => a.shiftId === 'T2')?.residentName !== null) {
+    poolPruneOk = false; break
+  }
+}
+assert(poolPruneOk, 'pool pruning: T2 always unassigned (nobody submitted availability for it)')
+
+section('1.19 computeCoverageSegments — shift has no times, has resident → single timeless segment')
+const sNoTime = computeCoverageSegments({ startTime: undefined, endTime: undefined }, 'Alice', [], 'uA')
+assert(sNoTime.length === 1, 'returns 1 segment even without shift times')
+assert(sNoTime[0].start === '' && sNoTime[0].end === '', 'segment bounds are empty strings')
+assert(sNoTime[0].userId === 'uA', 'userId preserved in timeless segment')
+
+section('1.20 validateSplit — zero-length window (start === end) rejected')
+assert(validateSplit({ offeredStart: '12:00', offeredEnd: '12:00', ownedStart: '08:00', ownedEnd: '21:00' }) !== null, 'start === end rejected')
+
+section('1.21 generateSchedule — weekend ranking used on weekend dates')
+// 2026-07-19 is a Sunday (getUTCDay === 0 → weekend)
+const wkShifts = [
+  { id: 'W1', date: '2026-07-19', clinic: 'A' },
+  { id: 'W2', date: '2026-07-19', clinic: 'B' },
+]
+const wkSub = [{ residentName: 'Alice', userId: 'uA', availableShiftIds: ['W1', 'W2'] }]
+const wkPrefs = { uA: { weekdayRanking: ['B', 'A'], weekendRanking: ['A', 'B'] } }
+const wkResult = generateSchedule(wkShifts, wkSub, wkPrefs)
+assert(wkResult.find(a => a.shiftId === 'W1')?.userId === 'uA', 'weekend ranking: Alice assigned to top-ranked weekend clinic A')
+assert(wkResult.find(a => a.shiftId === 'W2')?.residentName === null, 'clinic B unassigned (only one resident placed at weekend top-rank)')
+
+section('1.22 generateSchedule — name-keyed submission (no userId) still assigns correctly')
+const nkResult = generateSchedule(
+  [{ id: 'NK1', date: '2026-08-01', clinic: 'A' }],
+  [{ residentName: 'Legacy', userId: null, availableShiftIds: ['NK1'] }]
+)
+assert(nkResult[0]?.residentName === 'Legacy', 'name-keyed submission (no userId) assigns correctly')
+assert(nkResult[0]?.userId === null, 'assignment carries null userId for name-keyed submission')
+
 // ════════════════════════════════════════════════════════════════════════════
 // SECTION 2 — DB layer
 // ════════════════════════════════════════════════════════════════════════════
@@ -227,7 +394,7 @@ await db`DELETE FROM shift_history WHERE shift_id LIKE '2099-12-%'`
 await db`DELETE FROM invoice_sequences WHERE resident_name = '__test_user__'`
 
 section('2.1  Schema — required tables exist')
-const TABLES = ['shifts','schedule','scheduling_periods','availability_submissions','swap_requests','shift_history','shift_splits','invoice_sequences','billing_rates','billing_contacts']
+const TABLES = ['shifts','schedule','scheduling_periods','availability_submissions','swap_requests','shift_history','shift_splits','invoice_sequences','billing_rates','billing_contacts','resident_preferences','clinic_defaults']
 for (const t of TABLES) {
   const [{ count }] = await db`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ${t}`
   assert(count === '1', `table "${t}" exists`)
@@ -329,6 +496,30 @@ await db`INSERT INTO shift_history (shift_id, date, clinic, resident_name, user_
 const [h2] = await db`SELECT resident_name, user_id FROM shift_history WHERE shift_id = '2099-12-01|BC Cancer Agency MRI/PET'`
 assert(h2.resident_name === 'Bob', 'history upsert updates resident name')
 assert(h2.user_id === 'uB', 'history upsert updates user_id')
+
+section('2.10 shift_splits — direct accepted insertion (admin-split pattern)')
+const adminSplitId2 = crypto.randomUUID()
+const shiftForAdminSplit = TEST_SHIFTS[0].id
+await db`
+  INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, accepted_at)
+  VALUES (${adminSplitId2}, ${shiftForAdminSplit}, 'Admin Offeror', 'admin_u_test', '08:00', '12:00', 'accepted', 'Admin Acceptor', 'acceptor_u_test', NOW())
+`
+const [adminSplitRow] = await db`SELECT status, acceptor_name FROM shift_splits WHERE id = ${adminSplitId2}`
+assert(adminSplitRow.status === 'accepted', 'admin-created split inserted directly as accepted')
+assert(adminSplitRow.acceptor_name === 'Admin Acceptor', 'acceptor name stored correctly in direct-accepted split')
+
+section('2.11 shift deletion cascade — splits removed before shift delete (API pattern)')
+const cascadeShift2Id = TEST_SHIFTS[2].id  // '2099-12-02|BC Cancer Agency MRI/PET'
+const cascadeSplit2Id = crypto.randomUUID()
+await db`INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status) VALUES (${cascadeSplit2Id}, ${cascadeShift2Id}, 'Test', 'uT', '08:00', '17:00', 'pending')`
+const [{ count: cascBefore }] = await db`SELECT COUNT(*) FROM shift_splits WHERE id = ${cascadeSplit2Id}`
+assert(cascBefore === '1', 'split exists before cascade delete')
+await db`DELETE FROM shift_splits WHERE shift_id = ${cascadeShift2Id}`
+await db`DELETE FROM shifts WHERE id = ${cascadeShift2Id}`
+const [{ count: cascSplitAfter }] = await db`SELECT COUNT(*) FROM shift_splits WHERE id = ${cascadeSplit2Id}`
+assert(cascSplitAfter === '0', 'split removed by cascade delete')
+const [{ count: cascShiftAfter }] = await db`SELECT COUNT(*) FROM shifts WHERE id = ${cascadeShift2Id}`
+assert(cascShiftAfter === '0', 'shift removed by cascade delete')
 
 // ════════════════════════════════════════════════════════════════════════════
 // SECTION 3 — HTTP API (end-to-end against live deployment)
@@ -606,6 +797,10 @@ const { status: splitStatus, body: splitBody } = await api(R1.id, 'POST', '/api/
 assert(splitStatus === 201 && splitBody.id, 'R1 creates partial split offer', `status=${splitStatus} body=${JSON.stringify(splitBody)}`)
 const splitOfferId = splitBody.id
 
+// Self-accept blocked
+const { status: selfAccStatus } = await api(R1.id, 'PATCH', `/api/splits/${splitOfferId}`, { action: 'accept' })
+assert(selfAccStatus === 400, 'offeror cannot accept their own split (400)')
+
 // Duplicate pending offer rejected
 const { status: dupStatus } = await api(R1.id, 'POST', '/api/splits', { shiftId: S.r1Mri01, offeredStart: '08:00', offeredEnd: '12:00' })
 assert(dupStatus === 409, 'duplicate pending split offer rejected (409)')
@@ -657,6 +852,155 @@ section('3.15 Admin user list')
 const { status: ulStatus, body: ulBody } = await api(ADMIN, 'GET', '/api/admin/users')
 assert(ulStatus === 200 && Array.isArray(ulBody) && ulBody.length >= 3, `admin sees ${Array.isArray(ulBody) ? ulBody.length : '?'} users`)
 
+// ── 3.16 Admin single shift CRUD + cascade delete ─────────────────────────────
+section('3.16 Admin single shift CRUD + cascade delete of splits')
+const SINGLE_DATE = '2099-12-05'
+const SINGLE_CLINIC = 'BC Cancer Agency MRI/PET'
+const SINGLE_ID = `${SINGLE_DATE}|${SINGLE_CLINIC}`
+
+const { status: sc201, body: scBody } = await api(ADMIN, 'POST', '/api/shifts/single', {
+  periodId: HTTP_PERIOD_ID,
+  date: SINGLE_DATE,
+  clinic: SINGLE_CLINIC,
+  startTime: '08:00',
+  endTime: '17:00',
+})
+assert(sc201 === 201, 'admin creates single shift via /api/shifts/single', `status=${sc201} body=${JSON.stringify(scBody)}`)
+assert(scBody.id === SINGLE_ID, 'created shift has correct composite id')
+
+const { status: scDup } = await api(ADMIN, 'POST', '/api/shifts/single', {
+  periodId: HTTP_PERIOD_ID,
+  date: SINGLE_DATE,
+  clinic: SINGLE_CLINIC,
+})
+assert(scDup === 409, 'duplicate single-shift creation rejected (409)')
+
+const { status: scPatch } = await api(ADMIN, 'PATCH', '/api/shifts/single', {
+  shiftId: SINGLE_ID,
+  startTime: '08:00',
+  endTime: '16:00',
+})
+assert(scPatch === 200, 'admin updates single shift times')
+const [{ end_time: updatedEnd }] = await db`SELECT end_time FROM shifts WHERE id = ${SINGLE_ID}`
+assert(updatedEnd === '16:00', 'shift end_time updated in DB after PATCH')
+
+// Insert a split directly to test cascade behaviour
+const cascadeSplit3Id = crypto.randomUUID()
+await db`INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status) VALUES (${cascadeSplit3Id}, ${SINGLE_ID}, 'Test', 'uT', '08:00', '12:00', 'pending')`
+
+const { status: scDelete } = await api(ADMIN, 'DELETE', '/api/shifts/single', { shiftId: SINGLE_ID })
+assert(scDelete === 200, 'admin deletes single shift')
+const [{ count: splitGone }] = await db`SELECT COUNT(*) FROM shift_splits WHERE id = ${cascadeSplit3Id}`
+assert(splitGone === '0', 'split cascade-deleted when shift removed via API')
+const [{ count: shiftGone }] = await db`SELECT COUNT(*) FROM shifts WHERE id = ${SINGLE_ID}`
+assert(shiftGone === '0', 'shift record removed by delete API')
+
+// ── 3.17 POST /api/admin/splits — input validation ────────────────────────────
+section('3.17 POST /api/admin/splits — input validation')
+// Missing required fields
+const { status: asMissing } = await api(ADMIN, 'POST', '/api/admin/splits', {
+  shiftId: S.r1Mri01,
+  offeredStart: '10:00',
+  // missing offeredEnd, acceptorUserId, acceptorName
+})
+assert(asMissing === 400, 'missing fields → 400')
+
+// Non-30-min boundary
+const { status: asBoundary } = await api(ADMIN, 'POST', '/api/admin/splits', {
+  shiftId: S.r1Mri01,
+  offeredStart: '10:15',
+  offeredEnd: '14:00',
+  acceptorUserId: R2.id,
+  acceptorName: R2.name,
+})
+assert(asBoundary === 400, 'non-30-min boundary → 400')
+
+// Time outside shift range (shift is 08:00-17:00)
+const { status: asRange } = await api(ADMIN, 'POST', '/api/admin/splits', {
+  shiftId: S.r1Mri01,
+  offeredStart: '06:00',
+  offeredEnd: '10:00',
+  acceptorUserId: R2.id,
+  acceptorName: R2.name,
+})
+assert(asRange === 400, 'time outside shift range → 400')
+
+// Non-admin blocked
+const { status: asNonAdmin } = await api(R1.id, 'POST', '/api/admin/splits', {
+  shiftId: S.r1Mri01,
+  offeredStart: '08:00',
+  offeredEnd: '10:00',
+  acceptorUserId: R2.id,
+  acceptorName: R2.name,
+})
+assert(asNonAdmin === 403, 'non-admin cannot create admin split (403)')
+
+// ── 3.18 Admin split — create, overlap rejection, delete lifecycle ─────────────
+section('3.18 Admin split — create + overlap rejection + delete lifecycle')
+// S.r1Mri01 already has an accepted split 12:00-17:00 from section 3.13.
+// Create a non-overlapping admin split at 08:00-10:00.
+const { status: asCreate, body: asBody } = await api(ADMIN, 'POST', '/api/admin/splits', {
+  shiftId: S.r1Mri01,
+  offeredStart: '08:00',
+  offeredEnd: '10:00',
+  acceptorUserId: R2.id,
+  acceptorName: R2.name,
+})
+assert(asCreate === 201 && asBody.id, 'admin creates split directly as accepted', `status=${asCreate}`)
+const adminSplitCreatedId = asBody.id
+
+// Overlapping admin split rejected (09:00-14:00 overlaps both 08:00-10:00 and 12:00-17:00)
+const { status: asOverlap } = await api(ADMIN, 'POST', '/api/admin/splits', {
+  shiftId: S.r1Mri01,
+  offeredStart: '09:00',
+  offeredEnd: '14:00',
+  acceptorUserId: R3.id,
+  acceptorName: R3.name,
+})
+assert(asOverlap === 409, 'overlapping admin split rejected (409)')
+
+// Non-admin cannot delete
+const { status: asDelNonAdmin } = await api(R1.id, 'DELETE', '/api/admin/splits', { splitId: adminSplitCreatedId })
+assert(asDelNonAdmin === 403, 'non-admin cannot delete admin split (403)')
+
+// Admin deletes successfully
+const { status: asDelAdmin } = await api(ADMIN, 'DELETE', '/api/admin/splits', { splitId: adminSplitCreatedId })
+assert(asDelAdmin === 200, 'admin deletes split successfully')
+const { body: splitsAfterAdminDel } = await api(R1.id, 'GET', '/api/splits')
+const adminSplitStillExists = Array.isArray(splitsAfterAdminDel)
+  ? splitsAfterAdminDel.find(s => s.id === adminSplitCreatedId)
+  : true
+assert(!adminSplitStillExists, 'deleted split no longer in GET /api/splits')
+
+// ── 3.19 Resident split — overlap with already-given-away portion rejected ─────
+section('3.19 Resident split — overlap with already-given-away portion rejected')
+// R1 gave away 12:00-17:00 in section 3.13 (accepted). R1 tries to re-offer a window that overlaps it.
+// 10:00-14:00 is within the shift bounds (08:00-17:00) but overlaps the given-away 12:00-17:00.
+const { status: overlapOfferStatus } = await api(R1.id, 'POST', '/api/splits', {
+  shiftId: S.r1Mri01,
+  offeredStart: '10:00',
+  offeredEnd: '14:00',
+})
+assert(overlapOfferStatus === 400, 'offer overlapping already-given-away portion rejected (400)')
+
+// ── 3.20 Resident preferences GET/PUT ────────────────────────────────────────
+section('3.20 Resident preferences GET/PUT')
+const { status: prefGetStatus, body: prefs1 } = await api(R1.id, 'GET', '/api/preferences')
+assert(prefGetStatus === 200, 'GET /api/preferences returns 200')
+assert(typeof prefs1 === 'object' && prefs1 !== null && !Array.isArray(prefs1), 'preferences response is an object')
+assert(Array.isArray(prefs1.weekdayRanking), 'response includes weekdayRanking array')
+assert(Array.isArray(prefs1.weekendRanking), 'response includes weekendRanking array')
+
+const { status: prefPutStatus } = await api(R1.id, 'PUT', '/api/preferences', {
+  weekdayRanking: ['BC Cancer Agency CT', 'BC Cancer Agency MRI/PET'],
+  weekendRanking: ['BC Cancer Agency MRI/PET', 'BC Cancer Agency CT'],
+})
+assert(prefPutStatus === 200, 'PUT /api/preferences returns 200')
+
+const { body: prefs2 } = await api(R1.id, 'GET', '/api/preferences')
+assert(prefs2.weekdayRanking?.[0] === 'BC Cancer Agency CT', 'weekday ranking persisted correctly')
+assert(prefs2.weekendRanking?.[0] === 'BC Cancer Agency MRI/PET', 'weekend ranking persisted correctly')
+
 // ════════════════════════════════════════════════════════════════════════════
 // Cleanup + summary
 // ════════════════════════════════════════════════════════════════════════════
@@ -681,6 +1025,7 @@ async function cleanup() {
     await db`DELETE FROM shifts WHERE period_id IN (SELECT id::TEXT FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME})`
     await db`DELETE FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME}`
     await db`DELETE FROM invoice_sequences WHERE user_id = '__test_user__'`
+    for (const u of TEST_USERS) await db`DELETE FROM resident_preferences WHERE user_id = ${u.id}`
     for (const u of TEST_USERS) await clerkReq('DELETE', `/users/${u.id}`)
     ok('test data removed')
   } catch (e) {
