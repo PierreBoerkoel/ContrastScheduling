@@ -136,6 +136,7 @@ export async function DELETE(request: Request) {
   if (!shiftId) return NextResponse.json({ error: 'Missing shiftId' }, { status: 400 })
 
   await ensureDb()
+  await sql`DELETE FROM shift_splits WHERE shift_id = ${shiftId}`
   await sql`DELETE FROM shifts WHERE id = ${shiftId}`
 
   const schedule = await getSchedule()

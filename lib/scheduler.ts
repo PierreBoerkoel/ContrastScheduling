@@ -41,7 +41,6 @@ export function generateSchedule(
     availableIds.set(key, new Set(sub.availableShiftIds))
   }
 
-  // Group shifts by date (dates sorted ascending)
   const shiftsByDate = new Map<string, Shift[]>()
   for (const shift of [...shifts].sort((a, b) => a.date.localeCompare(b.date))) {
     let dayShifts = shiftsByDate.get(shift.date)
@@ -49,9 +48,16 @@ export function generateSchedule(
     dayShifts.push(shift)
   }
 
+  // Shuffle day order so no date is systematically favoured during assignment
+  const dayEntries = [...shiftsByDate.entries()]
+  for (let i = dayEntries.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [dayEntries[i], dayEntries[j]] = [dayEntries[j], dayEntries[i]]
+  }
+
   const allAssignments = new Map<string, ShiftAssignment>()
 
-  for (const [date, dayShifts] of shiftsByDate) {
+  for (const [date, dayShifts] of dayEntries) {
     const weekend = isWeekend(date)
 
     // Shifts still needing assignment this day

@@ -519,6 +519,25 @@ export async function addShiftSplit(
   return rowToSplit(rows[0])
 }
 
+export async function addAcceptedShiftSplit(split: {
+  id: string
+  shiftId: string
+  offerorName: string
+  offerorUserId: string
+  acceptorName: string
+  acceptorUserId: string
+  offeredStart: string
+  offeredEnd: string
+}): Promise<ShiftSplit> {
+  await ensureDb()
+  const { rows } = await sql`
+    INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, accepted_at)
+    VALUES (${split.id}, ${split.shiftId}, ${split.offerorName}, ${split.offerorUserId}, ${split.offeredStart}, ${split.offeredEnd}, 'accepted', ${split.acceptorName}, ${split.acceptorUserId}, NOW())
+    RETURNING id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, offered_at, accepted_at
+  `
+  return rowToSplit(rows[0])
+}
+
 export async function updateShiftSplit(
   id: string,
   patch: { status: ShiftSplit['status']; acceptorName?: string; acceptorUserId?: string; acceptedAt?: string }
@@ -534,6 +553,10 @@ export async function updateShiftSplit(
   `
   if (rows.length === 0) return null
   return rowToSplit(rows[0])
+}
+
+export async function deleteShiftSplit(id: string): Promise<void> {
+  await sql`DELETE FROM shift_splits WHERE id = ${id}`
 }
 
 // ── Invoice history ───────────────────────────────────────────────────────────

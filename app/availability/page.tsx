@@ -34,6 +34,7 @@ export default function AvailabilityPage() {
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [maxShifts, setMaxShifts] = useState<number | ''>('')
+  const [shiftDefaults, setShiftDefaults] = useState<Record<string, { weekday: boolean; weekend: boolean }>>({})
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -45,11 +46,13 @@ export default function AvailabilityPage() {
       fetch('/api/availability').then((r) => r.json()),
       fetch('/api/schedule').then((r) => r.json()),
       fetch('/api/periods').then((r) => r.json()),
-    ]).then(([shiftList, submissionList, sched, periodList]: [Shift[], AvailabilitySubmission[], Schedule, SchedulingPeriod[]]) => {
+      fetch('/api/preferences').then((r) => r.json()),
+    ]).then(([shiftList, submissionList, sched, periodList, prefs]: [Shift[], AvailabilitySubmission[], Schedule, SchedulingPeriod[], { shiftDefaults?: Record<string, { weekday: boolean; weekend: boolean }> }]) => {
       if (Array.isArray(shiftList)) setShifts(shiftList)
       if (sched && 'isPublished' in sched) setSchedule(sched)
       if (Array.isArray(submissionList)) setSubmissions(submissionList)
       if (Array.isArray(periodList)) setPeriods(periodList)
+      if (prefs?.shiftDefaults) setShiftDefaults(prefs.shiftDefaults)
       setLoading(false)
     })
   }, [user])
@@ -89,15 +92,13 @@ export default function AvailabilityPage() {
       setSelected(new Set(existing.availableShiftIds))
       setMaxShifts(existing.maxShifts ?? '')
     } else {
-      const meta = user?.unsafeMetadata as { shiftDefaults?: Record<string, { weekday: boolean; weekend: boolean }> } | undefined
-      const defaults = meta?.shiftDefaults
-      if (defaults && Object.keys(defaults).length > 0) {
+      if (Object.keys(shiftDefaults).length > 0) {
         const blockShifts = shifts.filter((s) => s.periodId === effectivePeriodId)
         const autoSelected = new Set<string>()
         for (const shift of blockShifts) {
           const day = new Date(shift.date + 'T00:00:00Z').getUTCDay()
           const isWeekend = day === 0 || day === 6
-          const d = defaults[shift.clinic]
+          const d = shiftDefaults[shift.clinic]
           if (!d || (isWeekend ? d.weekend : d.weekday)) {
             autoSelected.add(shift.id)
           }
@@ -110,7 +111,7 @@ export default function AvailabilityPage() {
     }
     setSubmitted(false)
     setError('')
-  }, [effectivePeriodId, submissions, myUserId, user, shifts])
+  }, [effectivePeriodId, submissions, myUserId, shifts, shiftDefaults])
 
   function toggleShift(id: string) {
     setSelected((prev) => {

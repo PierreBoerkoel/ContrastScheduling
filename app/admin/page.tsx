@@ -239,11 +239,19 @@ export default function AdminPage() {
   const [confirmRegenerate, setConfirmRegenerate] = useState(false)
 
   // Shift time editing + removal
-  const [editingTimesShiftId, setEditingTimesShiftId] = useState<string | null>(null)
   const [timesEdit, setTimesEdit] = useState({ startTime: '', endTime: '' })
   const [timesEditError, setTimesEditError] = useState('')
   const [savingTimes, setSavingTimes] = useState(false)
   const [removingShiftId, setRemovingShiftId] = useState<string | null>(null)
+
+  // Admin split creation / deletion
+  const [adminSplitShiftId, setAdminSplitShiftId] = useState<string | null>(null)
+  const [adminSplitStart, setAdminSplitStart] = useState('')
+  const [adminSplitEnd, setAdminSplitEnd] = useState('')
+  const [adminSplitAcceptorId, setAdminSplitAcceptorId] = useState('')
+  const [adminSplitError, setAdminSplitError] = useState('')
+  const [removingAdminSplitId, setRemovingAdminSplitId] = useState<string | null>(null)
+  const [adminSplitting, setAdminSplitting] = useState(false)
 
   // Clinic defaults
   const [clinicDefaults, setClinicDefaults] = useState<ClinicDefault[]>([])
@@ -490,7 +498,6 @@ export default function AdminPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ shiftId, residentName, userId: matchingUser?.id ?? null }),
     })
-    setEditingShiftId(null)
     await fetchData()
   }
 
@@ -537,7 +544,7 @@ export default function AdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shiftId, startTime: timesEdit.startTime || null, endTime: timesEdit.endTime || null }),
       })
-      setEditingTimesShiftId(null)
+      setEditingShiftId(null)
       await fetchData()
     } finally {
       setSavingTimes(false)
@@ -554,6 +561,53 @@ export default function AdminPage() {
     await fetchData()
   }
 
+  async function adminCreateSplit(shiftId: string) {
+    const acceptor = users.find((u) => u.id === adminSplitAcceptorId)
+    if (!acceptor) { setAdminSplitError('Select a covering resident'); return }
+    setAdminSplitting(true)
+    setAdminSplitError('')
+    const res = await fetch('/api/admin/splits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        shiftId,
+        offeredStart: adminSplitStart,
+        offeredEnd: adminSplitEnd,
+        acceptorUserId: acceptor.id,
+        acceptorName: acceptor.fullName,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      setAdminSplitError(data.error ?? 'Failed to create split')
+      setAdminSplitting(false)
+      return
+    }
+    setSplits((prev) => [...prev, data])
+    setAdminSplitShiftId(null)
+    setAdminSplitting(false)
+  }
+
+  async function removeAdminSplit(splitId: string) {
+    setRemovingAdminSplitId(splitId)
+    await fetch('/api/admin/splits', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ splitId }),
+    })
+    setSplits((prev) => prev.filter((s) => s.id !== splitId))
+    setRemovingAdminSplitId(null)
+  }
+
+  function openAdminSplit(shiftId: string, shift: { startTime?: string; endTime?: string }) {
+    setAdminSplitShiftId(shiftId)
+    setAdminSplitStart(shift.startTime ?? '')
+    setAdminSplitEnd(shift.endTime ?? '')
+    setAdminSplitAcceptorId('')
+    setAdminSplitError('')
+    setRemovingShiftId(null)
+  }
+
   // Block-scoped derived data for the Schedule tab
   const schedPeriod = periods.find((p) => p.name === selectedScheduleBlock)
   const blockShifts = schedPeriod ? shifts.filter((s) => s.periodId === schedPeriod.id) : []
@@ -565,6 +619,7 @@ export default function AdminPage() {
     return acc
   }, {})
   const sortedDates = Object.keys(byDate).sort()
+  const blockDateRange = schedPeriod ? datesInRange(schedPeriod.startDate, schedPeriod.endDate) : []
 
   const assignmentMap: Record<string, string | null> = {}
   if (schedule) {
@@ -1350,7 +1405,7 @@ export default function AdminPage() {
                 Block
                 <select
                   value={selectedScheduleBlock}
-                  onChange={(e) => { setSelectedScheduleBlock(e.target.value); setEditingShiftId(null); setConfirmRegenerate(false); setEditingTimesShiftId(null); setRemovingShiftId(null); setAddingShiftCell(null) }}
+                  onChange={(e) => { setSelectedScheduleBlock(e.target.value); setEditingShiftId(null); setConfirmRegenerate(false); setRemovingShiftId(null); setAddingShiftCell(null) }}
                   className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select block…</option>
@@ -1493,11 +1548,11 @@ export default function AdminPage() {
                   // ── Calendar view (single clinic selected) ────────────────
                   (() => {
                     const clinic = scheduleClinicFilter
-                    const blockDateSet = new Set(sortedDates)
-                    if (sortedDates.length === 0) return null
+                    const blockDateSet = new Set(blockDateRange)
+                    if (blockDateRange.length === 0) return null
 
-                    const firstDate = sortedDates[0]
-                    const lastDate = sortedDates[sortedDates.length - 1]
+                    const firstDate = blockDateRange[0]
+                    const lastDate = blockDateRange[blockDateRange.length - 1]
 
                     // Grid: Monday of first block week → Sunday of last block week
                     const firstObj = new Date(firstDate + 'T00:00:00Z')
@@ -1579,67 +1634,94 @@ export default function AdminPage() {
                                         const hasSplits = segs.length > 1 || segs.some((sg) => currentNameForSeg(sg) !== (resident ?? ''))
                                         return (
                                           <div>
-                                            {/* Resident — click to reassign */}
-                                            {isEditing ? (
-                                              <select
-                                                autoFocus
-                                                defaultValue={resident ?? ''}
-                                                onChange={(e) => updateAssignment(shift.id, e.target.value || null)}
-                                                onBlur={() => setEditingShiftId(null)}
-                                                className="w-full border border-blue-400 rounded px-1 py-0.5 text-xs focus:outline-none mb-1"
-                                              >
-                                                <option value="">Unassigned</option>
-                                                {blockSubmissions.map((sub) => {
-                                                  const subCurrentName = (sub.userId && userCurrentName[sub.userId]) ? userCurrentName[sub.userId] : sub.residentName
-                                                  return (
-                                                    <option key={sub.residentName} value={subCurrentName}>
-                                                      {subCurrentName}{!available.includes(subCurrentName) ? ' (unavailable)' : ''}
-                                                    </option>
-                                                  )
-                                                })}
-                                              </select>
-                                            ) : (
-                                              <div
-                                                className="cursor-pointer mb-1"
-                                                onClick={() => {
-                                                  if (editingTimesShiftId === shift.id || removingShiftId === shift.id) return
-                                                  setEditingShiftId(shift.id)
-                                                }}
-                                              >
-                                                {resident ? (
-                                                  hasSplits ? (
-                                                    <div className="space-y-1">
-                                                      {segs.map((sg, j) => {
-                                                        const sgName = currentNameForSeg(sg)
-                                                        return (
-                                                          <div key={j}>
-                                                            <div className={`text-xs font-medium leading-tight transition-colors ${sgName === resident ? 'text-slate-800 hover:text-blue-600' : 'text-violet-700'}`}>
-                                                              {displayMap[sgName] ?? sgName}
-                                                            </div>
-                                                            {sg.start && sg.end && <div className="text-xs text-slate-400">{formatTimeRange(sg.start, sg.end)}</div>}
+                                            {/* Resident display */}
+                                            <div className="mb-1">
+                                              {resident ? (
+                                                hasSplits ? (
+                                                  <div className="space-y-1">
+                                                    {segs.map((sg, j) => {
+                                                      const sgName = currentNameForSeg(sg)
+                                                      return (
+                                                        <div key={j}>
+                                                          <div className={`text-xs font-medium leading-tight ${sgName === resident ? 'text-slate-800' : 'text-violet-700'}`}>
+                                                            {displayMap[sgName] ?? sgName}
                                                           </div>
-                                                        )
-                                                      })}
-                                                    </div>
-                                                  ) : (
-                                                    <div className="text-xs font-medium text-slate-800 leading-tight hover:text-blue-600 transition-colors">
-                                                      {displayMap[resident] ?? resident}
-                                                    </div>
-                                                  )
+                                                          {sg.start && sg.end && <div className="text-xs text-slate-400">{formatTimeRange(sg.start, sg.end)}</div>}
+                                                        </div>
+                                                      )
+                                                    })}
+                                                  </div>
                                                 ) : (
-                                                  <div className="text-xs text-red-400 italic">Unassigned</div>
-                                                )}
-                                              </div>
-                                            )}
-                                            {/* Time edit / remove controls */}
-                                            {editingTimesShiftId === shift.id ? (
+                                                  <div className="text-xs font-medium text-slate-800 leading-tight">
+                                                    {displayMap[resident] ?? resident}
+                                                  </div>
+                                                )
+                                              ) : (
+                                                <div className="text-xs text-red-400 italic">Unassigned</div>
+                                              )}
+                                            </div>
+                                            {/* Edit / remove controls */}
+                                            {isEditing && adminSplitShiftId !== shift.id ? (
                                               <div onClick={(e) => e.stopPropagation()} className="space-y-1">
-                                                <TimeInput value={timesEdit.startTime} onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))} className="w-full text-xs px-1 py-0.5" />
-                                                <TimeInput value={timesEdit.endTime} onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))} className="w-full text-xs px-1 py-0.5" />
+                                                {(splitsByShift[shift.id] ?? []).filter((sp) => sp.status === 'accepted').map((sp) => (
+                                                  <div key={sp.id} className="flex items-center justify-between text-xs bg-violet-50 rounded px-1.5 py-0.5">
+                                                    <span className="text-violet-700">{sp.acceptorName} · {formatTimeRange(sp.offeredStart, sp.offeredEnd)}</span>
+                                                    <button
+                                                      onClick={() => removeAdminSplit(sp.id)}
+                                                      disabled={removingAdminSplitId === sp.id}
+                                                      className="text-red-400 hover:text-red-600 ml-1 disabled:opacity-40"
+                                                    >×</button>
+                                                  </div>
+                                                ))}
+                                                <select
+                                                  key={resident ?? ''}
+                                                  defaultValue={resident ?? ''}
+                                                  onChange={(e) => updateAssignment(shift.id, e.target.value || null)}
+                                                  className="w-full border border-slate-200 rounded px-1 py-0.5 text-xs focus:outline-none focus:border-blue-400"
+                                                >
+                                                  <option value="">Unassigned</option>
+                                                  {users.slice().sort((a, b) => a.fullName.localeCompare(b.fullName)).map((u) => {
+                                                    const name = userCurrentName[u.id] ?? u.fullName
+                                                    const hasSubmission = blockSubmissions.some((s) => s.userId === u.id)
+                                                    const suffix = !hasSubmission ? ' (no submission)' : !available.includes(name) ? ' (unavailable)' : ''
+                                                    return <option key={u.id} value={name}>{name}{suffix}</option>
+                                                  })}
+                                                </select>
+                                                <div className="flex gap-1">
+                                                  <TimeInput value={timesEdit.startTime} onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))} className="flex-1 text-xs px-1 py-0.5" />
+                                                  <span className="text-slate-300 self-center text-xs">–</span>
+                                                  <TimeInput value={timesEdit.endTime} onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))} className="flex-1 text-xs px-1 py-0.5" />
+                                                </div>
                                                 {timesEditError && <p className="text-xs text-red-500">{timesEditError}</p>}
-                                                <div className="flex gap-1.5 pt-0.5">
+                                                <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
+                                                  {resident && shift.startTime && shift.endTime && (
+                                                    <button onClick={() => openAdminSplit(shift.id, shift)} className="text-xs text-violet-400 hover:text-violet-600 transition-colors">Split</button>
+                                                  )}
                                                   <button onClick={() => saveShiftTimes(shift.id)} disabled={savingTimes} className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-40">{savingTimes ? '…' : 'Save'}</button>
-                                                  <button onClick={() => { setEditingTimesShiftId(null); setTimesEditError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                                                  <button onClick={() => { setEditingShiftId(null); setTimesEditError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                                                </div>
+                                              </div>
+                                            ) : adminSplitShiftId === shift.id ? (
+                                              <div onClick={(e) => e.stopPropagation()} className="space-y-1">
+                                                <div className="flex gap-1">
+                                                  <TimeInput value={adminSplitStart} onChange={setAdminSplitStart} className="flex-1 text-xs px-1 py-0.5" />
+                                                  <span className="text-slate-300 self-center">–</span>
+                                                  <TimeInput value={adminSplitEnd} onChange={setAdminSplitEnd} className="flex-1 text-xs px-1 py-0.5" />
+                                                </div>
+                                                <select
+                                                  value={adminSplitAcceptorId}
+                                                  onChange={(e) => setAdminSplitAcceptorId(e.target.value)}
+                                                  className="w-full border border-slate-200 rounded px-1 py-0.5 text-xs focus:outline-none focus:border-blue-400"
+                                                >
+                                                  <option value="">Covered by…</option>
+                                                  {users.filter((u) => u.id !== shiftToUserId[shift.id]).map((u) => (
+                                                    <option key={u.id} value={u.id}>{u.fullName}</option>
+                                                  ))}
+                                                </select>
+                                                {adminSplitError && <p className="text-xs text-red-500">{adminSplitError}</p>}
+                                                <div className="flex gap-1.5 pt-0.5">
+                                                  <button onClick={() => adminCreateSplit(shift.id)} disabled={adminSplitting} className="text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40">{adminSplitting ? '…' : 'Save'}</button>
+                                                  <button onClick={() => setAdminSplitShiftId(null)} className="text-xs text-slate-400 hover:text-slate-600">Back</button>
                                                 </div>
                                               </div>
                                             ) : removingShiftId === shift.id ? (
@@ -1653,7 +1735,10 @@ export default function AdminPage() {
                                             ) : !isEditing && (
                                               <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1.5 text-xs text-slate-400 flex-wrap">
                                                 <span>{formatTimeRange(shift.startTime, shift.endTime) || 'No times'}</span>
-                                                <button onClick={() => { setEditingTimesShiftId(shift.id); setTimesEdit({ startTime: shift.startTime ?? '', endTime: shift.endTime ?? '' }) }} className="text-blue-400 hover:text-blue-600 transition-colors">Edit</button>
+                                                <button
+                                                  onClick={() => { setEditingShiftId(shift.id); setTimesEdit({ startTime: shift.startTime ?? '', endTime: shift.endTime ?? '' }) }}
+                                                  className="text-blue-400 hover:text-blue-600 transition-colors"
+                                                >Edit</button>
                                                 <button onClick={() => setRemovingShiftId(shift.id)} className="text-red-400 hover:text-red-500 transition-colors">Remove</button>
                                               </div>
                                             )}
@@ -1682,7 +1767,7 @@ export default function AdminPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedDates.map((date) => {
+                        {blockDateRange.map((date) => {
                           const shiftsOnDay = byDate[date] ?? []
                           return (
                             <tr key={date} className="border-b border-slate-100 last:border-0">
@@ -1741,49 +1826,17 @@ export default function AdminPage() {
                                 const resident = currentNameForShift(shift.id)
                                 const isEditing = editingShiftId === shift.id
                                 const available = availableFor(shift.id)
-
-                                if (isEditing) {
-                                  return (
-                                    <td key={clinic} className="px-4 py-3">
-                                      <select
-                                        autoFocus
-                                        defaultValue={resident ?? ''}
-                                        onChange={(e) => updateAssignment(shift.id, e.target.value || null)}
-                                        onBlur={() => setEditingShiftId(null)}
-                                        className="border border-blue-400 rounded px-2 py-1 text-sm focus:outline-none"
-                                      >
-                                        <option value="">Unassigned</option>
-                                        {blockSubmissions.map((sub) => {
-                                          const subCurrentName = (sub.userId && userCurrentName[sub.userId]) ? userCurrentName[sub.userId] : sub.residentName
-                                          return (
-                                            <option key={sub.residentName} value={subCurrentName}>
-                                              {subCurrentName}
-                                              {!available.includes(subCurrentName) ? ' (unavailable)' : ''}
-                                            </option>
-                                          )
-                                        })}
-                                      </select>
-                                    </td>
-                                  )
-                                }
+                                const segs = computeCoverageSegments(shift, assignmentMap[shift.id] ?? null, splitsByShift[shift.id] ?? [], shiftToUserId[shift.id])
+                                const hasSplits = resident ? (segs.length > 1 || segs.some((sg) => currentNameForSeg(sg) !== resident)) : false
 
                                 return (
                                   <td
                                     key={clinic}
-                                    className="px-4 py-3 hover:bg-slate-50"
-                                    onClick={() => {
-                                      if (editingTimesShiftId === shift.id || removingShiftId === shift.id) return
-                                      setEditingShiftId(shift.id)
-                                    }}
+                                    className="px-4 py-3"
                                   >
-                                    <div className="cursor-pointer mb-1">
-                                      {resident ? (() => {
-                                        const segs = computeCoverageSegments(shift, assignmentMap[shift.id] ?? null, splitsByShift[shift.id] ?? [], shiftToUserId[shift.id])
-                                        const hasSplits = segs.length > 1 || segs.some((sg) => currentNameForSeg(sg) !== resident)
-                                        if (!hasSplits) {
-                                          return <span className="font-medium text-slate-800 hover:text-blue-600 transition-colors">{displayMap[resident] ?? resident}</span>
-                                        }
-                                        return (
+                                    <div className="mb-1">
+                                      {resident ? (
+                                        hasSplits ? (
                                           <div className="space-y-0.5">
                                             {segs.map((sg, i) => {
                                               const sgName = currentNameForSeg(sg)
@@ -1799,31 +1852,86 @@ export default function AdminPage() {
                                               )
                                             })}
                                           </div>
+                                        ) : (
+                                          <span className="font-medium text-slate-800">{displayMap[resident] ?? resident}</span>
                                         )
-                                      })() : (
+                                      ) : (
                                         <span className="text-red-400 text-xs italic">Unassigned</span>
                                       )}
                                     </div>
-                                    {editingTimesShiftId === shift.id ? (
+                                    {isEditing && adminSplitShiftId !== shift.id ? (
                                       <div onClick={(e) => e.stopPropagation()} className="space-y-1">
-                                        <TimeInput
-                                          value={timesEdit.startTime}
-                                          onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))}
-                                          className="w-full text-xs px-1.5 py-0.5"
-                                        />
-                                        <TimeInput
-                                          value={timesEdit.endTime}
-                                          onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))}
-                                          className="w-full text-xs px-1.5 py-0.5"
-                                        />
+                                        {(splitsByShift[shift.id] ?? []).filter((sp) => sp.status === 'accepted').map((sp) => (
+                                          <div key={sp.id} className="flex items-center justify-between text-xs bg-violet-50 rounded px-1.5 py-0.5">
+                                            <span className="text-violet-700">{sp.acceptorName} · {formatTimeRange(sp.offeredStart, sp.offeredEnd)}</span>
+                                            <button
+                                              onClick={() => removeAdminSplit(sp.id)}
+                                              disabled={removingAdminSplitId === sp.id}
+                                              className="text-red-400 hover:text-red-600 ml-1 disabled:opacity-40"
+                                            >×</button>
+                                          </div>
+                                        ))}
+                                        <select
+                                          key={resident ?? ''}
+                                          defaultValue={resident ?? ''}
+                                          onChange={(e) => updateAssignment(shift.id, e.target.value || null)}
+                                          className="w-full border border-slate-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-blue-400"
+                                        >
+                                          <option value="">Unassigned</option>
+                                          {users.slice().sort((a, b) => a.fullName.localeCompare(b.fullName)).map((u) => {
+                                            const name = userCurrentName[u.id] ?? u.fullName
+                                            const hasSubmission = blockSubmissions.some((s) => s.userId === u.id)
+                                            const suffix = !hasSubmission ? ' (no submission)' : !available.includes(name) ? ' (unavailable)' : ''
+                                            return <option key={u.id} value={name}>{name}{suffix}</option>
+                                          })}
+                                        </select>
+                                        <div className="flex gap-1">
+                                          <TimeInput
+                                            value={timesEdit.startTime}
+                                            onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))}
+                                            className="flex-1 text-xs px-1.5 py-0.5"
+                                          />
+                                          <span className="text-slate-300 self-center text-xs">–</span>
+                                          <TimeInput
+                                            value={timesEdit.endTime}
+                                            onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))}
+                                            className="flex-1 text-xs px-1.5 py-0.5"
+                                          />
+                                        </div>
                                         {timesEditError && <p className="text-xs text-red-500">{timesEditError}</p>}
-                                        <div className="flex gap-2 pt-0.5">
+                                        <div className="flex items-center gap-2 pt-0.5">
+                                          {resident && shift.startTime && shift.endTime && (
+                                            <button onClick={() => openAdminSplit(shift.id, shift)} className="text-xs text-violet-400 hover:text-violet-600 transition-colors">Split</button>
+                                          )}
                                           <button onClick={() => saveShiftTimes(shift.id)} disabled={savingTimes} className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-40">
                                             {savingTimes ? 'Saving…' : 'Save'}
                                           </button>
-                                          <button onClick={() => { setEditingTimesShiftId(null); setTimesEditError('') }} className="text-xs text-slate-400 hover:text-slate-600">
+                                          <button onClick={() => { setEditingShiftId(null); setTimesEditError('') }} className="text-xs text-slate-400 hover:text-slate-600">
                                             Cancel
                                           </button>
+                                        </div>
+                                      </div>
+                                    ) : adminSplitShiftId === shift.id ? (
+                                      <div onClick={(e) => e.stopPropagation()} className="space-y-1">
+                                        <div className="flex gap-1">
+                                          <TimeInput value={adminSplitStart} onChange={setAdminSplitStart} className="flex-1 text-xs px-1.5 py-0.5" />
+                                          <span className="text-slate-300 self-center">–</span>
+                                          <TimeInput value={adminSplitEnd} onChange={setAdminSplitEnd} className="flex-1 text-xs px-1.5 py-0.5" />
+                                        </div>
+                                        <select
+                                          value={adminSplitAcceptorId}
+                                          onChange={(e) => setAdminSplitAcceptorId(e.target.value)}
+                                          className="w-full border border-slate-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-blue-400"
+                                        >
+                                          <option value="">Covered by…</option>
+                                          {users.filter((u) => u.id !== shiftToUserId[shift.id]).map((u) => (
+                                            <option key={u.id} value={u.id}>{u.fullName}</option>
+                                          ))}
+                                        </select>
+                                        {adminSplitError && <p className="text-xs text-red-500">{adminSplitError}</p>}
+                                        <div className="flex gap-2 pt-0.5">
+                                          <button onClick={() => adminCreateSplit(shift.id)} disabled={adminSplitting} className="text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40">{adminSplitting ? '…' : 'Save'}</button>
+                                          <button onClick={() => setAdminSplitShiftId(null)} className="text-xs text-slate-400 hover:text-slate-600">Back</button>
                                         </div>
                                       </div>
                                     ) : removingShiftId === shift.id ? (
@@ -1838,7 +1946,7 @@ export default function AdminPage() {
                                       <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 text-xs text-slate-400">
                                         <span>{formatTimeRange(shift.startTime, shift.endTime) || 'No times'}</span>
                                         <button
-                                          onClick={() => { setEditingTimesShiftId(shift.id); setTimesEdit({ startTime: shift.startTime ?? '', endTime: shift.endTime ?? '' }) }}
+                                          onClick={() => { setEditingShiftId(shift.id); setTimesEdit({ startTime: shift.startTime ?? '', endTime: shift.endTime ?? '' }) }}
                                           className="text-blue-400 hover:text-blue-600 transition-colors"
                                         >
                                           Edit

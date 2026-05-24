@@ -69,6 +69,14 @@ function isShiftEnded(shift: { date: string; endTime?: string }): boolean {
   return today > shift.date
 }
 
+function isShiftInProgress(shift: { date: string; startTime?: string; endTime?: string }): boolean {
+  const today = vanToday()
+  if (shift.date !== today) return false
+  const now = vanNowTime()
+  if (shift.startTime && shift.endTime) return now >= shift.startTime && now < shift.endTime
+  return false
+}
+
 function nextDayStr(dateStr: string) {
   const d = new Date(dateStr + 'T00:00:00Z')
   d.setUTCDate(d.getUTCDate() + 1)
@@ -766,7 +774,7 @@ export default function ProfilePage() {
         <div className="flex items-start justify-between mb-1">
           <div>
             <h2 className="text-sm font-semibold text-slate-700">Shift Preferences</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Rank the shifts you'd prefer to work — set separately for weekdays and weekends</p>
+            <p className="text-xs text-slate-400 mt-0.5">Rank the shifts you'd prefer to work</p>
           </div>
           {!editingPrefs && (
             <button
@@ -782,10 +790,6 @@ export default function ProfilePage() {
             </button>
           )}
         </div>
-
-        <p className="text-xs text-slate-500 mt-3 mb-1 leading-relaxed">
-          Scheduling works by random draw — all available residents have equal odds of being selected regardless of their rankings. When selected, you&apos;re placed at your top-ranked shift still available that day. If preferences aren&apos;t set, you&apos;re placed randomly among your remaining available options.
-        </p>
 
         {editingPrefs ? (
           <div className="mt-3 space-y-4">
@@ -920,6 +924,10 @@ export default function ProfilePage() {
         ) : (
           <p className="text-sm text-slate-400 mt-2">No preferences set.</p>
         )}
+
+        <p className="text-xs text-slate-500 mt-4 leading-relaxed">
+          Scheduling works by random draw — all available residents have equal odds of being selected regardless of their rankings. When selected, you&apos;re placed at your top-ranked shift still available that day. If preferences aren&apos;t set, you&apos;re placed randomly among your remaining available options.
+        </p>
       </div>
 
       {!schedule && history.filter((a) => a.userId === myUserId).length === 0 ? (
@@ -960,6 +968,7 @@ export default function ProfilePage() {
                 const hasShift = dayShifts.length > 0
                 const isToday = dateStr === today
                 const isPast = dateStr < today || (hasShift && dayShifts.every((s) => isShiftEnded(s)))
+                const isInProgress = hasShift && dayShifts.some((s) => isShiftInProgress(s))
                 const tooltipParts = dayShifts.map((s) => {
                   const t = formatTimeRange(s.startTime, s.endTime)
                   return t ? `${s.clinic} (${t})` : s.clinic
@@ -970,7 +979,9 @@ export default function ProfilePage() {
                     title={tooltipParts.join(', ')}
                     className={`aspect-square flex flex-col items-center justify-center text-center rounded-lg text-xs select-none
                       ${hasShift
-                        ? isPast
+                        ? isInProgress
+                          ? 'bg-green-500 text-white'
+                          : isPast
                           ? 'bg-slate-500 text-white'
                           : 'bg-blue-600 text-white'
                         : isToday
@@ -999,6 +1010,9 @@ export default function ProfilePage() {
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex gap-4 text-xs text-slate-500">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded bg-green-500 inline-block" /> In progress
+                </span>
                 <span className="flex items-center gap-1.5">
                   <span className="w-3 h-3 rounded bg-blue-600 inline-block" /> Upcoming
                 </span>
@@ -1063,22 +1077,30 @@ export default function ProfilePage() {
               <p className="p-5 text-sm text-slate-400">No upcoming shifts.</p>
             ) : (
               <div className="divide-y divide-slate-100">
-                {upcoming.map((s) => (
-                  <div key={s.id} className="px-5 py-3 flex items-center justify-between gap-3">
-                    <span className="text-sm text-slate-700">
-                      <span className="sm:hidden">{formatDateShort(s.date)}</span>
-                      <span className="hidden sm:inline">{formatDateLong(s.date)}</span>
-                    </span>
-                    <div className="text-right">
-                      <span className="text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
-                        {clinicAbbr(s.clinic)}
-                      </span>
-                      {formatTimeRange(s.startTime, s.endTime) && (
-                        <div className="text-xs text-slate-400 mt-0.5">{formatTimeRange(s.startTime, s.endTime)}</div>
-                      )}
+                {upcoming.map((s) => {
+                  const inProgress = isShiftInProgress(s)
+                  return (
+                    <div key={s.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-slate-700">
+                          <span className="sm:hidden">{formatDateShort(s.date)}</span>
+                          <span className="hidden sm:inline">{formatDateLong(s.date)}</span>
+                        </span>
+                        {inProgress && (
+                          <span className="text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded-full font-medium">In progress</span>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${inProgress ? 'text-green-700 bg-green-50' : 'text-blue-700 bg-blue-50'}`}>
+                          {clinicAbbr(s.clinic)}
+                        </span>
+                        {formatTimeRange(s.startTime, s.endTime) && (
+                          <div className="text-xs text-slate-400 mt-0.5">{formatTimeRange(s.startTime, s.endTime)}</div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -1088,7 +1110,7 @@ export default function ProfilePage() {
             <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-700">Completed Shifts</h2>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-slate-400">{completed.length} total</span>
+                <span className="hidden sm:inline text-xs text-slate-400">{completed.length} total</span>
                 {invoiceableCompleted.length > 0 && (
                   <>
                     <button
@@ -1098,7 +1120,10 @@ export default function ProfilePage() {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
-                      {showEarningsCsv ? 'Hide CSV' : 'CSV'}
+                      {showEarningsCsv
+                        ? <><span className="sm:hidden">Hide</span><span className="hidden sm:inline">Hide CSV</span></>
+                        : <><span className="sm:hidden">CSV</span><span className="hidden sm:inline">Download CSV</span></>
+                      }
                     </button>
                     <button
                       onClick={() => {
@@ -1117,7 +1142,10 @@ export default function ProfilePage() {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      {showInvoiceGenerator ? 'Hide invoice' : 'Generate invoice'}
+                      {showInvoiceGenerator
+                        ? <><span className="sm:hidden">Hide</span><span className="hidden sm:inline">Hide invoice</span></>
+                        : <><span className="sm:hidden">Invoice</span><span className="hidden sm:inline">Generate invoice</span></>
+                      }
                     </button>
                   </>
                 )}
@@ -1158,7 +1186,10 @@ export default function ProfilePage() {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  {downloadingCsv ? 'Downloading…' : 'Download CSV'}
+                  {downloadingCsv
+                    ? 'Downloading…'
+                    : <><span className="sm:hidden">CSV</span><span className="hidden sm:inline">Download CSV</span></>
+                  }
                 </button>
               </div>
             )}
