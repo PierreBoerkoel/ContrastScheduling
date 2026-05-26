@@ -394,7 +394,7 @@ await db`DELETE FROM shift_history WHERE shift_id LIKE '2099-12-%'`
 await db`DELETE FROM invoice_sequences WHERE resident_name = '__test_user__'`
 
 section('2.1  Schema — required tables exist')
-const TABLES = ['shifts','schedule','scheduling_periods','availability_submissions','swap_requests','shift_history','shift_splits','invoice_sequences','billing_rates','billing_contacts','resident_preferences','clinic_defaults']
+const TABLES = ['shifts','scheduling_periods','availability_submissions','swap_requests','shift_history','shift_splits','invoice_sequences','billing_rates','billing_contacts','resident_preferences','clinic_defaults']
 for (const t of TABLES) {
   const [{ count }] = await db`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ${t}`
   assert(count === '1', `table "${t}" exists`)
@@ -444,14 +444,7 @@ assert(JSON.stringify(updated.available_shift_ids) === JSON.stringify(['2099-12-
 const [{ count: subCount }] = await db`SELECT COUNT(*) FROM availability_submissions WHERE user_id = ${subUserId} AND period_id = ${pid}`
 assert(subCount === '1', 'exactly one row per user per period')
 
-section('2.6  Schedule persistence (singleton)')
-const assignmentsJson = JSON.stringify([{ shiftId: '2099-12-01|BC Cancer Agency MRI/PET', residentName: 'Test User', userId: subUserId }])
-await db`INSERT INTO schedule (singleton, generated_at, is_published, assignments, published_assignments) VALUES (1, NOW(), FALSE, ${assignmentsJson}::jsonb, '[]'::jsonb) ON CONFLICT (singleton) DO UPDATE SET generated_at = NOW(), assignments = EXCLUDED.assignments`
-const [row] = await db`SELECT assignments FROM schedule WHERE singleton = 1`
-const saved = typeof row.assignments === 'string' ? JSON.parse(row.assignments) : row.assignments
-assert(Array.isArray(saved) && saved.some(a => a.shiftId === '2099-12-01|BC Cancer Agency MRI/PET'), 'schedule persisted and retrievable')
-
-section('2.7  Shift splits — pending, accept, unique index, cancel-then-repend')
+section('2.6  Shift splits — pending, accept, unique index, cancel-then-repend')
 const splitId = crypto.randomUUID()
 await db`INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status) VALUES (${splitId}, '2099-12-01|BC Cancer Agency MRI/PET', 'Test User', ${subUserId}, '12:00', '17:00', 'pending')`
 const [split] = await db`SELECT * FROM shift_splits WHERE id = ${splitId}`
@@ -537,16 +530,6 @@ assert(cascShiftAfter === '0', 'shift removed by cascade delete')
   }
   await db`DELETE FROM shift_history WHERE shift_id LIKE '2099-12-%'`
   await db`DELETE FROM invoice_sequences WHERE resident_name = '__test_user__'`
-  await db`
-    UPDATE schedule SET
-      assignments = CASE WHEN jsonb_typeof(assignments) = 'array'
-        THEN COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(assignments) e WHERE NOT (e->>'shiftId' LIKE '2099-12-%')), '[]'::jsonb)
-        ELSE '[]'::jsonb END,
-      published_assignments = CASE WHEN jsonb_typeof(published_assignments) = 'array'
-        THEN COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(published_assignments) e WHERE NOT (e->>'shiftId' LIKE '2099-12-%')), '[]'::jsonb)
-        ELSE '[]'::jsonb END
-    WHERE singleton = 1
-  `
 }
 
 const clerkReq = async (method, path, body) => {
@@ -1010,17 +993,6 @@ assert(prefs2.weekendRanking?.[0] === 'BC Cancer Agency MRI/PET', 'weekend ranki
 async function cleanup() {
   console.log('\n── Cleanup ──')
   try {
-    // Remove test shift IDs from the schedule JSONB
-    await db`
-      UPDATE schedule SET
-        assignments = CASE WHEN jsonb_typeof(assignments) = 'array'
-          THEN COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(assignments) e WHERE NOT (e->>'shiftId' LIKE '2099-12-%')), '[]'::jsonb)
-          ELSE '[]'::jsonb END,
-        published_assignments = CASE WHEN jsonb_typeof(published_assignments) = 'array'
-          THEN COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(published_assignments) e WHERE NOT (e->>'shiftId' LIKE '2099-12-%')), '[]'::jsonb)
-          ELSE '[]'::jsonb END
-      WHERE singleton = 1
-    `
     await db`DELETE FROM swap_requests WHERE requestor_shift_id LIKE '2099-12-%'`
     await db`DELETE FROM shift_splits WHERE shift_id LIKE '2099-12-%'`
     await db`DELETE FROM shift_history WHERE shift_id LIKE '2099-12-%'`

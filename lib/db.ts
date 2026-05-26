@@ -25,19 +25,7 @@ export async function initDb(): Promise<void> {
       available_shift_ids TEXT[] NOT NULL DEFAULT '{}'
     )
   `
-  await sql`
-    CREATE TABLE IF NOT EXISTS schedule (
-      singleton             INTEGER PRIMARY KEY DEFAULT 1,
-      generated_at          TIMESTAMPTZ,
-      published_at          TIMESTAMPTZ,
-      is_published          BOOLEAN NOT NULL DEFAULT FALSE,
-      assignments           JSONB NOT NULL DEFAULT '[]'::jsonb,
-      published_assignments JSONB NOT NULL DEFAULT '[]'::jsonb,
-      CONSTRAINT schedule_singleton CHECK (singleton = 1)
-    )
-  `
-  await sql`ALTER TABLE schedule ADD COLUMN IF NOT EXISTS published_assignments JSONB NOT NULL DEFAULT '[]'::jsonb`
-  await sql`ALTER TABLE schedule ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ`
+  await sql`DROP TABLE IF EXISTS schedule`
   await sql`
     CREATE TABLE IF NOT EXISTS swap_requests (
       id                  TEXT PRIMARY KEY,

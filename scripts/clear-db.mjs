@@ -15,7 +15,6 @@ const tables = [
   'shift_history',
   'shifts',
   'scheduling_periods',
-  'schedule',
   'invoice_sequences',
   'billing_rates',
   'billing_contacts',
