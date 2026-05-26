@@ -342,6 +342,7 @@ function periodFromRow(r: Record<string, unknown>): SchedulingPeriod {
 }
 
 export async function getSchedulingPeriods(): Promise<SchedulingPeriod[]> {
+  await ensureDb()
   const { rows } = await sql`
     SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
            created_at, published_at, generated_at, updated_at, assignments, published_assignments
@@ -352,6 +353,7 @@ export async function getSchedulingPeriods(): Promise<SchedulingPeriod[]> {
 }
 
 export async function getPeriod(id: string): Promise<SchedulingPeriod | null> {
+  await ensureDb()
   const { rows } = await sql`
     SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
            created_at, published_at, generated_at, updated_at, assignments, published_assignments
@@ -363,6 +365,7 @@ export async function getPeriod(id: string): Promise<SchedulingPeriod | null> {
 export async function addSchedulingPeriod(
   period: Pick<SchedulingPeriod, 'name' | 'startDate' | 'endDate'>
 ): Promise<SchedulingPeriod> {
+  await ensureDb()
   const { rows } = await sql`
     INSERT INTO scheduling_periods (name, start_date, end_date)
     VALUES (${period.name}, ${period.startDate}, ${period.endDate})
@@ -373,10 +376,12 @@ export async function addSchedulingPeriod(
 }
 
 export async function deleteSchedulingPeriod(id: string): Promise<void> {
+  await ensureDb()
   await sql`DELETE FROM scheduling_periods WHERE id = ${id}`
 }
 
 export async function findPeriodByName(name: string): Promise<SchedulingPeriod | null> {
+  await ensureDb()
   const { rows } = await sql`
     SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
            created_at, published_at, generated_at, updated_at, assignments, published_assignments
