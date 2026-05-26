@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { currentUser } from '@clerk/nextjs/server'
-import { ensureDb, getPeriod, updatePeriodDraft, updatePeriodPublishedAssignments, touchPeriodUpdatedAt, getClinicDefaults } from '@/lib/db'
+import { ensureDb, getPeriod, updatePeriodDraft, updatePeriodPublishedAssignments, getClinicDefaults } from '@/lib/db'
 import { sql } from '@vercel/postgres'
 import { clinicDefaultShiftTimes } from '@/lib/types'
 import type { ClinicName } from '@/lib/types'
@@ -113,10 +113,6 @@ export async function PATCH(request: Request) {
       }
     }
   }
-
-  // Find the period and touch its updated_at so the admin UI knows a manual edit was made
-  const { rows: shiftPeriod } = await sql`SELECT period_id FROM shifts WHERE id = ${shiftId}`
-  if (shiftPeriod[0]?.period_id) await touchPeriodUpdatedAt(shiftPeriod[0].period_id)
 
   return NextResponse.json({ ok: true })
 }

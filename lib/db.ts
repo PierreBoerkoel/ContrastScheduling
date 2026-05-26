@@ -386,22 +386,25 @@ export async function updatePeriodDraft(
   const json = JSON.stringify(assignments)
   await sql`
     UPDATE scheduling_periods
-    SET assignments = ${json}::jsonb, generated_at = ${generatedAt}, updated_at = NULL
+    SET assignments = ${json}::jsonb, generated_at = ${generatedAt}
     WHERE id = ${id}
   `
 }
 
-export async function touchPeriodUpdatedAt(id: string): Promise<void> {
-  await sql`UPDATE scheduling_periods SET updated_at = NOW() WHERE id = ${id}`
-}
-
-export async function publishPeriod(id: string, assignments: ShiftAssignment[]): Promise<void> {
+export async function publishPeriod(id: string, assignments: ShiftAssignment[]): Promise<{ publishedAt: string; updatedAt: string | null }> {
   const json = JSON.stringify(assignments)
-  await sql`
+  const { rows } = await sql`
     UPDATE scheduling_periods
-    SET published_assignments = ${json}::jsonb, published_at = NOW()
+    SET published_assignments = ${json}::jsonb,
+        published_at = COALESCE(published_at, NOW()),
+        updated_at = CASE WHEN published_at IS NOT NULL THEN NOW() ELSE NULL END
     WHERE id = ${id}
+    RETURNING published_at, updated_at
   `
+  return {
+    publishedAt: rows[0].published_at as string,
+    updatedAt: (rows[0].updated_at as string | null) ?? null,
+  }
 }
 
 export async function updatePeriodPublishedAssignments(

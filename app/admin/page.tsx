@@ -1453,18 +1453,25 @@ export default function AdminPage() {
                       disabled={publishing}
                       className="bg-green-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
                     >
-                      {publishing ? 'Publishing…' : 'Publish'}
+                      {publishing
+                        ? (schedPeriod?.publishedAt ? 'Updating…' : 'Publishing…')
+                        : (schedPeriod?.publishedAt ? 'Update' : 'Publish')}
                     </button>
                   )}
                 </>
               )}
             </div>
             {blockAssignments.length > 0 && !confirmRegenerate && (
-              <p className="mt-2 text-xs text-slate-400">
-                {schedPeriod?.publishedAt
-                  ? <>Last published: {formatDateTime(schedPeriod.publishedAt)}</>
-                  : <span className="text-amber-500">Not yet published</span>}
-              </p>
+              <div className="mt-2 text-xs text-slate-400 space-y-0.5">
+                {schedPeriod?.publishedAt ? (
+                  <>
+                    <p>Published {formatDateTime(schedPeriod.publishedAt)}</p>
+                    {schedPeriod.updatedAt && <p>Updated {formatDateTime(schedPeriod.updatedAt)}</p>}
+                  </>
+                ) : (
+                  <p className="text-amber-500">Not yet published</p>
+                )}
+              </div>
             )}
 
             {!selectedScheduleBlock && periods.length === 0 && (

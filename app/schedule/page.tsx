@@ -626,11 +626,14 @@ export default function SchedulePage() {
             ))}
           </div>
         )}
-        <p className="text-xs text-slate-400">
-          {selectedPeriod?.publishedAt
-            ? `Published ${formatDateTime(selectedPeriod.publishedAt)}`
-            : ''}
-        </p>
+        <div className="text-xs text-slate-400 space-y-0.5">
+          {selectedPeriod?.publishedAt && (
+            <p>Published {formatDateTime(selectedPeriod.publishedAt)}</p>
+          )}
+          {selectedPeriod?.updatedAt && (
+            <p>Updated {formatDateTime(selectedPeriod.updatedAt)}</p>
+          )}
+        </div>
       </div>
 
       {/* Shift totals */}

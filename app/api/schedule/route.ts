@@ -4,7 +4,7 @@ import {
   getShifts, getSubmissions, getPeriod, getSchedulingPeriods,
   updatePeriodDraft, publishPeriod, updatePeriodPublishedAssignments,
   getAllPublishedAssignments, getShiftSplits, getSwapRequests,
-  updateShiftSplit, getAllResidentPreferences, touchPeriodUpdatedAt,
+  updateShiftSplit, getAllResidentPreferences,
 } from '@/lib/db'
 import { generateSchedule } from '@/lib/scheduler'
 import { computeCoverageSegments } from '@/lib/types'
@@ -49,8 +49,8 @@ export async function POST(request: Request) {
   }
 
   if (action === 'publish') {
-    await publishPeriod(periodId, period.assignments)
-    return NextResponse.json({ ...period, publishedAssignments: period.assignments, publishedAt: new Date().toISOString() })
+    const { publishedAt, updatedAt } = await publishPeriod(periodId, period.assignments)
+    return NextResponse.json({ ...period, publishedAssignments: period.assignments, publishedAt, updatedAt })
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
@@ -81,7 +81,6 @@ export async function PATCH(request: Request) {
   const updated = [...period.assignments]
   updated[idx] = { shiftId, residentName, userId: residentUserId ?? null }
   await updatePeriodDraft(shift.periodId, updated, period.generatedAt ?? null)
-  await touchPeriodUpdatedAt(shift.periodId)
   return NextResponse.json({ ok: true })
 }
 
