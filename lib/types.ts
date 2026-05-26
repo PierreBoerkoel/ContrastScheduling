@@ -91,14 +91,6 @@ export interface ShiftAssignment {
   endTime?: string    // present on history records fetched from shift_history table
 }
 
-export interface Schedule {
-  generatedAt: string | null
-  publishedAt: string | null
-  updatedAt: string | null
-  isPublished: boolean
-  assignments: ShiftAssignment[]        // current draft (admin preview)
-  publishedAssignments: ShiftAssignment[] // accumulated published schedule (user-facing)
-}
 
 export interface ShiftSplit {
   id: string
@@ -235,4 +227,8 @@ export interface SchedulingPeriod {
   endDate: string    // YYYY-MM-DD
   createdAt: string
   publishedAt?: string
+  generatedAt?: string
+  updatedAt?: string
+  assignments: ShiftAssignment[]
+  publishedAssignments: ShiftAssignment[]
 }

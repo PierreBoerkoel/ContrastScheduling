@@ -711,7 +711,7 @@ assert(dbCount === 0, 'no double-bookings in generated schedule')
 // ── 3.5  Publish ─────────────────────────────────────────────────────────────
 section('3.5  Publish schedule')
 const { status: pubStatus, body: pubBody } = await api(ADMIN, 'POST', '/api/schedule', { action: 'publish', periodId: HTTP_PERIOD_ID })
-assert(pubStatus === 200 && pubBody.isPublished, 'schedule published')
+assert(pubStatus === 200 && pubBody.publishedAt, 'schedule published')
 const pub = pubBody.publishedAssignments ?? []
 assert(pub.some(a => a.shiftId === S.r1Mri01 && a.userId === R1.id), 'R1 in published schedule')
 
@@ -723,16 +723,18 @@ assert(lockStatus === 409, 'resubmission blocked after publish (409)')
 // ── 3.7  Resident can view published schedule ─────────────────────────────────
 section('3.7  Resident views published schedule')
 const { status: viewStatus, body: viewBody } = await api(R1.id, 'GET', '/api/schedule')
-assert(viewStatus === 200 && Array.isArray(viewBody.publishedAssignments), 'resident can GET schedule')
-assert(viewBody.publishedAssignments.some(a => a.shiftId === S.r1Mri01), 'published assignments include test shift')
+assert(viewStatus === 200 && Array.isArray(viewBody), 'resident can GET schedule')
+const viewPeriod = Array.isArray(viewBody) ? viewBody.find(p => p.id === HTTP_PERIOD_ID) : null
+assert(viewPeriod?.publishedAssignments?.some(a => a.shiftId === S.r1Mri01), 'published assignments include test shift')
 
 // ── 3.8  Claim unassigned shift ───────────────────────────────────────────────
 section('3.8  Claim unassigned shift')
 const unassignedShift = '2099-12-04|BC Cancer Agency MRI/PET'
 const { status: claimStatus } = await api(R3.id, 'PUT', '/api/schedule', { shiftId: unassignedShift })
 assert(claimStatus === 200, 'R3 claims unassigned 12-04 shift')
-const { body: afterClaim } = await api(ADMIN, 'GET', '/api/schedule')
-const claimedA = afterClaim.publishedAssignments.find(a => a.shiftId === unassignedShift)
+const { body: afterClaimBody } = await api(ADMIN, 'GET', '/api/schedule')
+const afterClaimPub = Array.isArray(afterClaimBody) ? afterClaimBody.flatMap(p => p.publishedAssignments ?? []) : []
+const claimedA = afterClaimPub.find(a => a.shiftId === unassignedShift)
 assert(claimedA?.userId === R3.id, 'R3 appears in publishedAssignments for 12-04')
 
 // ── 3.9  Same-day double-claim blocked ───────────────────────────────────────
@@ -751,10 +753,11 @@ const swapId = swapBody.id
 const { status: swapAccStatus, body: swapAccBody } = await api(R3.id, 'PATCH', `/api/swaps/${swapId}`, { action: 'accept' })
 assert(swapAccStatus === 200 && swapAccBody.status === 'accepted', 'R3 accepts swap', `status=${swapAccStatus}`)
 
-const { body: afterSwap } = await api(ADMIN, 'GET', '/api/schedule')
-const swappedA = afterSwap.publishedAssignments.find(a => a.shiftId === S.r2Mri02)
+const { body: afterSwapBody } = await api(ADMIN, 'GET', '/api/schedule')
+const afterSwapPub = Array.isArray(afterSwapBody) ? afterSwapBody.flatMap(p => p.publishedAssignments ?? []) : []
+const swappedA = afterSwapPub.find(a => a.shiftId === S.r2Mri02)
 assert(swappedA?.userId === R3.id, 'R3 now assigned to 12-02 after swap')
-const r2lost = afterSwap.publishedAssignments.find(a => a.shiftId === S.r2Mri02 && a.userId === R2.id)
+const r2lost = afterSwapPub.find(a => a.shiftId === S.r2Mri02 && a.userId === R2.id)
 assert(!r2lost, 'R2 no longer on 12-02 after swap')
 
 // ── 3.11 Swap already accepted — second accept blocked ────────────────────────

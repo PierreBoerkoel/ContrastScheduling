@@ -53,3 +53,6 @@ db-commands.txt
 
 # Claude Code local memory
 .claude/
+
+# Claude terminal session log
+claudeterminal.txt

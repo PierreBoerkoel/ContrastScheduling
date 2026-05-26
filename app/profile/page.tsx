@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, Schedule, ShiftAssignment, ShiftSplit, ClinicName } from '@/lib/types'
+import type { Shift, SchedulingPeriod, ShiftAssignment, ShiftSplit, ClinicName } from '@/lib/types'
 import { CLINICS, CLINIC_ABBR, formatTimeRange, computeCoverageSegments } from '@/lib/types'
 import { clinicEntities, calculateLineItems, ratesToBillingRates } from '@/lib/invoices'
 import type { CompletedShiftForInvoice } from '@/lib/invoices'
@@ -183,7 +183,7 @@ export default function ProfilePage() {
   const myUserId = user?.id ?? ''
 
   const [shifts, setShifts] = useState<Shift[]>([])
-  const [schedule, setSchedule] = useState<Schedule | null>(null)
+  const [periods, setPeriods] = useState<SchedulingPeriod[]>([])
   const [history, setHistory] = useState<ShiftAssignment[]>([])
   const [allSplits, setAllSplits] = useState<ShiftSplit[]>([])
   const [loading, setLoading] = useState(true)
@@ -238,9 +238,9 @@ export default function ProfilePage() {
       fetch('/api/schedule').then((r) => r.json()),
       fetch('/api/history').then((r) => r.json()),
       fetch('/api/splits').then((r) => r.json()),
-    ]).then(([shiftList, sched, hist, splitList]) => {
+    ]).then(([shiftList, periodList, hist, splitList]) => {
       setShifts(Array.isArray(shiftList) ? shiftList : [])
-      setSchedule(sched?.publishedAssignments?.length ? sched : null)
+      setPeriods(Array.isArray(periodList) ? periodList : [])
       setHistory(Array.isArray(hist) ? hist : [])
       setAllSplits(Array.isArray(splitList) ? splitList : [])
       setLoading(false)
@@ -346,6 +346,7 @@ export default function ProfilePage() {
   const today = vanToday()
 
   const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
+  const publishedAssignments = periods.flatMap((p) => p.publishedAssignments)
 
   function assignmentToShift(a: ShiftAssignment): Shift {
     if (shiftById[a.shiftId]) return shiftById[a.shiftId]
@@ -360,7 +361,7 @@ export default function ProfilePage() {
 
   // My coverage from the published schedule (direct assignments, split-aware)
   const myScheduleCoverage: Shift[] = []
-  for (const a of (schedule?.publishedAssignments ?? []).filter((a) => a.userId === myUserId)) {
+  for (const a of publishedAssignments.filter((a) => a.userId === myUserId)) {
     const base = assignmentToShift(a)
     const segs = computeCoverageSegments(base, a.residentName, splitsByShift[a.shiftId] ?? [], a.userId)
     for (const seg of segs.filter((s) => s.userId === myUserId)) {
@@ -388,7 +389,7 @@ export default function ProfilePage() {
       mySplitCoverage.push(base)
       continue
     }
-    const assignment = (schedule?.publishedAssignments ?? []).find((a) => a.shiftId === sid)
+    const assignment = publishedAssignments.find((a) => a.shiftId === sid)
     const segs = computeCoverageSegments(shift, assignment?.residentName ?? null, splitsByShift[sid] ?? [], assignment?.userId ?? null)
     for (const seg of segs.filter((s) => s.userId === myUserId)) {
       mySplitCoverage.push({
@@ -930,7 +931,7 @@ export default function ProfilePage() {
         </p>
       </div>
 
-      {!schedule && history.filter((a) => a.userId === myUserId).length === 0 ? (
+      {publishedAssignments.length === 0 && history.filter((a) => a.userId === myUserId).length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm">
           No schedule has been published yet. Check back after the admin publishes the schedule.
         </div>

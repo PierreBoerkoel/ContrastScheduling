@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, Schedule, SwapRequest, ClinicName, SchedulingPeriod, ShiftSplit } from '@/lib/types'
+import type { Shift, SwapRequest, ClinicName, SchedulingPeriod, ShiftSplit } from '@/lib/types'
 import { CLINICS, CLINIC_ABBR, formatTimeRange, computeCoverageSegments, buildDisplayNames } from '@/lib/types'
 
 function formatDate(dateStr: string) {
@@ -91,7 +91,6 @@ export default function SchedulePage() {
   const myName = user?.fullName ?? [user?.firstName, user?.lastName].filter(Boolean).join(' ') ?? ''
   const myUserId = user?.id ?? ''
 
-  const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [shifts, setShifts] = useState<Shift[]>([])
   const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([])
   const [periods, setPeriods] = useState<SchedulingPeriod[]>([])
@@ -129,15 +128,13 @@ export default function SchedulePage() {
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set())
 
   const fetchAll = useCallback(async () => {
-    const [sched, shiftList, swaps, periodList, splitList, names] = await Promise.all([
-      fetch('/api/schedule').then((r) => r.json()),
+    const [shiftList, swaps, periodList, splitList, names] = await Promise.all([
       fetch('/api/shifts').then((r) => r.json()),
       fetch('/api/swaps').then((r) => r.json()),
       fetch('/api/periods').then((r) => r.json()),
       fetch('/api/splits').then((r) => r.json()),
       fetch('/api/users/names').then((r) => r.json()),
     ])
-    if (sched && 'isPublished' in sched) setSchedule(sched)
     if (Array.isArray(shiftList)) setShifts(shiftList)
     if (Array.isArray(swaps)) setSwapRequests(swaps)
     if (Array.isArray(periodList)) setPeriods(periodList)
@@ -148,24 +145,14 @@ export default function SchedulePage() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  const published = schedule?.publishedAssignments ?? []
-
   const today = new Date().toISOString().split('T')[0]
-  const upcomingPeriods = periods.filter((p) => p.endDate >= today)
+  const upcomingPeriods = periods.filter((p) => p.endDate >= today && p.publishedAt)
   const effectivePeriodId = selectedPeriodId ?? upcomingPeriods[0]?.id ?? null
   const selectedPeriod = upcomingPeriods.find((p) => p.id === effectivePeriodId) ?? null
 
   const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
 
-  const filteredPublished = upcomingPeriods.length > 0 && selectedPeriod
-    ? published.filter((a) => {
-        const shift = shiftById[a.shiftId]
-        if (shift) return shift.date >= selectedPeriod.startDate && shift.date <= selectedPeriod.endDate
-        const [date, clinic] = a.shiftId.split('|')
-        if (!clinic) return false
-        return date >= selectedPeriod.startDate && date <= selectedPeriod.endDate
-      })
-    : published
+  const filteredPublished = selectedPeriod?.publishedAssignments ?? []
 
   const assignmentMap: Record<string, string | null> = {}
   for (const a of filteredPublished) assignmentMap[a.shiftId] = a.residentName
@@ -566,7 +553,7 @@ export default function SchedulePage() {
     return <div className="max-w-4xl mx-auto px-4 py-16 text-slate-400 text-sm">Loading…</div>
   }
 
-  if (published.length === 0) {
+  if (upcomingPeriods.length === 0) {
     return (
       <div className="max-w-xl mx-auto px-4 py-16 text-center">
         <div className="text-5xl mb-4">📋</div>
@@ -642,8 +629,6 @@ export default function SchedulePage() {
         <p className="text-xs text-slate-400">
           {selectedPeriod?.publishedAt
             ? `Published ${formatDateTime(selectedPeriod.publishedAt)}`
-            : schedule?.publishedAt
-            ? `Published ${formatDateTime(schedule.publishedAt)}`
             : ''}
         </p>
       </div>

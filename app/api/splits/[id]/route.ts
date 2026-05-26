@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getShiftSplits, updateShiftSplit, getShifts, getSchedule } from '@/lib/db'
+import { getShiftSplits, updateShiftSplit, getShifts, getAllPublishedAssignments } from '@/lib/db'
 
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number)
@@ -51,11 +51,11 @@ export async function PATCH(
 
     // Overlap check: acceptor must not have another shift on the same day that overlaps the offered window
     const splitDate = split.shiftId.split('|')[0]
-    const [allShifts, schedule] = await Promise.all([getShifts(), getSchedule()])
+    const [allShifts, published] = await Promise.all([getShifts(), getAllPublishedAssignments()])
     const shiftById = Object.fromEntries(allShifts.map((s) => [s.id, s]))
 
     // 1. Check direct published assignments on the same day (skip the shift being split)
-    for (const a of (schedule?.publishedAssignments ?? [])) {
+    for (const a of published) {
       if (a.userId !== userId) continue
       if (a.shiftId === split.shiftId) continue
       if (a.shiftId.split('|')[0] !== splitDate) continue

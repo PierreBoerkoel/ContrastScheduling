@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getShiftSplits, addShiftSplit, getShifts, getSchedule, getSwapRequests, addSwapRequest } from '@/lib/db'
+import { getShiftSplits, addShiftSplit, getShifts, getAllPublishedAssignments, getSwapRequests, addSwapRequest } from '@/lib/db'
 import type { SwapRequest } from '@/lib/types'
 
 function timeToMinutes(t: string): number {
@@ -50,9 +50,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Start time must be before end time' }, { status: 400 })
   }
 
-  const [shifts, schedule, existingSplits] = await Promise.all([
+  const [shifts, published, existingSplits] = await Promise.all([
     getShifts(),
-    getSchedule(),
+    getAllPublishedAssignments(),
     getShiftSplits(),
   ])
 
@@ -61,8 +61,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Shift not found or has no time range' }, { status: 404 })
   }
 
-  // Determine the offeror's owned window
-  const published = schedule?.publishedAssignments ?? []
   const assignment = published.find((a) => a.shiftId === shiftId)
   const isOriginalAssignee = assignment?.userId === userId
 

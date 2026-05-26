@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { currentUser } from '@clerk/nextjs/server'
-import { getShifts, getSchedule, getShiftSplits, addAcceptedShiftSplit, deleteShiftSplit } from '@/lib/db'
+import { getShifts, getAllPublishedAssignments, getShiftSplits, addAcceptedShiftSplit, deleteShiftSplit } from '@/lib/db'
 
 async function requireAdmin() {
   const user = await currentUser()
@@ -45,8 +45,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Start time must be before end time' }, { status: 400 })
   }
 
-  const [shifts, schedule, existingSplits] = await Promise.all([
-    getShifts(), getSchedule(), getShiftSplits(),
+  const [shifts, published, existingSplits] = await Promise.all([
+    getShifts(), getAllPublishedAssignments(), getShiftSplits(),
   ])
 
   const shift = shifts.find((s) => s.id === shiftId)
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Shift not found or has no time range' }, { status: 404 })
   }
 
-  const assignment = (schedule?.publishedAssignments ?? []).find((a) => a.shiftId === shiftId)
+  const assignment = published.find((a) => a.shiftId === shiftId)
   if (!assignment?.userId || !assignment?.residentName) {
     return NextResponse.json({ error: 'Shift is not assigned' }, { status: 400 })
   }

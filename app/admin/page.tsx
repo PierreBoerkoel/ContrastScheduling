@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, AvailabilitySubmission, Schedule, ClinicName, SwapRequest, SchedulingPeriod, ShiftSplit } from '@/lib/types'
+import type { Shift, AvailabilitySubmission, ClinicName, SwapRequest, SchedulingPeriod, ShiftSplit } from '@/lib/types'
 import { CLINICS, CLINIC_ABBR, formatTimeRange, computeCoverageSegments, buildDisplayNames, clinicDefaultShiftTimes, clinicDefaultActiveClinics } from '@/lib/types'
 import type { ClinicDefault } from '@/lib/types'
 import type { BillingContactRecord } from '@/lib/invoices'
@@ -217,7 +217,6 @@ export default function AdminPage() {
   // Data
   const [shifts, setShifts] = useState<Shift[]>([])
   const [submissions, setSubmissions] = useState<AvailabilitySubmission[]>([])
-  const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([])
   const [periods, setPeriods] = useState<SchedulingPeriod[]>([])
   const [splits, setSplits] = useState<ShiftSplit[]>([])
@@ -291,10 +290,9 @@ export default function AdminPage() {
 
   const fetchData = useCallback(async () => {
     const safe = (p: Promise<Response>) => p.then((r) => r.json()).catch(() => null)
-    const [s, sub, sched, swaps, userList, periodList, splitList] = await Promise.all([
+    const [s, sub, swaps, userList, periodList, splitList] = await Promise.all([
       safe(fetch('/api/shifts')),
       safe(fetch('/api/availability')),
-      safe(fetch('/api/schedule')),
       safe(fetch('/api/swaps')),
       safe(fetch('/api/admin/users')),
       safe(fetch('/api/periods')),
@@ -302,7 +300,6 @@ export default function AdminPage() {
     ])
     if (Array.isArray(s)) setShifts(s)
     if (Array.isArray(sub)) setSubmissions(sub)
-    if (sched && typeof sched === 'object' && !sched.error) setSchedule(sched)
     if (Array.isArray(swaps)) setSwapRequests(swaps)
     if (Array.isArray(userList)) setUsers(userList)
     if (Array.isArray(periodList)) setPeriods(periodList)
@@ -469,23 +466,24 @@ export default function AdminPage() {
   }
 
   async function generateSchedule() {
-    const schedPeriod = periods.find((p) => p.name === selectedScheduleBlock)
+    const period = periods.find((p) => p.name === selectedScheduleBlock)
     setGenerating(true)
     await fetch('/api/schedule', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'generate', periodId: schedPeriod?.id }),
+      body: JSON.stringify({ action: 'generate', periodId: period?.id }),
     })
     await fetchData()
     setGenerating(false)
   }
 
   async function publishSchedule() {
+    const period = periods.find((p) => p.name === selectedScheduleBlock)
     setPublishing(true)
     await fetch('/api/schedule', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'publish', periodId: schedPeriod?.id }),
+      body: JSON.stringify({ action: 'publish', periodId: period?.id }),
     })
     await fetchData()
     setPublishing(false)
@@ -622,10 +620,8 @@ export default function AdminPage() {
   const blockDateRange = schedPeriod ? datesInRange(schedPeriod.startDate, schedPeriod.endDate) : []
 
   const assignmentMap: Record<string, string | null> = {}
-  if (schedule) {
-    for (const a of schedule.assignments) {
-      assignmentMap[a.shiftId] = a.residentName
-    }
+  for (const a of schedPeriod?.assignments ?? []) {
+    assignmentMap[a.shiftId] = a.residentName
   }
 
   function availableFor(shiftId: string): string[] {
@@ -634,8 +630,8 @@ export default function AdminPage() {
       .map((s) => (s.userId && userCurrentName[s.userId]) ? userCurrentName[s.userId] : s.residentName)
   }
 
-  const blockAssignments = schedule ? schedule.assignments.filter((a) => blockShiftIds.has(a.shiftId)) : []
-  const blockIsPublished = schedule ? schedule.publishedAssignments.some((a) => blockShiftIds.has(a.shiftId)) : false
+  const blockAssignments = (schedPeriod?.assignments ?? []).filter((a) => blockShiftIds.has(a.shiftId))
+  const blockIsPublished = !!schedPeriod?.publishedAt
 
   const visibleClinics: ClinicName[] = scheduleClinicFilter ? [scheduleClinicFilter] : [...CLINICS]
 
@@ -648,7 +644,6 @@ export default function AdminPage() {
   const cKey = (userId: string | null | undefined, name: string | null | undefined) => userId ?? name ?? ''
   const cName = (key: string) => userCurrentName[key] ?? key
 
-  // shiftId → userId for resolving current names in the grid
   const shiftToUserId: Record<string, string | null> = {}
   for (const a of blockAssignments) shiftToUserId[a.shiftId] = a.userId ?? null
 
@@ -752,10 +747,10 @@ export default function AdminPage() {
   }
 
   function downloadBlockCsv() {
-    if (!schedPeriod || !schedule) return
+    if (!schedPeriod) return
     const pubMap: Record<string, string | null> = {}
     const pubUserIdMap: Record<string, string | null> = {}
-    for (const a of schedule.publishedAssignments) {
+    for (const a of schedPeriod.publishedAssignments) {
       pubMap[a.shiftId] = a.residentName ?? null
       pubUserIdMap[a.shiftId] = a.userId ?? null
     }
@@ -820,14 +815,8 @@ export default function AdminPage() {
             <span className="sm:hidden">Avail</span>
             <span className="hidden sm:inline">Availability</span>
             {(() => {
-              const publishedShiftIds = new Set(schedule?.publishedAssignments.map((a) => a.shiftId) ?? [])
               const unpublishedPeriodIds = new Set(
-                periods
-                  .filter((p) => {
-                    const ids = shifts.filter((s) => s.periodId === p.id).map((s) => s.id)
-                    return ids.length > 0 && !ids.some((id) => publishedShiftIds.has(id))
-                  })
-                  .map((p) => p.id)
+                periods.filter((p) => !p.publishedAt && shifts.some((s) => s.periodId === p.id)).map((p) => p.id)
               )
               const count = submissions.filter((s) => s.periodId && unpublishedPeriodIds.has(s.periodId)).length
               return count > 0 ? (

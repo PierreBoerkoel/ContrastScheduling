@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, ClinicName, Schedule, AvailabilitySubmission, SchedulingPeriod } from '@/lib/types'
+import type { Shift, ClinicName, AvailabilitySubmission, SchedulingPeriod } from '@/lib/types'
 import { CLINICS, CLINIC_ABBR, formatTimeRange } from '@/lib/types'
 
 function formatDate(dateStr: string) {
@@ -28,7 +28,6 @@ export default function AvailabilityPage() {
   const myUserId = user?.id ?? ''
 
   const [shifts, setShifts] = useState<Shift[]>([])
-  const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [periods, setPeriods] = useState<SchedulingPeriod[]>([])
   const [submissions, setSubmissions] = useState<AvailabilitySubmission[]>([])
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null)
@@ -44,12 +43,10 @@ export default function AvailabilityPage() {
     Promise.all([
       fetch('/api/shifts').then((r) => r.json()),
       fetch('/api/availability').then((r) => r.json()),
-      fetch('/api/schedule').then((r) => r.json()),
       fetch('/api/periods').then((r) => r.json()),
       fetch('/api/preferences').then((r) => r.json()),
-    ]).then(([shiftList, submissionList, sched, periodList, prefs]: [Shift[], AvailabilitySubmission[], Schedule, SchedulingPeriod[], { shiftDefaults?: Record<string, { weekday: boolean; weekend: boolean }> }]) => {
+    ]).then(([shiftList, submissionList, periodList, prefs]: [Shift[], AvailabilitySubmission[], SchedulingPeriod[], { shiftDefaults?: Record<string, { weekday: boolean; weekend: boolean }> }]) => {
       if (Array.isArray(shiftList)) setShifts(shiftList)
-      if (sched && 'isPublished' in sched) setSchedule(sched)
       if (Array.isArray(submissionList)) setSubmissions(submissionList)
       if (Array.isArray(periodList)) setPeriods(periodList)
       if (prefs?.shiftDefaults) setShiftDefaults(prefs.shiftDefaults)
@@ -64,13 +61,8 @@ export default function AvailabilityPage() {
     .filter((p) => p.endDate >= today)
     .sort((a, b) => a.startDate.localeCompare(b.startDate))
 
-  const publishedIds = new Set((schedule?.publishedAssignments ?? []).map((a) => a.shiftId))
-
   // Default to first upcoming block that is not published; fall back to first block
-  const firstUnlockedId = upcomingPeriods.find((p) => {
-    const blockShifts = shifts.filter((s) => s.periodId === p.id)
-    return !blockShifts.some((s) => publishedIds.has(s.id))
-  })?.id ?? upcomingPeriods[0]?.id ?? null
+  const firstUnlockedId = upcomingPeriods.find((p) => !p.publishedAt)?.id ?? upcomingPeriods[0]?.id ?? null
 
   const effectivePeriodId = selectedPeriodId ?? firstUnlockedId
   const selectedPeriod = upcomingPeriods.find((p) => p.id === effectivePeriodId) ?? null
@@ -79,8 +71,7 @@ export default function AvailabilityPage() {
     ? shifts.filter((s) => s.periodId === selectedPeriod.id)
     : []
 
-  const selectedBlockPublished = !loading && visibleShifts.length > 0 &&
-    visibleShifts.some((s) => publishedIds.has(s.id))
+  const selectedBlockPublished = !loading && !!selectedPeriod?.publishedAt
 
   // When the selected block changes, restore existing submission or auto-populate from defaults
   useEffect(() => {
@@ -192,8 +183,7 @@ export default function AvailabilityPage() {
           {/* Block selector — all configured blocks */}
           <div className="flex items-center gap-2 flex-wrap mb-6">
             {upcomingPeriods.map((p) => {
-              const bShifts = shifts.filter((s) => s.periodId === p.id)
-              const bPublished = bShifts.length > 0 && bShifts.some((s) => publishedIds.has(s.id))
+              const bPublished = !!p.publishedAt
               return (
                 <button
                   key={p.id}

@@ -1,5 +1,5 @@
 import { sql, db } from '@vercel/postgres'
-import type { Shift, AvailabilitySubmission, Schedule, SwapRequest, ShiftAssignment, SchedulingPeriod, ShiftSplit, ClinicDefault } from './types'
+import type { Shift, AvailabilitySubmission, SwapRequest, ShiftAssignment, SchedulingPeriod, ShiftSplit, ClinicDefault } from './types'
 import type { BillingContactRecord } from './invoices'
 
 // Run migrations once per Lambda cold-start; all DDL uses IF NOT EXISTS so it is safe to re-run.
@@ -61,6 +61,10 @@ export async function initDb(): Promise<void> {
     )
   `
   await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ`
+  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ`
+  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ`
+  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS assignments JSONB NOT NULL DEFAULT '[]'::jsonb`
+  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS published_assignments JSONB NOT NULL DEFAULT '[]'::jsonb`
   // Add columns to existing tables if upgrading from the pre-auth schema
   await sql`ALTER TABLE availability_submissions ADD COLUMN IF NOT EXISTS user_id TEXT`
   await sql`ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS requestor_user_id TEXT`
@@ -314,67 +318,46 @@ export async function upsertSubmission(
   }
 }
 
-// ── Schedule ──────────────────────────────────────────────────────────────────
+// ── Scheduling periods ────────────────────────────────────────────────────────
 
-export async function getSchedule(): Promise<Schedule | null> {
-  const { rows } = await sql`
-    SELECT generated_at, published_at, updated_at, is_published, assignments, published_assignments
-    FROM schedule WHERE singleton = 1
-  `
-  if (rows.length === 0) return null
-  const r = rows[0]
-  const parseJsonb = (v: unknown): ShiftAssignment[] => {
-    if (Array.isArray(v)) return v as ShiftAssignment[]
-    if (typeof v === 'string') return JSON.parse(v) as ShiftAssignment[]
-    return []
-  }
+function parseJsonb(v: unknown): ShiftAssignment[] {
+  if (Array.isArray(v)) return v as ShiftAssignment[]
+  if (typeof v === 'string') return JSON.parse(v) as ShiftAssignment[]
+  return []
+}
+
+function periodFromRow(r: Record<string, unknown>): SchedulingPeriod {
   return {
-    generatedAt: r.generated_at,
-    publishedAt: r.published_at,
-    updatedAt: r.updated_at ?? null,
-    isPublished: r.is_published,
+    id: r.id as string,
+    name: r.name as string,
+    startDate: r.start_date as string,
+    endDate: r.end_date as string,
+    createdAt: r.created_at as string,
+    publishedAt: (r.published_at as string | null) ?? undefined,
+    generatedAt: (r.generated_at as string | null) ?? undefined,
+    updatedAt: (r.updated_at as string | null) ?? undefined,
     assignments: parseJsonb(r.assignments),
     publishedAssignments: parseJsonb(r.published_assignments),
   }
 }
 
-export async function setSchedule(schedule: Schedule): Promise<void> {
-  const assignmentsJson = JSON.stringify(schedule.assignments)
-  const publishedAssignmentsJson = JSON.stringify(schedule.publishedAssignments)
-  const now = new Date().toISOString()
-  await sql`
-    INSERT INTO schedule (singleton, generated_at, published_at, updated_at, is_published, assignments, published_assignments)
-    VALUES (1, ${schedule.generatedAt}, ${schedule.publishedAt}, ${now}, ${schedule.isPublished}, ${assignmentsJson}::jsonb, ${publishedAssignmentsJson}::jsonb)
-    ON CONFLICT (singleton) DO UPDATE SET
-      generated_at          = EXCLUDED.generated_at,
-      published_at          = EXCLUDED.published_at,
-      updated_at            = EXCLUDED.updated_at,
-      is_published          = EXCLUDED.is_published,
-      assignments           = EXCLUDED.assignments,
-      published_assignments = EXCLUDED.published_assignments
-  `
-}
-
-export async function touchScheduleTimestamp(): Promise<void> {
-  await sql`UPDATE schedule SET updated_at = NOW() WHERE singleton = 1`
-}
-
-// ── Scheduling periods ────────────────────────────────────────────────────────
-
 export async function getSchedulingPeriods(): Promise<SchedulingPeriod[]> {
   const { rows } = await sql`
-    SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date, created_at, published_at
+    SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
+           created_at, published_at, generated_at, updated_at, assignments, published_assignments
     FROM scheduling_periods
     ORDER BY start_date
   `
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    startDate: r.start_date,
-    endDate: r.end_date,
-    createdAt: r.created_at,
-    publishedAt: r.published_at ?? undefined,
-  }))
+  return rows.map(periodFromRow)
+}
+
+export async function getPeriod(id: string): Promise<SchedulingPeriod | null> {
+  const { rows } = await sql`
+    SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
+           created_at, published_at, generated_at, updated_at, assignments, published_assignments
+    FROM scheduling_periods WHERE id = ${id}
+  `
+  return rows.length === 0 ? null : periodFromRow(rows[0])
 }
 
 export async function addSchedulingPeriod(
@@ -383,14 +366,10 @@ export async function addSchedulingPeriod(
   const { rows } = await sql`
     INSERT INTO scheduling_periods (name, start_date, end_date)
     VALUES (${period.name}, ${period.startDate}, ${period.endDate})
-    RETURNING id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date, created_at, published_at
+    RETURNING id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
+              created_at, published_at, generated_at, updated_at, assignments, published_assignments
   `
-  const r = rows[0]
-  return { id: r.id, name: r.name, startDate: r.start_date, endDate: r.end_date, createdAt: r.created_at, publishedAt: r.published_at ?? undefined }
-}
-
-export async function updatePeriodPublishedAt(id: string): Promise<void> {
-  await sql`UPDATE scheduling_periods SET published_at = NOW() WHERE id = ${id}`
+  return periodFromRow(rows[0])
 }
 
 export async function deleteSchedulingPeriod(id: string): Promise<void> {
@@ -399,19 +378,65 @@ export async function deleteSchedulingPeriod(id: string): Promise<void> {
 
 export async function findPeriodByName(name: string): Promise<SchedulingPeriod | null> {
   const { rows } = await sql`
-    SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date, created_at, published_at
+    SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
+           created_at, published_at, generated_at, updated_at, assignments, published_assignments
     FROM scheduling_periods WHERE name = ${name} LIMIT 1
   `
-  if (rows.length === 0) return null
-  const r = rows[0]
-  return { id: r.id, name: r.name, startDate: r.start_date, endDate: r.end_date, createdAt: r.created_at, publishedAt: r.published_at ?? undefined }
+  return rows.length === 0 ? null : periodFromRow(rows[0])
+}
+
+export async function updatePeriodDraft(
+  id: string,
+  assignments: ShiftAssignment[],
+  generatedAt: string | null
+): Promise<void> {
+  const json = JSON.stringify(assignments)
+  await sql`
+    UPDATE scheduling_periods
+    SET assignments = ${json}::jsonb, generated_at = ${generatedAt}, updated_at = NULL
+    WHERE id = ${id}
+  `
+}
+
+export async function touchPeriodUpdatedAt(id: string): Promise<void> {
+  await sql`UPDATE scheduling_periods SET updated_at = NOW() WHERE id = ${id}`
+}
+
+export async function publishPeriod(id: string, assignments: ShiftAssignment[]): Promise<void> {
+  const json = JSON.stringify(assignments)
+  await sql`
+    UPDATE scheduling_periods
+    SET published_assignments = ${json}::jsonb, published_at = NOW()
+    WHERE id = ${id}
+  `
+}
+
+export async function updatePeriodPublishedAssignments(
+  id: string,
+  assignments: ShiftAssignment[]
+): Promise<void> {
+  const json = JSON.stringify(assignments)
+  await sql`UPDATE scheduling_periods SET published_assignments = ${json}::jsonb WHERE id = ${id}`
+}
+
+export async function getAllPublishedAssignments(): Promise<ShiftAssignment[]> {
+  const { rows } = await sql`
+    SELECT published_assignments FROM scheduling_periods WHERE published_at IS NOT NULL
+  `
+  return rows.flatMap((r) => parseJsonb(r.published_assignments))
 }
 
 export async function updateSchedulingPeriod(
   id: string,
   patch: Pick<SchedulingPeriod, 'startDate' | 'endDate'>
 ): Promise<void> {
-  await sql`UPDATE scheduling_periods SET start_date = ${patch.startDate}, end_date = ${patch.endDate} WHERE id = ${id}`
+  await sql`
+    UPDATE scheduling_periods
+    SET start_date = ${patch.startDate}, end_date = ${patch.endDate},
+        assignments = '[]'::jsonb, published_assignments = '[]'::jsonb,
+        generated_at = NULL, updated_at = NULL, published_at = NULL
+    WHERE id = ${id}
+  `
 }
 
 // ── Swap requests ─────────────────────────────────────────────────────────────

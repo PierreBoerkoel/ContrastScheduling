@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getSwapRequests, addSwapRequest, getSchedule } from '@/lib/db'
+import { getSwapRequests, addSwapRequest, getAllPublishedAssignments } from '@/lib/db'
 import type { SwapRequest } from '@/lib/types'
 
 export async function GET() {
@@ -21,14 +21,13 @@ export async function POST(request: Request) {
 
   const { requestorShiftId } = (await request.json()) as { requestorShiftId: string }
 
-  const schedule = await getSchedule()
-  if (!(schedule?.publishedAssignments?.length)) {
+  const published = await getAllPublishedAssignments()
+  if (!published.length) {
     return NextResponse.json({ error: 'No published schedule' }, { status: 400 })
   }
 
-  const assignment = schedule.publishedAssignments.find((a) => a.shiftId === requestorShiftId)
-  const isAssigned = assignment?.userId === userId
-  if (!isAssigned) {
+  const assignment = published.find((a) => a.shiftId === requestorShiftId)
+  if (assignment?.userId !== userId) {
     return NextResponse.json({ error: 'You are not assigned to that shift' }, { status: 400 })
   }
 

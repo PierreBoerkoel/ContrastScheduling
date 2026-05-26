@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { currentUser } from '@clerk/nextjs/server'
-import { ensureDb, getSchedule, setSchedule, touchScheduleTimestamp, getClinicDefaults } from '@/lib/db'
+import { ensureDb, getPeriod, updatePeriodDraft, updatePeriodPublishedAssignments, touchPeriodUpdatedAt, getClinicDefaults } from '@/lib/db'
 import { sql } from '@vercel/postgres'
 import { clinicDefaultShiftTimes } from '@/lib/types'
 import type { ClinicName } from '@/lib/types'
@@ -45,16 +45,13 @@ export async function POST(request: Request) {
     VALUES (${shiftId}, ${date}, ${clinic}, ${periodId}, ${times.startTime ?? null}, ${times.endTime ?? null})
   `
 
-  const schedule = await getSchedule()
-  if (schedule) {
+  const period = await getPeriod(periodId)
+  if (period) {
     const nullAssignment = { shiftId, residentName: null, userId: null }
-    const inAssignments = schedule.assignments.some((a) => a.shiftId === shiftId)
-    const inPublished = schedule.publishedAssignments.some((a) => a.shiftId === shiftId)
-    await setSchedule({
-      ...schedule,
-      assignments: inAssignments ? schedule.assignments : [...schedule.assignments, nullAssignment],
-      publishedAssignments: inPublished ? schedule.publishedAssignments : [...schedule.publishedAssignments, nullAssignment],
-    })
+    const inDraft = period.assignments.some((a) => a.shiftId === shiftId)
+    const inPublished = period.publishedAssignments.some((a) => a.shiftId === shiftId)
+    if (!inDraft) await updatePeriodDraft(periodId, [...period.assignments, nullAssignment], period.generatedAt ?? null)
+    if (!inPublished) await updatePeriodPublishedAssignments(periodId, [...period.publishedAssignments, nullAssignment])
   }
 
   return NextResponse.json({ id: shiftId, date, clinic, periodId, ...times }, { status: 201 })
@@ -75,14 +72,12 @@ export async function PATCH(request: Request) {
 
   await ensureDb()
 
-  // Fetch original times before overwriting so we can detect expansion vs truncation
   const { rows: shiftRows } = await sql`SELECT start_time, end_time FROM shifts WHERE id = ${shiftId}`
   const origStart = shiftRows[0]?.start_time as string | null
   const origEnd = shiftRows[0]?.end_time as string | null
 
   await sql`UPDATE shifts SET start_time = ${startTime ?? null}, end_time = ${endTime ?? null} WHERE id = ${shiftId}`
 
-  // Adjust split windows to match the new shift boundaries
   if (startTime || endTime) {
     const { rows: splitRows } = await sql`
       SELECT id, offered_start, offered_end
@@ -96,20 +91,16 @@ export async function PATCH(request: Request) {
 
       if (startTime && origStart) {
         if (mins(startTime) < mins(origStart)) {
-          // Shift expanded earlier: extend the split that was anchored at the original start
           if (row.offered_start === origStart) newStart = startTime
         } else {
-          // Shift truncated: clamp splits that now start before the new start
           if (mins(row.offered_start) < mins(startTime)) newStart = startTime
         }
       }
 
       if (endTime && origEnd) {
         if (mins(endTime) > mins(origEnd)) {
-          // Shift expanded later: extend the split that was anchored at the original end
           if (row.offered_end === origEnd) newEnd = endTime
         } else {
-          // Shift truncated: clamp splits that now end after the new end
           if (mins(row.offered_end) > mins(endTime)) newEnd = endTime
         }
       }
@@ -123,7 +114,10 @@ export async function PATCH(request: Request) {
     }
   }
 
-  await touchScheduleTimestamp()
+  // Find the period and touch its updated_at so the admin UI knows a manual edit was made
+  const { rows: shiftPeriod } = await sql`SELECT period_id FROM shifts WHERE id = ${shiftId}`
+  if (shiftPeriod[0]?.period_id) await touchPeriodUpdatedAt(shiftPeriod[0].period_id)
+
   return NextResponse.json({ ok: true })
 }
 
@@ -136,16 +130,19 @@ export async function DELETE(request: Request) {
   if (!shiftId) return NextResponse.json({ error: 'Missing shiftId' }, { status: 400 })
 
   await ensureDb()
+
+  const { rows: shiftRows } = await sql`SELECT period_id FROM shifts WHERE id = ${shiftId}`
+  const periodId = shiftRows[0]?.period_id as string | null
+
   await sql`DELETE FROM shift_splits WHERE shift_id = ${shiftId}`
   await sql`DELETE FROM shifts WHERE id = ${shiftId}`
 
-  const schedule = await getSchedule()
-  if (schedule) {
-    await setSchedule({
-      ...schedule,
-      assignments: schedule.assignments.filter((a) => a.shiftId !== shiftId),
-      publishedAssignments: schedule.publishedAssignments.filter((a) => a.shiftId !== shiftId),
-    })
+  if (periodId) {
+    const period = await getPeriod(periodId)
+    if (period) {
+      await updatePeriodDraft(periodId, period.assignments.filter((a) => a.shiftId !== shiftId), period.generatedAt ?? null)
+      await updatePeriodPublishedAssignments(periodId, period.publishedAssignments.filter((a) => a.shiftId !== shiftId))
+    }
   }
 
   return NextResponse.json({ ok: true })
