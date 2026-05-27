@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { getBillingContacts, setBillingContact } from '@/lib/db'
 
-const VALID_ENTITIES = new Set(['MRCT', 'PET', 'UBCMR', 'BCWHMR'])
+const VALID_ENTITIES = new Set(['MRCT', 'PET', 'UBC', 'BCWH'])
 
 async function requireAdmin() {
   const user = await currentUser()

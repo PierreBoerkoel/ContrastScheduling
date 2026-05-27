@@ -62,11 +62,15 @@ export async function initDb(): Promise<void> {
       label TEXT NOT NULL
     )
   `
+  // Rename legacy codes before seeding so ON CONFLICT skips them correctly
+  await sql`UPDATE billing_entities SET code = 'UBC'  WHERE code = 'UBCMR'`
+  await sql`UPDATE billing_entities SET code = 'BCWH' WHERE code = 'BCWHMR'`
+
   const entitySeeds: [string, string][] = [
     ['MRCT',   'BCCA Diagnostic Imaging'],
     ['PET',    'BCCA Molecular Imaging and Therapy'],
-    ['UBCMR',  'Vancouver Imaging'],
-    ['BCWHMR', 'BCW Diagnostic Imaging'],
+    ['UBC',    'Vancouver Imaging'],
+    ['BCWH',   'BCW Diagnostic Imaging'],
     ['INITIO', 'INITIO Medical Imaging'],
   ]
   for (const [code, label] of entitySeeds) {
@@ -86,8 +90,8 @@ export async function initDb(): Promise<void> {
     SELECT c.id, be.id FROM clinics c, billing_entities be
     WHERE (c.name = 'BC Cancer Agency CT'      AND be.code = 'MRCT')
        OR (c.name = 'BC Cancer Agency MRI/PET' AND be.code IN ('MRCT', 'PET'))
-       OR (c.name = 'UBC Hospital'             AND be.code = 'UBCMR')
-       OR (c.name = 'BC Women''s Hospital'     AND be.code = 'BCWHMR')
+       OR (c.name = 'UBC Hospital'             AND be.code = 'UBC')
+       OR (c.name = 'BC Women''s Hospital'     AND be.code = 'BCWH')
        OR (c.name = 'INITIO Medical Imaging'   AND be.code = 'INITIO')
     ON CONFLICT DO NOTHING
   `
@@ -261,8 +265,8 @@ export async function initDb(): Promise<void> {
     ['MRCT',   'ct',         75],
     ['PET',    'base',       25],
     ['PET',    'standalone', 75],
-    ['UBCMR',  'rate',       75],
-    ['BCWHMR', 'rate',       75],
+    ['UBC',    'rate',       75],
+    ['BCWH',   'rate',       75],
     ['INITIO', 'rate',       75],
   ]
   for (const [entityCode, rateKey, rate] of rateSeeds) {
@@ -272,12 +276,12 @@ export async function initDb(): Promise<void> {
       ON CONFLICT DO NOTHING
     `
   }
-  // Remove legacy rate_key='MR' rows for UBCMR/BCWHMR — seeds now insert rate_key='rate'
+  // Remove legacy rate_key='MR' rows — seeds now insert rate_key='rate'
   await sql`
     DELETE FROM billing_rates br
     USING billing_entities be
     WHERE br.entity_id = be.id
-      AND be.code IN ('UBCMR', 'BCWHMR')
+      AND be.code IN ('UBC', 'BCWH')
       AND br.rate_key = 'MR'
   `
 
@@ -304,8 +308,8 @@ export async function initDb(): Promise<void> {
   const contactSeeds: [string, string, string, string, string | null][] = [
     ['MRCT',   'Danielle Florendo', 'BCCA Diagnostic Imaging',            '600 W 10th Ave\nVancouver BC  V5Z 4E6',        null],
     ['PET',    'Chris Raiwe',       'BCCA Molecular Imaging and Therapy', '600 W 10th Ave\nVancouver BC  V5Z 4E6',        null],
-    ['UBCMR',  '',                  'Vancouver Imaging',                  '450-943 West Broadway\nVancouver BC  V5Z 4E1', 'finance@vancouverimaging.com'],
-    ['BCWHMR', 'Rahul Jain',        'BCW Diagnostic Imaging',             '4500 Oak St.\nVancouver BC  V6H3N1',           null],
+    ['UBC',    '',                  'Vancouver Imaging',                  '450-943 West Broadway\nVancouver BC  V5Z 4E1', 'finance@vancouverimaging.com'],
+    ['BCWH',   'Rahul Jain',        'BCW Diagnostic Imaging',             '4500 Oak St.\nVancouver BC  V6H3N1',           null],
     ['INITIO', '',                  'INITIO Medical Imaging',             '',                                             null],
   ]
   for (const [entityCode, name, org, address, email] of contactSeeds) {

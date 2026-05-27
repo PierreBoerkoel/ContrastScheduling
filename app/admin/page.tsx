@@ -18,8 +18,8 @@ type Tab = 'shifts' | 'availability' | 'schedule' | 'swaps' | 'users' | 'clinics
 const ENTITY_DISPLAY: Record<string, string> = {
   MRCT:   'BCCA MRI/CT',
   PET:    'BCCA PET',
-  UBCMR:  'UBC MRI',
-  BCWHMR: "BC Women's MRI",
+  UBC:  'UBC MRI',
+  BCWH: "BC Women's MRI",
   INITIO: 'INITIO Medical Imaging',
 }
 

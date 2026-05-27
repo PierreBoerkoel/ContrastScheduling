@@ -1,4 +1,4 @@
-export type BillingEntity = string  // entity code, e.g. 'MRCT', 'PET', 'UBCMR', 'BCWHMR'
+export type BillingEntity = string  // entity code, e.g. 'MRCT', 'PET', 'UBC', 'BCWH'
 
 export interface BillingRates {
   MRCT_base: number        // MRI with PET active
@@ -79,13 +79,13 @@ export const BILLING_CONTACTS: Record<string, BillingContact> = {
     org: 'BCCA Molecular Imaging and Therapy',
     address: '600 W 10th Ave\nVancouver BC  V5Z 4E6',
   },
-  UBCMR: {
+  UBC: {
     name: '',
     org: 'Vancouver Imaging',
     address: '450-943 West Broadway\nVancouver BC  V5Z 4E1',
     email: 'finance@vancouverimaging.com',
   },
-  BCWHMR: {
+  BCWH: {
     name: 'Rahul Jain',
     org: 'BCW Diagnostic Imaging',
     address: '4500 Oak St.\nVancouver BC  V6H3N1',
@@ -108,8 +108,8 @@ export function deriveInitials(fullName: string): string {
 export function clinicEntities(clinic: string): string[] {
   if (clinic === 'BC Cancer Agency CT') return ['MRCT']
   if (clinic === 'BC Cancer Agency MRI/PET') return ['MRCT', 'PET']
-  if (clinic === 'UBC Hospital') return ['UBCMR']
-  if (clinic === "BC Women's Hospital") return ['BCWHMR']
+  if (clinic === 'UBC Hospital') return ['UBC']
+  if (clinic === "BC Women's Hospital") return ['BCWH']
   return []
 }
 

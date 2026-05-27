@@ -233,7 +233,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
               .map((s) => [s.shiftId, ctStartTimeByDate[s.date]])
           ),
           format,
-          parkingAmounts: activeEntity === 'UBCMR'
+          parkingAmounts: activeEntity === 'UBC'
             ? Object.fromEntries(
                 Object.entries(parkingAmounts).map(([k, v]) => [k, parseFloat(v) || 0])
               )
@@ -423,7 +423,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
                   </div>
                 )}
 
-                {activeEntity === 'UBCMR' && isSelected && (
+                {activeEntity === 'UBC' && isSelected && (
                   <div className="mt-2 ml-7 flex items-center gap-2">
                     <label className="text-xs text-slate-500 whitespace-nowrap">Parking / transportation ($):</label>
                     <input
