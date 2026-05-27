@@ -529,6 +529,9 @@ assert(cascShiftAfter === '0', 'shift removed by cascade delete')
     await db`DELETE FROM scheduling_periods WHERE id = ${p.id}`
   }
   await db`DELETE FROM shift_history WHERE shift_id LIKE '2099-12-%'`
+  await db`DELETE FROM shift_splits WHERE shift_id LIKE '2020-01-%'`
+  await db`DELETE FROM swap_requests WHERE requestor_shift_id LIKE '2020-01-%'`
+  await db`DELETE FROM shifts WHERE id LIKE '2020-01-%'`
   await db`DELETE FROM invoice_sequences WHERE resident_name = '__test_user__'`
 }
 
@@ -987,15 +990,47 @@ const { body: prefs2 } = await api(R1.id, 'GET', '/api/preferences')
 assert(prefs2.weekdayRanking?.[0] === 'BC Cancer Agency CT', 'weekday ranking persisted correctly')
 assert(prefs2.weekendRanking?.[0] === 'BC Cancer Agency MRI/PET', 'weekend ranking persisted correctly')
 
+// ── 3.21 Shift started — swap and split accepts blocked ───────────────────────
+section('3.21 Shift started — swap accept and split accept blocked')
+
+// Insert a definitively-past shift (2020-01-01) into the test period with start_time set.
+// The shiftStarted guard fires before the "offeror must own shift" check, so we can insert
+// the offer records directly into the DB rather than going through creation APIs.
+const PAST_SHIFT_ID = '2020-01-01|BC Cancer Agency MRI/PET'
+await db`
+  INSERT INTO shifts (id, date, clinic, period_id, start_time, end_time)
+  VALUES (${PAST_SHIFT_ID}, '2020-01-01', 'BC Cancer Agency MRI/PET', ${HTTP_PERIOD_ID}, '08:00', '17:00')
+  ON CONFLICT (id) DO NOTHING
+`
+
+// Insert a swap request for the past shift directly into the DB
+const pastSwapId = crypto.randomUUID()
+await db`
+  INSERT INTO swap_requests (id, requested_at, status, requestor_user_id, requestor_name, requestor_shift_id)
+  VALUES (${pastSwapId}, NOW(), 'pending', ${R1.id}, ${R1.name}, ${PAST_SHIFT_ID})
+`
+const { status: pastSwapAcc, body: pastSwapAccBody } = await api(R2.id, 'PATCH', `/api/swaps/${pastSwapId}`, { action: 'accept' })
+assert(pastSwapAcc === 409, 'swap accept blocked when shift has already started (409)', `status=${pastSwapAcc} body=${JSON.stringify(pastSwapAccBody)}`)
+
+// Insert a split offer for the past shift directly into the DB
+const pastSplitId = crypto.randomUUID()
+await db`
+  INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status)
+  VALUES (${pastSplitId}, ${PAST_SHIFT_ID}, ${R1.name}, ${R1.id}, '12:00', '17:00', 'pending')
+`
+const { status: pastSplitAcc, body: pastSplitAccBody } = await api(R2.id, 'PATCH', `/api/splits/${pastSplitId}`, { action: 'accept' })
+assert(pastSplitAcc === 409, 'split accept blocked when shift has already started (409)', `status=${pastSplitAcc} body=${JSON.stringify(pastSplitAccBody)}`)
+
 // ════════════════════════════════════════════════════════════════════════════
 // Cleanup + summary
 // ════════════════════════════════════════════════════════════════════════════
 async function cleanup() {
   console.log('\n── Cleanup ──')
   try {
-    await db`DELETE FROM swap_requests WHERE requestor_shift_id LIKE '2099-12-%'`
-    await db`DELETE FROM shift_splits WHERE shift_id LIKE '2099-12-%'`
-    await db`DELETE FROM shift_history WHERE shift_id LIKE '2099-12-%'`
+    await db`DELETE FROM swap_requests WHERE requestor_shift_id LIKE '2099-12-%' OR requestor_shift_id LIKE '2020-01-%'`
+    await db`DELETE FROM shift_splits WHERE shift_id LIKE '2099-12-%' OR shift_id LIKE '2020-01-%'`
+    await db`DELETE FROM shift_history WHERE shift_id LIKE '2099-12-%' OR shift_id LIKE '2020-01-%'`
+    await db`DELETE FROM shifts WHERE id LIKE '2020-01-%'`
     await db`DELETE FROM availability_submissions WHERE period_id IN (SELECT id::TEXT FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME})`
     await db`DELETE FROM shifts WHERE period_id IN (SELECT id::TEXT FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME})`
     await db`DELETE FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME}`
