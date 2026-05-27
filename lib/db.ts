@@ -4,7 +4,7 @@ import type { BillingContactRecord } from './invoices'
 
 let _ready: Promise<void> | null = null
 export function ensureDb(): Promise<void> {
-  return (_ready ??= initDb())
+  return (_ready ??= initDb().catch((e) => { _ready = null; throw e }))
 }
 
 export async function initDb(): Promise<void> {
@@ -269,10 +269,10 @@ export async function initDb(): Promise<void> {
       ON CONFLICT DO NOTHING
     `
   }
-  // Migrate UBCMR and BCWHMR from legacy rate_key='MR' to 'rate' (simple billing)
+  // Remove legacy rate_key='MR' rows for UBCMR/BCWHMR — seeds now insert rate_key='rate'
   await sql`
-    UPDATE billing_rates br SET rate_key = 'rate'
-    FROM billing_entities be
+    DELETE FROM billing_rates br
+    USING billing_entities be
     WHERE br.entity_id = be.id
       AND be.code IN ('UBCMR', 'BCWHMR')
       AND br.rate_key = 'MR'
