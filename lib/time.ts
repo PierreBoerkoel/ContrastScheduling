@@ -1,3 +1,12 @@
+export function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+export function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
+  return timeToMinutes(aStart) < timeToMinutes(bEnd) && timeToMinutes(bStart) < timeToMinutes(aEnd)
+}
+
 export function shiftStarted(shiftDate: string, startTime?: string | null): boolean {
   const now = new Date()
   const fmt = new Intl.DateTimeFormat('en-CA', {

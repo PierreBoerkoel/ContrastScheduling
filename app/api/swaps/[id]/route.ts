@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getSwapRequests, updateSwapRequest, getShifts, getPeriod, updatePeriodPublishedAssignments, updatePeriodDraft } from '@/lib/db'
-import { shiftStarted } from '@/lib/time'
+import { getSwapRequests, updateSwapRequest, getShifts, getShiftSplits, getPeriod, updatePeriodPublishedAssignments, updatePeriodDraft } from '@/lib/db'
+import { shiftStarted, overlaps } from '@/lib/time'
 
 export async function PATCH(
   request: Request,
@@ -57,6 +57,24 @@ export async function PATCH(
     )
     if (acceptorDayConflict && !swap) {
       return NextResponse.json({ error: 'You are already scheduled on the same day as this shift' }, { status: 409 })
+    }
+
+    // Check accepted split portions — these don't appear in publishedAssignments
+    if (requestorShift.startTime && requestorShift.endTime) {
+      const allSplits = await getShiftSplits()
+      const conflictingSplit = allSplits.find(
+        (s) =>
+          s.acceptorUserId === userId &&
+          s.status === 'accepted' &&
+          s.shiftId.split('|')[0] === offerDate &&
+          overlaps(requestorShift.startTime!, requestorShift.endTime!, s.offeredStart, s.offeredEnd)
+      )
+      if (conflictingSplit) {
+        return NextResponse.json(
+          { error: `This shift overlaps with a split portion you already accepted (${conflictingSplit.offeredStart}–${conflictingSplit.offeredEnd})` },
+          { status: 409 }
+        )
+      }
     }
 
     const transfer = (a: typeof published[number]) => {

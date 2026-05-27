@@ -1,16 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { getShiftSplits, updateShiftSplit, getShifts, getAllPublishedAssignments } from '@/lib/db'
-import { shiftStarted } from '@/lib/time'
-
-function timeToMinutes(t: string): number {
-  const [h, m] = t.split(':').map(Number)
-  return h * 60 + m
-}
-
-function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
-  return timeToMinutes(aStart) < timeToMinutes(bEnd) && timeToMinutes(bStart) < timeToMinutes(aEnd)
-}
+import { shiftStarted, overlaps } from '@/lib/time'
 
 export async function PATCH(
   request: Request,

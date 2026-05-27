@@ -5,7 +5,7 @@
  */
 
 const { POSTGRES_URL, CLERK_SECRET_KEY } = process.env
-const BASE_URL = process.env.TEST_BASE_URL ?? 'https://contrast-scheduling.vercel.app'
+const BASE_URL = process.env.TEST_BASE_URL ?? 'http://localhost:3000'
 if (!POSTGRES_URL)       { console.error('POSTGRES_URL missing — run: node --env-file=.env.local scripts/test.mjs');       process.exit(1) }
 if (!CLERK_SECRET_KEY)   { console.error('CLERK_SECRET_KEY missing — run: node --env-file=.env.local scripts/test.mjs');   process.exit(1) }
 

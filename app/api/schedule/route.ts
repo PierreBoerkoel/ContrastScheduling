@@ -225,6 +225,12 @@ export async function PUT(request: Request) {
     await patchPublished(existingOnDay.shiftId, { shiftId: existingOnDay.shiftId, residentName: null, userId: null })
   }
 
+  // User fully gave away their same-day shift via splits — clear the stale primary assignment
+  // to prevent them ending up in publishedAssignments for two shifts on the same day.
+  if (existingOnDay && userFullyGivenAway) {
+    await patchPublished(existingOnDay.shiftId, { shiftId: existingOnDay.shiftId, residentName: null, userId: null })
+  }
+
   if (fullCoverageSplitShiftId) {
     const splitsToCancel = allSplits.filter(
       (sp) => sp.shiftId === fullCoverageSplitShiftId && sp.acceptorUserId === userId && sp.status === 'accepted'
