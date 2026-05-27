@@ -27,10 +27,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
-  const shiftId = `${date}|${clinic}`
   await ensureDb()
 
-  const { rows: existing } = await sql`SELECT id FROM shifts WHERE id = ${shiftId}`
+  const { rows: existing } = await sql`
+    SELECT id FROM shifts
+    WHERE date = ${date} AND clinic = ${clinic} AND period_id = ${periodId}::uuid
+  `
   if (existing.length > 0) {
     return NextResponse.json({ error: 'A shift for this date and clinic already exists' }, { status: 409 })
   }
@@ -40,10 +42,12 @@ export async function POST(request: Request) {
     ? { startTime, endTime }
     : (clinicDefaultShiftTimes(clinic, date, clinicDefaults) ?? { startTime: undefined, endTime: undefined })
 
-  await sql`
-    INSERT INTO shifts (id, date, clinic, period_id, start_time, end_time)
-    VALUES (${shiftId}, ${date}, ${clinic}, ${periodId}, ${times.startTime ?? null}, ${times.endTime ?? null})
+  const { rows: inserted } = await sql`
+    INSERT INTO shifts (date, clinic, period_id, start_time, end_time)
+    VALUES (${date}, ${clinic}, ${periodId}::uuid, ${times.startTime ?? null}, ${times.endTime ?? null})
+    RETURNING id
   `
+  const shiftId = inserted[0].id as string
 
   const period = await getPeriod(periodId)
   if (period) {

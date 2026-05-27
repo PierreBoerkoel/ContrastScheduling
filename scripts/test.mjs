@@ -6,8 +6,8 @@
 
 const { POSTGRES_URL, CLERK_SECRET_KEY } = process.env
 const BASE_URL = process.env.TEST_BASE_URL ?? 'http://localhost:3000'
-if (!POSTGRES_URL)       { console.error('POSTGRES_URL missing — run: node --env-file=.env.local scripts/test.mjs');       process.exit(1) }
-if (!CLERK_SECRET_KEY)   { console.error('CLERK_SECRET_KEY missing — run: node --env-file=.env.local scripts/test.mjs');   process.exit(1) }
+if (!POSTGRES_URL)     { console.error('POSTGRES_URL missing — run: node --env-file=.env.local scripts/test.mjs'); process.exit(1) }
+if (!CLERK_SECRET_KEY) { console.error('CLERK_SECRET_KEY missing — run: node --env-file=.env.local scripts/test.mjs'); process.exit(1) }
 
 import postgres from 'postgres'
 const db = postgres(POSTGRES_URL, { ssl: 'require' })
@@ -15,7 +15,7 @@ const db = postgres(POSTGRES_URL, { ssl: 'require' })
 // ── Test runner ───────────────────────────────────────────────────────────────
 let passed = 0, failed = 0
 const failures = []
-const ok  = (label)           => { console.log(`  ✓ ${label}`); passed++ }
+const ok   = (label)            => { console.log(`  ✓ ${label}`); passed++ }
 const fail = (label, detail='') => { const m = detail ? `${label}: ${detail}` : label; console.error(`  ✗ ${m}`); failures.push(m); failed++ }
 const assert = (cond, label, detail='') => cond ? ok(label) : fail(label, detail)
 const section = (name) => console.log(`\n── ${name} ──`)
@@ -188,7 +188,7 @@ assert(s4[2].userId === 'uA' && s4[2].start === '14:00', 'Alice: 14:00–21:00')
 
 section('1.5  computeCoverageSegments — pending + cancelled ignored')
 const sp = computeCoverageSegments(SHIFT, 'Alice', [
-  { offerorUserId: 'uA', acceptorName: 'Bob', acceptorUserId: 'uB', offeredStart: '12:00', offeredEnd: '21:00', status: 'pending' },
+  { offerorUserId: 'uA', acceptorName: 'Bob',   acceptorUserId: 'uB', offeredStart: '12:00', offeredEnd: '21:00', status: 'pending' },
   { offerorUserId: 'uA', acceptorName: 'Carol', acceptorUserId: 'uC', offeredStart: '08:00', offeredEnd: '12:00', status: 'cancelled' },
 ], 'uA')
 assert(sp.length === 1 && sp[0].userId === 'uA', 'pending/cancelled splits ignored')
@@ -267,8 +267,6 @@ assert(validateSplit({
 assert(validateSplit({ offeredStart: '12:00', offeredEnd: '18:00', ownedStart: '08:00', ownedEnd: '21:00', hasPending: true }) !== null, 'rejects when already pending')
 
 section('1.15 generateSchedule — top-ranked clinic chosen (single user, two clinics same day)')
-// 2026-07-15 = Wednesday (weekday). Alice available for both; weekdayRanking = [CT, BCWH].
-// She must be placed at CT (her top preference) since she is the only person drawn.
 const pref1Shifts = [
   { id: 'P1', date: '2026-07-15', clinic: 'BCWH' },
   { id: 'P2', date: '2026-07-15', clinic: 'CT' },
@@ -280,9 +278,6 @@ assert(pref1Result.find(a => a.shiftId === 'P2')?.userId === 'uA', 'Alice placed
 assert(pref1Result.find(a => a.shiftId === 'P1')?.residentName === null, 'BCWH unassigned (only one resident, placed at CT)')
 
 section('1.16 generateSchedule — two users, different top preferences (deterministic, no conflict)')
-// Alice prefers A, Bob prefers B. Both available for both. Whoever is drawn first gets their
-// top choice; the other resident's top choice is still available when they are drawn → both
-// end up at their preferred clinic regardless of draw order.
 const pref2Shifts = [
   { id: 'Q1', date: '2026-07-16', clinic: 'A' },
   { id: 'Q2', date: '2026-07-16', clinic: 'B' },
@@ -300,8 +295,6 @@ assert(pref2Result.find(a => a.shiftId === 'Q1')?.userId === 'uA', 'Alice gets c
 assert(pref2Result.find(a => a.shiftId === 'Q2')?.userId === 'uB', 'Bob gets clinic B (his top preference)')
 
 section('1.17 generateSchedule — two users, same top preference (one gets it, other falls back)')
-// Both Alice and Bob rank A first. The first drawn gets A; the second draws falls back to B.
-// Both shifts must be filled.
 const pref3Shifts = [
   { id: 'R1', date: '2026-07-17', clinic: 'A' },
   { id: 'R2', date: '2026-07-17', clinic: 'B' },
@@ -325,9 +318,6 @@ assert(
 assert(r3A.userId !== r3B.userId, 'different users on each shift (no double-booking)')
 
 section('1.18 generateSchedule — pool pruning (resident with no remaining available shifts excluded)')
-// R1 available for shift A only. R2 available for shift A only (not B).
-// R1 is drawn first → placed at A → B remains. Pool prune removes R2 (B not in their available set).
-// B must be unassigned.
 const pref4Shifts = [
   { id: 'T1', date: '2026-07-18', clinic: 'A' },
   { id: 'T2', date: '2026-07-18', clinic: 'B' },
@@ -336,7 +326,6 @@ const pref4Subs = [
   { residentName: 'R1', userId: 'u1', availableShiftIds: ['T1'] },
   { residentName: 'R2', userId: 'u2', availableShiftIds: ['T1'] },
 ]
-// Run 10 times — both outcomes assign exactly 1 shift and leave T2 unassigned
 let poolPruneOk = true
 for (let i = 0; i < 10; i++) {
   const r = generateSchedule(pref4Shifts, pref4Subs)
@@ -357,7 +346,7 @@ section('1.20 validateSplit — zero-length window (start === end) rejected')
 assert(validateSplit({ offeredStart: '12:00', offeredEnd: '12:00', ownedStart: '08:00', ownedEnd: '21:00' }) !== null, 'start === end rejected')
 
 section('1.21 generateSchedule — weekend ranking used on weekend dates')
-// 2026-07-19 is a Sunday (getUTCDay === 0 → weekend)
+// 2026-07-19 is a Sunday
 const wkShifts = [
   { id: 'W1', date: '2026-07-19', clinic: 'A' },
   { id: 'W2', date: '2026-07-19', clinic: 'B' },
@@ -385,153 +374,188 @@ let testPeriodId = null
 // Cleanup any stale test data from a previous failed run
 const stale = await db`SELECT id FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME}`
 for (const p of stale) {
-  await db`DELETE FROM shift_splits WHERE shift_id IN (SELECT id FROM shifts WHERE period_id = ${p.id})`
-  await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}`
-  await db`DELETE FROM shifts WHERE period_id = ${p.id}`
+  await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}::text`
   await db`DELETE FROM scheduling_periods WHERE id = ${p.id}`
+  // FK CASCADE handles: shifts → shift_splits, swap_requests, shift_assignments
 }
-await db`DELETE FROM shift_history WHERE shift_id LIKE '2099-12-%'`
 await db`DELETE FROM invoice_sequences WHERE resident_name = '__test_user__'`
 
 section('2.1  Schema — required tables exist')
-const TABLES = ['shifts','scheduling_periods','availability_submissions','swap_requests','shift_history','shift_splits','invoice_sequences','billing_rates','billing_contacts','resident_preferences','clinic_defaults']
+const TABLES = [
+  'shifts', 'scheduling_periods', 'shift_assignments', 'availability_submissions',
+  'swap_requests', 'shift_splits', 'invoice_sequences',
+  'billing_rates', 'billing_contacts', 'resident_preferences', 'clinic_defaults',
+]
 for (const t of TABLES) {
-  const [{ count }] = await db`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ${t}`
+  const [{ count }] = await db`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ${t} AND table_schema = 'public'`
   assert(count === '1', `table "${t}" exists`)
 }
 
-section('2.2  Schema — key columns')
-const splitCols = (await db`SELECT column_name FROM information_schema.columns WHERE table_name = 'shift_splits'`).map(r => r.column_name)
+section('2.2  Schema — key columns and UUID types')
+const splitCols = (await db`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'shift_splits' AND table_schema = 'public'`).reduce((m, r) => { m[r.column_name] = r.data_type; return m }, {})
 for (const col of ['id','shift_id','offeror_user_id','offered_start','offered_end','status','acceptor_user_id']) {
-  assert(splitCols.includes(col), `shift_splits.${col} exists`)
+  assert(col in splitCols, `shift_splits.${col} exists`)
 }
-const subCols = (await db`SELECT column_name FROM information_schema.columns WHERE table_name = 'availability_submissions'`).map(r => r.column_name)
+assert(splitCols['shift_id'] === 'uuid', 'shift_splits.shift_id is UUID type')
+assert(splitCols['period_id'] === 'uuid', 'shift_splits.period_id is UUID type')
+
+const subCols = (await db`SELECT column_name FROM information_schema.columns WHERE table_name = 'availability_submissions' AND table_schema = 'public'`).map(r => r.column_name)
 for (const col of ['user_id','period_id','max_shifts']) {
   assert(subCols.includes(col), `availability_submissions.${col} exists`)
 }
-const seqCols = (await db`SELECT column_name FROM information_schema.columns WHERE table_name = 'invoice_sequences'`).map(r => r.column_name)
+
+const shiftCols = (await db`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'shifts' AND table_schema = 'public'`).reduce((m, r) => { m[r.column_name] = r.data_type; return m }, {})
+assert(shiftCols['id'] === 'uuid', 'shifts.id is UUID type')
+assert(shiftCols['period_id'] === 'uuid', 'shifts.period_id is UUID type')
+
+const swapCols = (await db`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'swap_requests' AND table_schema = 'public'`).reduce((m, r) => { m[r.column_name] = r.data_type; return m }, {})
+assert(swapCols['requestor_shift_id'] === 'uuid', 'swap_requests.requestor_shift_id is UUID type')
+assert(swapCols['period_id'] === 'uuid', 'swap_requests.period_id is UUID type')
+
+const seqCols = (await db`SELECT column_name FROM information_schema.columns WHERE table_name = 'invoice_sequences' AND table_schema = 'public'`).map(r => r.column_name)
 assert(seqCols.includes('user_id'), 'invoice_sequences.user_id exists')
 
 section('2.3  Scheduling period CRUD')
-const [{ id: pid }] = await db`INSERT INTO scheduling_periods (name, start_date, end_date) VALUES (${TEST_PERIOD_NAME}, '2099-12-01', '2099-12-05') RETURNING id`
+const [{ id: pid }] = await db`
+  INSERT INTO scheduling_periods (name, start_date, end_date)
+  VALUES (${TEST_PERIOD_NAME}, '2099-12-01', '2099-12-05')
+  RETURNING id
+`
 testPeriodId = pid
 const [period] = await db`SELECT * FROM scheduling_periods WHERE id = ${pid}`
 assert(period.name === TEST_PERIOD_NAME, 'period created with correct name')
 
-section('2.4  Shifts CRUD')
-const TEST_SHIFTS = [
-  { id: '2099-12-01|BC Cancer Agency MRI/PET', date: '2099-12-01', clinic: 'BC Cancer Agency MRI/PET', startTime: '08:00', endTime: '17:00' },
-  { id: '2099-12-01|BC Cancer Agency CT',      date: '2099-12-01', clinic: 'BC Cancer Agency CT',      startTime: '08:00', endTime: '17:00' },
-  { id: '2099-12-02|BC Cancer Agency MRI/PET', date: '2099-12-02', clinic: 'BC Cancer Agency MRI/PET', startTime: '08:00', endTime: '17:00' },
-  { id: '2099-12-03|BC Cancer Agency MRI/PET', date: '2099-12-03', clinic: 'BC Cancer Agency MRI/PET', startTime: '08:00', endTime: '17:00' },
-  { id: '2099-12-04|BC Cancer Agency MRI/PET', date: '2099-12-04', clinic: 'BC Cancer Agency MRI/PET', startTime: '08:00', endTime: '17:00' },
+section('2.4  Shifts CRUD — DB generates UUID ids')
+// Insert shifts without specifying id; DB uses gen_random_uuid()
+const TEST_SHIFTS = []
+const shiftData = [
+  { date: '2099-12-01', clinic: 'BC Cancer Agency MRI/PET', startTime: '08:00', endTime: '17:00' },
+  { date: '2099-12-01', clinic: 'BC Cancer Agency CT',      startTime: '08:00', endTime: '17:00' },
+  { date: '2099-12-02', clinic: 'BC Cancer Agency MRI/PET', startTime: '08:00', endTime: '17:00' },
+  { date: '2099-12-03', clinic: 'BC Cancer Agency MRI/PET', startTime: '08:00', endTime: '17:00' },
+  { date: '2099-12-04', clinic: 'BC Cancer Agency MRI/PET', startTime: '08:00', endTime: '17:00' },
 ]
-for (const s of TEST_SHIFTS) {
-  await db`INSERT INTO shifts (id, date, clinic, period_id, start_time, end_time) VALUES (${s.id}, ${s.date}, ${s.clinic}, ${pid}, ${s.startTime}, ${s.endTime})`
+for (const s of shiftData) {
+  const [row] = await db`
+    INSERT INTO shifts (date, clinic, period_id, start_time, end_time)
+    VALUES (${s.date}, ${s.clinic}, ${pid}, ${s.startTime}, ${s.endTime})
+    RETURNING id
+  `
+  TEST_SHIFTS.push({ ...s, id: row.id })
 }
 const [{ count: shiftCount }] = await db`SELECT COUNT(*) FROM shifts WHERE period_id = ${pid}`
 assert(shiftCount === '5', '5 shifts inserted')
+assert(TEST_SHIFTS.every(s => /^[0-9a-f-]{36}$/.test(s.id)), 'all shift ids are valid UUIDs')
 
 section('2.5  Availability submission — upsert idempotency')
 const subId1 = crypto.randomUUID()
 const subUserId = 'test_user_db_' + Date.now()
-await db`INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids, period_id) VALUES (${subId1}, ${subUserId}, 'Test User', NOW(), ${['2099-12-01|BC Cancer Agency MRI/PET']}, ${pid})`
+await db`
+  INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids, period_id)
+  VALUES (${subId1}, ${subUserId}, 'Test User', NOW(), ${[TEST_SHIFTS[0].id]}, ${pid}::text)
+`
 const subId2 = crypto.randomUUID()
-// Upsert — conflict on (user_id, period_id)
-await db`INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids, period_id) VALUES (${subId2}, ${subUserId}, 'Test User', NOW(), ${['2099-12-02|BC Cancer Agency MRI/PET']}, ${pid}) ON CONFLICT (user_id, period_id) WHERE user_id IS NOT NULL AND period_id IS NOT NULL DO UPDATE SET id = EXCLUDED.id, available_shift_ids = EXCLUDED.available_shift_ids`
-const [updated] = await db`SELECT available_shift_ids FROM availability_submissions WHERE user_id = ${subUserId} AND period_id = ${pid}`
-assert(JSON.stringify(updated.available_shift_ids) === JSON.stringify(['2099-12-02|BC Cancer Agency MRI/PET']), 'upsert overwrites prior submission')
-const [{ count: subCount }] = await db`SELECT COUNT(*) FROM availability_submissions WHERE user_id = ${subUserId} AND period_id = ${pid}`
+await db`
+  INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids, period_id)
+  VALUES (${subId2}, ${subUserId}, 'Test User', NOW(), ${[TEST_SHIFTS[2].id]}, ${pid}::text)
+  ON CONFLICT (user_id, period_id) WHERE user_id IS NOT NULL AND period_id IS NOT NULL
+  DO UPDATE SET
+    id                  = EXCLUDED.id,
+    available_shift_ids = EXCLUDED.available_shift_ids
+`
+const [updated] = await db`SELECT available_shift_ids FROM availability_submissions WHERE user_id = ${subUserId} AND period_id = ${pid}::text`
+assert(JSON.stringify(updated.available_shift_ids) === JSON.stringify([TEST_SHIFTS[2].id]), 'upsert overwrites prior submission')
+const [{ count: subCount }] = await db`SELECT COUNT(*) FROM availability_submissions WHERE user_id = ${subUserId} AND period_id = ${pid}::text`
 assert(subCount === '1', 'exactly one row per user per period')
 
 section('2.6  Shift splits — pending, accept, unique index, cancel-then-repend')
 const splitId = crypto.randomUUID()
-await db`INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status) VALUES (${splitId}, '2099-12-01|BC Cancer Agency MRI/PET', 'Test User', ${subUserId}, '12:00', '17:00', 'pending')`
+await db`
+  INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status)
+  VALUES (${splitId}, ${TEST_SHIFTS[0].id}, 'Test User', ${subUserId}, '12:00', '17:00', 'pending')
+`
 const [split] = await db`SELECT * FROM shift_splits WHERE id = ${splitId}`
 assert(split.status === 'pending' && split.offered_start === '12:00', 'split inserted as pending')
 
-// Accept
 await db`UPDATE shift_splits SET status = 'accepted', acceptor_name = 'Other User', acceptor_user_id = 'other_user', accepted_at = NOW() WHERE id = ${splitId}`
 const [accepted] = await db`SELECT status, acceptor_name FROM shift_splits WHERE id = ${splitId}`
 assert(accepted.status === 'accepted' && accepted.acceptor_name === 'Other User', 'split accepted correctly')
 
 // Unique pending index: second pending from same user on same shift is blocked
 const sp2Id = crypto.randomUUID()
-await db`INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status) VALUES (${sp2Id}, '2099-12-01|BC Cancer Agency MRI/PET', 'Test User', ${subUserId}, '08:00', '12:00', 'pending')`
+await db`
+  INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status)
+  VALUES (${sp2Id}, ${TEST_SHIFTS[0].id}, 'Test User', ${subUserId}, '08:00', '12:00', 'pending')
+`
 try {
-  await db`INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status) VALUES (${crypto.randomUUID()}, '2099-12-01|BC Cancer Agency MRI/PET', 'Test User', ${subUserId}, '10:00', '12:00', 'pending')`
+  await db`
+    INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status)
+    VALUES (${crypto.randomUUID()}, ${TEST_SHIFTS[0].id}, 'Test User', ${subUserId}, '10:00', '12:00', 'pending')
+  `
   fail('unique pending index', 'should have rejected duplicate pending')
 } catch (e) {
   assert(e.code === '23505', 'unique pending index blocks second offer from same user on same shift')
 }
-// Cancel sp2 → new pending from same user should be allowed
 await db`UPDATE shift_splits SET status = 'cancelled' WHERE id = ${sp2Id}`
 try {
-  await db`INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status) VALUES (${crypto.randomUUID()}, '2099-12-01|BC Cancer Agency MRI/PET', 'Test User', ${subUserId}, '10:00', '12:00', 'pending')`
+  await db`
+    INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status)
+    VALUES (${crypto.randomUUID()}, ${TEST_SHIFTS[0].id}, 'Test User', ${subUserId}, '10:00', '12:00', 'pending')
+  `
   ok('new pending offer allowed after prior is cancelled')
 } catch {
   fail('new pending after cancel', 'should have been allowed')
 }
 
-section('2.8  Invoice sequences — user_id keyed')
-await db`INSERT INTO invoice_sequences (resident_name, series, next_number, user_id) VALUES ('__test_user__', 'MRCT', 1, '__test_user__') ON CONFLICT (resident_name, series) DO NOTHING`
+section('2.7  Invoice sequences — user_id keyed')
+await db`
+  INSERT INTO invoice_sequences (resident_name, series, next_number, user_id)
+  VALUES ('__test_user__', 'MRCT', 1, '__test_user__')
+  ON CONFLICT (resident_name, series) DO NOTHING
+`
 await db`UPDATE invoice_sequences SET next_number = next_number + 1 WHERE user_id = '__test_user__' AND series = 'MRCT'`
 const [seq] = await db`SELECT next_number FROM invoice_sequences WHERE user_id = '__test_user__' AND series = 'MRCT'`
 assert(seq.next_number === 2, 'invoice sequence incremented correctly')
 const [{ count: seqCount }] = await db`SELECT COUNT(*) FROM invoice_sequences WHERE user_id = '__test_user__' AND series = 'MRCT'`
 assert(seqCount === '1', 'single sequence row per user+series')
 
-section('2.9  Shift history — insert + upsert on conflict')
-await db`INSERT INTO shift_history (shift_id, date, clinic, resident_name, user_id) VALUES ('2099-12-01|BC Cancer Agency MRI/PET', '2099-12-01', 'BC Cancer Agency MRI/PET', 'Alice', 'uA')`
-const [h1] = await db`SELECT resident_name FROM shift_history WHERE shift_id = '2099-12-01|BC Cancer Agency MRI/PET'`
-assert(h1.resident_name === 'Alice', 'history entry inserted')
-await db`INSERT INTO shift_history (shift_id, date, clinic, resident_name, user_id) VALUES ('2099-12-01|BC Cancer Agency MRI/PET', '2099-12-01', 'BC Cancer Agency MRI/PET', 'Bob', 'uB') ON CONFLICT (shift_id) DO UPDATE SET resident_name = EXCLUDED.resident_name, user_id = COALESCE(EXCLUDED.user_id, shift_history.user_id)`
-const [h2] = await db`SELECT resident_name, user_id FROM shift_history WHERE shift_id = '2099-12-01|BC Cancer Agency MRI/PET'`
-assert(h2.resident_name === 'Bob', 'history upsert updates resident name')
-assert(h2.user_id === 'uB', 'history upsert updates user_id')
-
-section('2.10 shift_splits — direct accepted insertion (admin-split pattern)')
+section('2.8  shift_splits — direct accepted insertion (admin-split pattern)')
 const adminSplitId2 = crypto.randomUUID()
-const shiftForAdminSplit = TEST_SHIFTS[0].id
 await db`
   INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, accepted_at)
-  VALUES (${adminSplitId2}, ${shiftForAdminSplit}, 'Admin Offeror', 'admin_u_test', '08:00', '12:00', 'accepted', 'Admin Acceptor', 'acceptor_u_test', NOW())
+  VALUES (${adminSplitId2}, ${TEST_SHIFTS[0].id}, 'Admin Offeror', 'admin_u_test', '08:00', '12:00', 'accepted', 'Admin Acceptor', 'acceptor_u_test', NOW())
 `
 const [adminSplitRow] = await db`SELECT status, acceptor_name FROM shift_splits WHERE id = ${adminSplitId2}`
 assert(adminSplitRow.status === 'accepted', 'admin-created split inserted directly as accepted')
 assert(adminSplitRow.acceptor_name === 'Admin Acceptor', 'acceptor name stored correctly in direct-accepted split')
 
-section('2.11 shift deletion cascade — splits removed before shift delete (API pattern)')
-const cascadeShift2Id = TEST_SHIFTS[2].id  // '2099-12-02|BC Cancer Agency MRI/PET'
+section('2.9  FK ON DELETE CASCADE — deleting a shift auto-removes its splits')
 const cascadeSplit2Id = crypto.randomUUID()
-await db`INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status) VALUES (${cascadeSplit2Id}, ${cascadeShift2Id}, 'Test', 'uT', '08:00', '17:00', 'pending')`
+await db`
+  INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status)
+  VALUES (${cascadeSplit2Id}, ${TEST_SHIFTS[2].id}, 'Test', 'uT', '08:00', '17:00', 'pending')
+`
 const [{ count: cascBefore }] = await db`SELECT COUNT(*) FROM shift_splits WHERE id = ${cascadeSplit2Id}`
 assert(cascBefore === '1', 'split exists before cascade delete')
-await db`DELETE FROM shift_splits WHERE shift_id = ${cascadeShift2Id}`
-await db`DELETE FROM shifts WHERE id = ${cascadeShift2Id}`
+// Deleting the shift (no manual split delete needed — ON DELETE CASCADE handles it)
+await db`DELETE FROM shifts WHERE id = ${TEST_SHIFTS[2].id}`
 const [{ count: cascSplitAfter }] = await db`SELECT COUNT(*) FROM shift_splits WHERE id = ${cascadeSplit2Id}`
-assert(cascSplitAfter === '0', 'split removed by cascade delete')
-const [{ count: cascShiftAfter }] = await db`SELECT COUNT(*) FROM shifts WHERE id = ${cascadeShift2Id}`
-assert(cascShiftAfter === '0', 'shift removed by cascade delete')
+assert(cascSplitAfter === '0', 'split auto-removed by FK ON DELETE CASCADE when shift deleted')
+const [{ count: cascShiftAfter }] = await db`SELECT COUNT(*) FROM shifts WHERE id = ${TEST_SHIFTS[2].id}`
+assert(cascShiftAfter === '0', 'shift itself removed')
 
 // ════════════════════════════════════════════════════════════════════════════
 // SECTION 3 — HTTP API (end-to-end against live deployment)
 // ════════════════════════════════════════════════════════════════════════════
 
-// Clean up any DB-layer test data left by section 2 so section 3 starts with a blank slate.
+// Clean up DB-layer test data so section 3 starts fresh
 {
   const staleRows = await db`SELECT id FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME}`
   for (const p of staleRows) {
-    await db`DELETE FROM shift_splits WHERE shift_id IN (SELECT id FROM shifts WHERE period_id = ${p.id})`
-    await db`DELETE FROM swap_requests WHERE requestor_shift_id IN (SELECT id FROM shifts WHERE period_id = ${p.id})`
-    await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}`
-    await db`DELETE FROM shifts WHERE period_id = ${p.id}`
+    await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}::text`
     await db`DELETE FROM scheduling_periods WHERE id = ${p.id}`
+    // FK CASCADE: shifts → shift_splits, swap_requests, shift_assignments
   }
-  await db`DELETE FROM shift_history WHERE shift_id LIKE '2099-12-%'`
-  await db`DELETE FROM shift_splits WHERE shift_id LIKE '2020-01-%'`
-  await db`DELETE FROM swap_requests WHERE requestor_shift_id LIKE '2020-01-%'`
-  await db`DELETE FROM shifts WHERE id LIKE '2020-01-%'`
   await db`DELETE FROM invoice_sequences WHERE resident_name = '__test_user__'`
 }
 
@@ -592,13 +616,12 @@ for (let i = 1; i <= 3; i++) {
 assert(TEST_USERS.length === 3, `3 test residents created (got ${TEST_USERS.length})`)
 const [R1, R2, R3] = TEST_USERS
 
-// ── Create test period + shifts via HTTP ──────────────────────────────────────
+// ── Create test period via API, then shifts ───────────────────────────────────
 const { status: pStatus, body: pBody } = await api(ADMIN, 'POST', '/api/periods', {
   name: TEST_PERIOD_NAME, startDate: '2099-12-01', endDate: '2099-12-05'
 })
 assert(pStatus === 201, 'admin creates test period', `status=${pStatus} body=${JSON.stringify(pBody)}`)
 
-// Create shifts via the shifts API (overwrites any DB-only period, syncs shifts properly)
 const activeClinics = {
   '2099-12-01': ['BC Cancer Agency MRI/PET', 'BC Cancer Agency CT'],
   '2099-12-02': ['BC Cancer Agency MRI/PET'],
@@ -615,16 +638,29 @@ const { status: shiftSaveStatus } = await api(ADMIN, 'POST', '/api/shifts', {
 })
 assert(shiftSaveStatus === 200, 'admin creates test shifts', `status=${shiftSaveStatus}`)
 
-// Get period ID from API
-const { body: periods } = await api(R1.id, 'GET', '/api/periods')
-const testPeriod = Array.isArray(periods) ? periods.find(p => p.name === TEST_PERIOD_NAME) : null
+// Resolve period ID and shift UUIDs from API
+const { body: periodsResp } = await api(R1.id, 'GET', '/api/periods')
+const testPeriod = Array.isArray(periodsResp) ? periodsResp.find(p => p.name === TEST_PERIOD_NAME) : null
 assert(!!testPeriod, 'test period visible in GET /api/periods')
 const HTTP_PERIOD_ID = testPeriod?.id
 
+const { body: allShiftsResp } = await api(ADMIN, 'GET', '/api/shifts')
+const allShifts = Array.isArray(allShiftsResp) ? allShiftsResp : []
+const testShifts = allShifts.filter(s => s.periodId === HTTP_PERIOD_ID)
+const shiftByKey = Object.fromEntries(testShifts.map(s => [`${s.date}|${s.clinic}`, s]))
+const shiftById  = Object.fromEntries(allShifts.map(s => [s.id, s]))
+
+// S maps semantic names → UUID shift IDs
+const S = {
+  r1Mri01: shiftByKey['2099-12-01|BC Cancer Agency MRI/PET']?.id,
+  ct01:    shiftByKey['2099-12-01|BC Cancer Agency CT']?.id,
+  r2Mri02: shiftByKey['2099-12-02|BC Cancer Agency MRI/PET']?.id,
+  r3Mri03: shiftByKey['2099-12-03|BC Cancer Agency MRI/PET']?.id,
+  mri04:   shiftByKey['2099-12-04|BC Cancer Agency MRI/PET']?.id,
+}
+assert(Object.values(S).every(id => typeof id === 'string'), 'all test shift UUIDs resolved from API')
+
 // ── 3.1  Unauthenticated → blocked ───────────────────────────────────────────
-// Clerk middleware (auth.protect()) redirects unauthenticated requests to sign-in rather
-// than returning 401 directly. GET routes → 404 (sign-in page can't serve /api paths);
-// POST routes → 200 HTML (sign-in page rendered inline). Either way, no API data is returned.
 section('3.1  Auth: unauthenticated requests → blocked')
 for (const [method, path] of [['GET','/api/shifts'],['GET','/api/schedule'],['GET','/api/availability'],['POST','/api/availability']]) {
   const { status, body } = await api(null, method, path, method === 'POST' ? {} : undefined)
@@ -635,12 +671,12 @@ for (const [method, path] of [['GET','/api/shifts'],['GET','/api/schedule'],['GE
 // ── 3.2  Admin-only routes → 403 for residents ────────────────────────────────
 section('3.2  Auth: admin-only routes → 403 for non-admin')
 const adminOnlyChecks = [
-  ['POST', '/api/shifts',           { blockName: 'x', startDate: '2099-01-01', endDate: '2099-01-01', activeClinics: {} }],
-  ['POST', '/api/schedule',         { action: 'generate' }],
-  ['POST', '/api/schedule',         { action: 'publish' }],
-  ['GET',  '/api/admin/users',      undefined],
-  ['PUT',  '/api/admin/billing-rates',    { key: 'MRCT_base', value: 50 }],
-  ['PUT',  '/api/admin/billing-contacts', { entity: 'MRCT', contactName: 'x', org: 'x', address: 'x', email: null }],
+  ['POST', '/api/shifts',                    { blockName: 'x', startDate: '2099-01-01', endDate: '2099-01-01', activeClinics: {} }],
+  ['POST', '/api/schedule',                  { action: 'generate' }],
+  ['POST', '/api/schedule',                  { action: 'publish' }],
+  ['GET',  '/api/admin/users',               undefined],
+  ['PUT',  '/api/admin/billing-rates',       { key: 'MRCT_base', value: 50 }],
+  ['PUT',  '/api/admin/billing-contacts',    { entity: 'MRCT', contactName: 'x', org: 'x', address: 'x', email: null }],
 ]
 for (const [method, path, body] of adminOnlyChecks) {
   const { status } = await api(R1.id, method, path, body)
@@ -649,26 +685,13 @@ for (const [method, path, body] of adminOnlyChecks) {
 
 // ── 3.3  Availability submission ─────────────────────────────────────────────
 section('3.3  Availability submission')
-const S = {
-  r1Mri01: '2099-12-01|BC Cancer Agency MRI/PET',
-  ct01:    '2099-12-01|BC Cancer Agency CT',
-  r2Mri02: '2099-12-02|BC Cancer Agency MRI/PET',
-  r3Mri03: '2099-12-03|BC Cancer Agency MRI/PET',
-}
-
-// R1: only available for 12-01 MRI/PET (guarantees deterministic assignment)
+// Each resident is available for exactly one shift — guarantees deterministic schedule generation
 const { status: a1 } = await api(R1.id, 'POST', '/api/availability', { availableShiftIds: [S.r1Mri01], periodId: HTTP_PERIOD_ID })
 assert(a1 === 200, 'R1 submits availability')
-
-// R2: only available for 12-02 MRI/PET
 const { status: a2 } = await api(R2.id, 'POST', '/api/availability', { availableShiftIds: [S.r2Mri02], periodId: HTTP_PERIOD_ID })
 assert(a2 === 200, 'R2 submits availability')
-
-// R3: only available for 12-03 MRI/PET
 const { status: a3 } = await api(R3.id, 'POST', '/api/availability', { availableShiftIds: [S.r3Mri03], periodId: HTTP_PERIOD_ID })
 assert(a3 === 200, 'R3 submits availability')
-
-// R1 resubmits (idempotent update)
 const { status: a1b } = await api(R1.id, 'POST', '/api/availability', { availableShiftIds: [S.r1Mri01], periodId: HTTP_PERIOD_ID })
 assert(a1b === 200, 'R1 can resubmit before publish (idempotent update)')
 
@@ -681,14 +704,16 @@ const assignedFor = (shiftId) => draftAssignments.find(a => a.shiftId === shiftI
 assert(assignedFor(S.r1Mri01)?.userId === R1.id, 'R1 assigned to 12-01 MRI/PET (only eligible)')
 assert(assignedFor(S.r2Mri02)?.userId === R2.id, 'R2 assigned to 12-02 MRI/PET (only eligible)')
 assert(assignedFor(S.r3Mri03)?.userId === R3.id, 'R3 assigned to 12-03 MRI/PET (only eligible)')
-assert(assignedFor(S.ct01)?.residentName === null, '12-01 CT unassigned (no submissions)')
-assert(assignedFor('2099-12-04|BC Cancer Agency MRI/PET')?.residentName === null, '12-04 unassigned (no submissions)')
+assert(assignedFor(S.ct01)?.residentName === null,  '12-01 CT unassigned (no submissions)')
+assert(assignedFor(S.mri04)?.residentName === null, '12-04 unassigned (no submissions)')
 
 // No double-bookings
 const dayMap = {}; let dbCount = 0
 for (const a of draftAssignments) {
   if (!a.userId) continue
-  const key = `${a.userId}|${a.shiftId.split('|')[0]}`
+  const shiftDate = shiftById[a.shiftId]?.date
+  if (!shiftDate) continue
+  const key = `${a.userId}|${shiftDate}`
   if (dayMap[key]) dbCount++
   dayMap[key] = true
 }
@@ -715,23 +740,20 @@ assert(viewPeriod?.publishedAssignments?.some(a => a.shiftId === S.r1Mri01), 'pu
 
 // ── 3.8  Claim unassigned shift ───────────────────────────────────────────────
 section('3.8  Claim unassigned shift')
-const unassignedShift = '2099-12-04|BC Cancer Agency MRI/PET'
-const { status: claimStatus } = await api(R3.id, 'PUT', '/api/schedule', { shiftId: unassignedShift })
+const { status: claimStatus } = await api(R3.id, 'PUT', '/api/schedule', { shiftId: S.mri04 })
 assert(claimStatus === 200, 'R3 claims unassigned 12-04 shift')
 const { body: afterClaimBody } = await api(ADMIN, 'GET', '/api/schedule')
 const afterClaimPub = Array.isArray(afterClaimBody) ? afterClaimBody.flatMap(p => p.publishedAssignments ?? []) : []
-const claimedA = afterClaimPub.find(a => a.shiftId === unassignedShift)
-assert(claimedA?.userId === R3.id, 'R3 appears in publishedAssignments for 12-04')
+assert(afterClaimPub.find(a => a.shiftId === S.mri04)?.userId === R3.id, 'R3 appears in publishedAssignments for 12-04')
 
 // ── 3.9  Same-day double-claim blocked ───────────────────────────────────────
 section('3.9  Same-day double-claim blocked')
-// R1 is on 12-01 MRI/PET; CT on that day is unassigned
+// R1 is on 12-01 MRI/PET; CT on that same day is unassigned
 const { status: doubleStatus } = await api(R1.id, 'PUT', '/api/schedule', { shiftId: S.ct01 })
 assert(doubleStatus === 409, 'R1 cannot claim a second shift on the same day (409)')
 
 // ── 3.10 Swap offer — post, accept, verify ────────────────────────────────────
 section('3.10 Swap: R2 offers shift, R3 accepts')
-// R2 is on 12-02. R3 is on 12-03 + 12-04. Neither is on 12-02, so R3 can take R2's shift.
 const { status: swapPostStatus, body: swapBody } = await api(R2.id, 'POST', '/api/swaps', { requestorShiftId: S.r2Mri02 })
 assert(swapPostStatus === 201 && swapBody.id, 'R2 posts swap offer', `status=${swapPostStatus}`)
 const swapId = swapBody.id
@@ -741,64 +763,43 @@ assert(swapAccStatus === 200 && swapAccBody.status === 'accepted', 'R3 accepts s
 
 const { body: afterSwapBody } = await api(ADMIN, 'GET', '/api/schedule')
 const afterSwapPub = Array.isArray(afterSwapBody) ? afterSwapBody.flatMap(p => p.publishedAssignments ?? []) : []
-const swappedA = afterSwapPub.find(a => a.shiftId === S.r2Mri02)
-assert(swappedA?.userId === R3.id, 'R3 now assigned to 12-02 after swap')
-const r2lost = afterSwapPub.find(a => a.shiftId === S.r2Mri02 && a.userId === R2.id)
-assert(!r2lost, 'R2 no longer on 12-02 after swap')
+assert(afterSwapPub.find(a => a.shiftId === S.r2Mri02)?.userId === R3.id, 'R3 now assigned to 12-02 after swap')
+assert(!afterSwapPub.find(a => a.shiftId === S.r2Mri02 && a.userId === R2.id), 'R2 no longer on 12-02 after swap')
 
 // ── 3.11 Swap already accepted — second accept blocked ────────────────────────
 section('3.11 Swap: double-accept of same offer blocked')
 const { status: reAccStatus } = await api(R1.id, 'PATCH', `/api/swaps/${swapId}`, { action: 'accept' })
 assert(reAccStatus === 409, 'second accept of same swap blocked (409)')
 
-// ── 3.12 Same-day swap block ─────────────────────────────────────────────────
-section('3.12 Swap: blocked when acceptor already on that day')
-// R1 is on 12-01. Offer a shift on 12-01 and have R1 try to accept without swap:true.
-// R3 is now on 12-01 CT? No — CT is still unassigned. Let R3 offer 12-04 swap; R1 tries to accept (R1 is on 12-01 != 12-04 so no conflict).
-// Instead: post a swap of 12-01 MRI/PET from R1, then have R3 (who is now on 12-01 AFTER the above) try to accept... wait R3 is on 12-02 now (from swap) and 12-03 and 12-04, not 12-01.
-// Let's do: R1 offers 12-01, and a test of the 409 path where acceptor has a conflict.
-// Actually the simplest: R1 offers their 12-01 shift. R3 (who is on 12-02, 12-03, 12-04, NOT 12-01) accepts → should succeed. But we want to test the BLOCK.
-// Use a second swap: R3 offers 12-02 (just gained). R1 tries to accept. R1 is on 12-01 != 12-02, so no conflict → 200. Not what we want.
-// The clearest block scenario: post a swap for the CT shift (unassigned, so nobody can post it).
-// Alternative: test that R1 cannot accept a swap for a shift on 12-01 (their existing day).
-// Set up: have R3 offer the 12-04 shift they claimed (12-04). R1 (on 12-01) is not on 12-04 → can accept, no conflict.
-// The only way to hit the 409 is if the acceptor already has a shift on THE SAME DAY as the offered shift.
-// R1 is on 12-01. If we have a swap offer for a 12-01 shift, R1 can't accept without swap:true.
-// R1 offers 12-01 MRI/PET:
+// ── 3.12 Swap: cancel and re-offer works ─────────────────────────────────────
+section('3.12 Swap: cancel own offer')
 const { status: r1OfferStatus, body: r1OfferBody } = await api(R1.id, 'POST', '/api/swaps', { requestorShiftId: S.r1Mri01 })
 assert(r1OfferStatus === 201, 'R1 posts swap offer for 12-01', `status=${r1OfferStatus}`)
-// Now R3 (on 12-02, 12-03, 12-04) tries to accept — R3 is NOT on 12-01, so this should succeed (not a 409).
-// But wait: can we instead have R1 accept their OWN offer? That would be an error. Let's check a different scenario.
-// The 409 scenario requires an acceptor who already has a shift on the same day.
-// After the first swap, R3 has 12-02. If another offer for 12-02 appears, R3 would get 409.
-// Let's cancel R1's offer and skip this specific 409 test since setting it up cleanly would add a lot of test shifts.
-await api(R1.id, 'PATCH', `/api/swaps/${r1OfferBody.id}`, { action: 'cancel' })
-ok('same-day swap block test skipped (complex setup) — covered by unit/DB validation tests')
+const { status: cancelStatus } = await api(R1.id, 'PATCH', `/api/swaps/${r1OfferBody.id}`, { action: 'cancel' })
+assert(cancelStatus === 200, 'R1 cancels their own swap offer')
+// R1 can re-offer after cancelling
+const { status: reOfferStatus } = await api(R1.id, 'POST', '/api/swaps', { requestorShiftId: S.r1Mri01 })
+assert(reOfferStatus === 201, 'R1 can re-offer after cancelling')
+// Cancel again to leave state clean
+await api(R1.id, 'PATCH', `/api/swaps/${(await api(R1.id, 'GET', '/api/swaps')).body.find(r => r.requestorShiftId === S.r1Mri01 && r.status === 'pending')?.id}`, { action: 'cancel' })
 
 // ── 3.13 Shift split — offer a portion, accept it ────────────────────────────
 section('3.13 Shift split — partial offer and acceptance')
-// R1 is on 12-01 MRI/PET (08:00-17:00). R1 offers 12:00-17:00.
 const { status: splitStatus, body: splitBody } = await api(R1.id, 'POST', '/api/splits', {
-  shiftId: S.r1Mri01,
-  offeredStart: '12:00',
-  offeredEnd: '17:00',
+  shiftId: S.r1Mri01, offeredStart: '12:00', offeredEnd: '17:00',
 })
-assert(splitStatus === 201 && splitBody.id, 'R1 creates partial split offer', `status=${splitStatus} body=${JSON.stringify(splitBody)}`)
+assert(splitStatus === 201 && splitBody.id, 'R1 creates partial split offer', `status=${splitStatus}`)
 const splitOfferId = splitBody.id
 
-// Self-accept blocked
 const { status: selfAccStatus } = await api(R1.id, 'PATCH', `/api/splits/${splitOfferId}`, { action: 'accept' })
 assert(selfAccStatus === 400, 'offeror cannot accept their own split (400)')
 
-// Duplicate pending offer rejected
 const { status: dupStatus } = await api(R1.id, 'POST', '/api/splits', { shiftId: S.r1Mri01, offeredStart: '08:00', offeredEnd: '12:00' })
 assert(dupStatus === 409, 'duplicate pending split offer rejected (409)')
 
-// R2 accepts (R2 is now free after swap)
 const { status: splitAccStatus } = await api(R2.id, 'PATCH', `/api/splits/${splitOfferId}`, { action: 'accept' })
 assert(splitAccStatus === 200, 'R2 accepts the split offer', `status=${splitAccStatus}`)
 
-// Verify segments via coverage computation
 const { body: splitList } = await api(R1.id, 'GET', '/api/splits')
 const activeSplits = (Array.isArray(splitList) ? splitList : []).filter(s => s.shiftId === S.r1Mri01 && s.status === 'accepted')
 const segs = computeCoverageSegments({ startTime: '08:00', endTime: '17:00' }, R1.name, activeSplits.map(s => ({
@@ -823,7 +824,6 @@ const { body: bcVerify } = await api(ADMIN, 'GET', '/api/admin/billing-contacts'
 const mrctContact = Array.isArray(bcVerify) ? bcVerify.find(c => c.entity === 'MRCT') : null
 assert(mrctContact?.contactName === 'Test Contact', 'billing contact update persisted')
 
-// GET returns Record<string,number> (object keyed by rate name), not an array
 const { status: brGetStatus, body: brGet } = await api(ADMIN, 'GET', '/api/admin/billing-rates')
 assert(brGetStatus === 200 && typeof brGet === 'object' && !Array.isArray(brGet), 'GET billing rates returns rates object')
 
@@ -832,8 +832,6 @@ const { status: brPutStatus } = await api(ADMIN, 'PUT', '/api/admin/billing-rate
 assert(brPutStatus === 200, 'PUT billing rate succeeds')
 const { body: brVerify } = await api(ADMIN, 'GET', '/api/admin/billing-rates')
 assert(Number(brVerify?.MRCT_base) === 55, 'billing rate update persisted')
-
-// Restore original rate
 await api(ADMIN, 'PUT', '/api/admin/billing-rates', { key: 'MRCT_base', value: originalMrctBase })
 
 // ── 3.15 Admin user list ──────────────────────────────────────────────────────
@@ -843,84 +841,65 @@ assert(ulStatus === 200 && Array.isArray(ulBody) && ulBody.length >= 3, `admin s
 
 // ── 3.16 Admin single shift CRUD + cascade delete ─────────────────────────────
 section('3.16 Admin single shift CRUD + cascade delete of splits')
-const SINGLE_DATE = '2099-12-05'
+const SINGLE_DATE   = '2099-12-05'
 const SINGLE_CLINIC = 'BC Cancer Agency MRI/PET'
-const SINGLE_ID = `${SINGLE_DATE}|${SINGLE_CLINIC}`
 
 const { status: sc201, body: scBody } = await api(ADMIN, 'POST', '/api/shifts/single', {
-  periodId: HTTP_PERIOD_ID,
-  date: SINGLE_DATE,
-  clinic: SINGLE_CLINIC,
-  startTime: '08:00',
-  endTime: '17:00',
+  periodId: HTTP_PERIOD_ID, date: SINGLE_DATE, clinic: SINGLE_CLINIC,
+  startTime: '08:00', endTime: '17:00',
 })
 assert(sc201 === 201, 'admin creates single shift via /api/shifts/single', `status=${sc201} body=${JSON.stringify(scBody)}`)
-assert(scBody.id === SINGLE_ID, 'created shift has correct composite id')
+const SINGLE_UUID = scBody.id
+assert(typeof SINGLE_UUID === 'string' && /^[0-9a-f-]{36}$/i.test(SINGLE_UUID), 'created shift has UUID id')
 
 const { status: scDup } = await api(ADMIN, 'POST', '/api/shifts/single', {
-  periodId: HTTP_PERIOD_ID,
-  date: SINGLE_DATE,
-  clinic: SINGLE_CLINIC,
+  periodId: HTTP_PERIOD_ID, date: SINGLE_DATE, clinic: SINGLE_CLINIC,
 })
 assert(scDup === 409, 'duplicate single-shift creation rejected (409)')
 
 const { status: scPatch } = await api(ADMIN, 'PATCH', '/api/shifts/single', {
-  shiftId: SINGLE_ID,
-  startTime: '08:00',
-  endTime: '16:00',
+  shiftId: SINGLE_UUID, startTime: '08:00', endTime: '16:00',
 })
 assert(scPatch === 200, 'admin updates single shift times')
-const [{ end_time: updatedEnd }] = await db`SELECT end_time FROM shifts WHERE id = ${SINGLE_ID}`
+const [{ end_time: updatedEnd }] = await db`SELECT end_time FROM shifts WHERE id = ${SINGLE_UUID}::uuid`
 assert(updatedEnd === '16:00', 'shift end_time updated in DB after PATCH')
 
 // Insert a split directly to test cascade behaviour
 const cascadeSplit3Id = crypto.randomUUID()
-await db`INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status) VALUES (${cascadeSplit3Id}, ${SINGLE_ID}, 'Test', 'uT', '08:00', '12:00', 'pending')`
-
-const { status: scDelete } = await api(ADMIN, 'DELETE', '/api/shifts/single', { shiftId: SINGLE_ID })
+await db`
+  INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status)
+  VALUES (${cascadeSplit3Id}, ${SINGLE_UUID}::uuid, 'Test', 'uT', '08:00', '12:00', 'pending')
+`
+const { status: scDelete } = await api(ADMIN, 'DELETE', '/api/shifts/single', { shiftId: SINGLE_UUID })
 assert(scDelete === 200, 'admin deletes single shift')
 const [{ count: splitGone }] = await db`SELECT COUNT(*) FROM shift_splits WHERE id = ${cascadeSplit3Id}`
 assert(splitGone === '0', 'split cascade-deleted when shift removed via API')
-const [{ count: shiftGone }] = await db`SELECT COUNT(*) FROM shifts WHERE id = ${SINGLE_ID}`
+const [{ count: shiftGone }] = await db`SELECT COUNT(*) FROM shifts WHERE id = ${SINGLE_UUID}::uuid`
 assert(shiftGone === '0', 'shift record removed by delete API')
 
 // ── 3.17 POST /api/admin/splits — input validation ────────────────────────────
 section('3.17 POST /api/admin/splits — input validation')
-// Missing required fields
 const { status: asMissing } = await api(ADMIN, 'POST', '/api/admin/splits', {
-  shiftId: S.r1Mri01,
-  offeredStart: '10:00',
+  shiftId: S.r1Mri01, offeredStart: '10:00',
   // missing offeredEnd, acceptorUserId, acceptorName
 })
 assert(asMissing === 400, 'missing fields → 400')
 
-// Non-30-min boundary
 const { status: asBoundary } = await api(ADMIN, 'POST', '/api/admin/splits', {
-  shiftId: S.r1Mri01,
-  offeredStart: '10:15',
-  offeredEnd: '14:00',
-  acceptorUserId: R2.id,
-  acceptorName: R2.name,
+  shiftId: S.r1Mri01, offeredStart: '10:15', offeredEnd: '14:00',
+  acceptorUserId: R2.id, acceptorName: R2.name,
 })
 assert(asBoundary === 400, 'non-30-min boundary → 400')
 
-// Time outside shift range (shift is 08:00-17:00)
 const { status: asRange } = await api(ADMIN, 'POST', '/api/admin/splits', {
-  shiftId: S.r1Mri01,
-  offeredStart: '06:00',
-  offeredEnd: '10:00',
-  acceptorUserId: R2.id,
-  acceptorName: R2.name,
+  shiftId: S.r1Mri01, offeredStart: '06:00', offeredEnd: '10:00',
+  acceptorUserId: R2.id, acceptorName: R2.name,
 })
 assert(asRange === 400, 'time outside shift range → 400')
 
-// Non-admin blocked
 const { status: asNonAdmin } = await api(R1.id, 'POST', '/api/admin/splits', {
-  shiftId: S.r1Mri01,
-  offeredStart: '08:00',
-  offeredEnd: '10:00',
-  acceptorUserId: R2.id,
-  acceptorName: R2.name,
+  shiftId: S.r1Mri01, offeredStart: '08:00', offeredEnd: '10:00',
+  acceptorUserId: R2.id, acceptorName: R2.name,
 })
 assert(asNonAdmin === 403, 'non-admin cannot create admin split (403)')
 
@@ -929,30 +908,22 @@ section('3.18 Admin split — create + overlap rejection + delete lifecycle')
 // S.r1Mri01 already has an accepted split 12:00-17:00 from section 3.13.
 // Create a non-overlapping admin split at 08:00-10:00.
 const { status: asCreate, body: asBody } = await api(ADMIN, 'POST', '/api/admin/splits', {
-  shiftId: S.r1Mri01,
-  offeredStart: '08:00',
-  offeredEnd: '10:00',
-  acceptorUserId: R2.id,
-  acceptorName: R2.name,
+  shiftId: S.r1Mri01, offeredStart: '08:00', offeredEnd: '10:00',
+  acceptorUserId: R2.id, acceptorName: R2.name,
 })
 assert(asCreate === 201 && asBody.id, 'admin creates split directly as accepted', `status=${asCreate}`)
 const adminSplitCreatedId = asBody.id
 
 // Overlapping admin split rejected (09:00-14:00 overlaps both 08:00-10:00 and 12:00-17:00)
 const { status: asOverlap } = await api(ADMIN, 'POST', '/api/admin/splits', {
-  shiftId: S.r1Mri01,
-  offeredStart: '09:00',
-  offeredEnd: '14:00',
-  acceptorUserId: R3.id,
-  acceptorName: R3.name,
+  shiftId: S.r1Mri01, offeredStart: '09:00', offeredEnd: '14:00',
+  acceptorUserId: R3.id, acceptorName: R3.name,
 })
 assert(asOverlap === 409, 'overlapping admin split rejected (409)')
 
-// Non-admin cannot delete
 const { status: asDelNonAdmin } = await api(R1.id, 'DELETE', '/api/admin/splits', { splitId: adminSplitCreatedId })
 assert(asDelNonAdmin === 403, 'non-admin cannot delete admin split (403)')
 
-// Admin deletes successfully
 const { status: asDelAdmin } = await api(ADMIN, 'DELETE', '/api/admin/splits', { splitId: adminSplitCreatedId })
 assert(asDelAdmin === 200, 'admin deletes split successfully')
 const { body: splitsAfterAdminDel } = await api(R1.id, 'GET', '/api/splits')
@@ -963,12 +934,9 @@ assert(!adminSplitStillExists, 'deleted split no longer in GET /api/splits')
 
 // ── 3.19 Resident split — overlap with already-given-away portion rejected ─────
 section('3.19 Resident split — overlap with already-given-away portion rejected')
-// R1 gave away 12:00-17:00 in section 3.13 (accepted). R1 tries to re-offer a window that overlaps it.
-// 10:00-14:00 is within the shift bounds (08:00-17:00) but overlaps the given-away 12:00-17:00.
+// R1 gave away 12:00-17:00 in 3.13. 10:00-14:00 overlaps the given-away window.
 const { status: overlapOfferStatus } = await api(R1.id, 'POST', '/api/splits', {
-  shiftId: S.r1Mri01,
-  offeredStart: '10:00',
-  offeredEnd: '14:00',
+  shiftId: S.r1Mri01, offeredStart: '10:00', offeredEnd: '14:00',
 })
 assert(overlapOfferStatus === 400, 'offer overlapping already-given-away portion rejected (400)')
 
@@ -992,18 +960,13 @@ assert(prefs2.weekendRanking?.[0] === 'BC Cancer Agency MRI/PET', 'weekend ranki
 
 // ── 3.21 Shift started — swap and split accepts blocked ───────────────────────
 section('3.21 Shift started — swap accept and split accept blocked')
-
-// Insert a definitively-past shift (2020-01-01) into the test period with start_time set.
-// The shiftStarted guard fires before the "offeror must own shift" check, so we can insert
-// the offer records directly into the DB rather than going through creation APIs.
-const PAST_SHIFT_ID = '2020-01-01|BC Cancer Agency MRI/PET'
-await db`
-  INSERT INTO shifts (id, date, clinic, period_id, start_time, end_time)
-  VALUES (${PAST_SHIFT_ID}, '2020-01-01', 'BC Cancer Agency MRI/PET', ${HTTP_PERIOD_ID}, '08:00', '17:00')
-  ON CONFLICT (id) DO NOTHING
+// Insert a definitively-past shift directly via DB (2020-01-01)
+const [{ id: PAST_SHIFT_ID }] = await db`
+  INSERT INTO shifts (date, clinic, period_id, start_time, end_time)
+  VALUES ('2020-01-01', 'BC Cancer Agency MRI/PET', ${HTTP_PERIOD_ID}::uuid, '08:00', '17:00')
+  RETURNING id
 `
 
-// Insert a swap request for the past shift directly into the DB
 const pastSwapId = crypto.randomUUID()
 await db`
   INSERT INTO swap_requests (id, requested_at, status, requestor_user_id, requestor_name, requestor_shift_id)
@@ -1012,16 +975,14 @@ await db`
 const { status: pastSwapAcc, body: pastSwapAccBody } = await api(R2.id, 'PATCH', `/api/swaps/${pastSwapId}`, { action: 'accept' })
 assert(pastSwapAcc === 409, 'swap accept blocked when shift has already started (409)', `status=${pastSwapAcc} body=${JSON.stringify(pastSwapAccBody)}`)
 
-// GET /api/swaps auto-cancels the pending offer and returns it as cancelled
 const { body: swapsAfterStart } = await api(R1.id, 'GET', '/api/swaps')
 const autoSwap = Array.isArray(swapsAfterStart) ? swapsAfterStart.find(r => r.id === pastSwapId) : null
 assert(autoSwap?.status === 'cancelled', 'GET /api/swaps auto-cancels pending offer for started shift')
-// Confirm DB was written (second GET should also return cancelled)
+
 const { body: swapsAfterStart2 } = await api(R1.id, 'GET', '/api/swaps')
 const autoSwap2 = Array.isArray(swapsAfterStart2) ? swapsAfterStart2.find(r => r.id === pastSwapId) : null
 assert(autoSwap2?.status === 'cancelled', 'cancelled status persists in DB after auto-cancel')
 
-// Insert a split offer for the past shift directly into the DB
 const pastSplitId = crypto.randomUUID()
 await db`
   INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status)
@@ -1030,7 +991,6 @@ await db`
 const { status: pastSplitAcc, body: pastSplitAccBody } = await api(R2.id, 'PATCH', `/api/splits/${pastSplitId}`, { action: 'accept' })
 assert(pastSplitAcc === 409, 'split accept blocked when shift has already started (409)', `status=${pastSplitAcc} body=${JSON.stringify(pastSplitAccBody)}`)
 
-// GET /api/splits auto-cancels the pending offer and returns it as cancelled
 const { body: splitsAfterStart } = await api(R1.id, 'GET', '/api/splits')
 const autoSplit = Array.isArray(splitsAfterStart) ? splitsAfterStart.find(s => s.id === pastSplitId) : null
 assert(autoSplit?.status === 'cancelled', 'GET /api/splits auto-cancels pending offer for started shift')
@@ -1041,13 +1001,11 @@ assert(autoSplit?.status === 'cancelled', 'GET /api/splits auto-cancels pending 
 async function cleanup() {
   console.log('\n── Cleanup ──')
   try {
-    await db`DELETE FROM swap_requests WHERE requestor_shift_id LIKE '2099-12-%' OR requestor_shift_id LIKE '2020-01-%'`
-    await db`DELETE FROM shift_splits WHERE shift_id LIKE '2099-12-%' OR shift_id LIKE '2020-01-%'`
-    await db`DELETE FROM shift_history WHERE shift_id LIKE '2099-12-%' OR shift_id LIKE '2020-01-%'`
-    await db`DELETE FROM shifts WHERE id LIKE '2020-01-%'`
-    await db`DELETE FROM availability_submissions WHERE period_id IN (SELECT id::TEXT FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME})`
-    await db`DELETE FROM shifts WHERE period_id IN (SELECT id::TEXT FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME})`
-    await db`DELETE FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME}`
+    if (HTTP_PERIOD_ID) {
+      await db`DELETE FROM availability_submissions WHERE period_id = ${HTTP_PERIOD_ID}`
+      await db`DELETE FROM scheduling_periods WHERE id = ${HTTP_PERIOD_ID}::uuid`
+      // FK CASCADE removes: shifts → shift_splits, swap_requests, shift_assignments
+    }
     await db`DELETE FROM invoice_sequences WHERE user_id = '__test_user__'`
     for (const u of TEST_USERS) await db`DELETE FROM resident_preferences WHERE user_id = ${u.id}`
     for (const u of TEST_USERS) await clerkReq('DELETE', `/users/${u.id}`)
