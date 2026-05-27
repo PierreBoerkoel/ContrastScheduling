@@ -176,15 +176,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'You are already scheduled on this day' }, { status: 409 })
   }
 
-  // Helper: update a single assignment in a period's published assignments
-  async function patchPublished(pShiftId: string, assignment: ShiftAssignment) {
-    const pShift = shiftById[pShiftId]
-    if (!pShift?.periodId) return
-    const p = await getPeriod(pShift.periodId)
-    if (!p) return
-    const newPub = p.publishedAssignments.map((a) => a.shiftId === pShiftId ? assignment : a)
-    await updatePeriodPublishedAssignments(pShift.periodId, newPub)
-  }
+  let clearShiftId: string | null = null
 
   if (existingOnDay && !userFullyGivenAway && swap) {
     if (newShift?.startTime && newShift?.endTime) {
@@ -222,13 +214,11 @@ export async function PUT(request: Request) {
         { status: 409 }
       )
     }
-    await patchPublished(existingOnDay.shiftId, { shiftId: existingOnDay.shiftId, residentName: null, userId: null })
+    clearShiftId = existingOnDay.shiftId
   }
 
-  // User fully gave away their same-day shift via splits — clear the stale primary assignment
-  // to prevent them ending up in publishedAssignments for two shifts on the same day.
   if (existingOnDay && userFullyGivenAway) {
-    await patchPublished(existingOnDay.shiftId, { shiftId: existingOnDay.shiftId, residentName: null, userId: null })
+    clearShiftId = existingOnDay.shiftId
   }
 
   if (fullCoverageSplitShiftId) {
@@ -236,13 +226,14 @@ export async function PUT(request: Request) {
       (sp) => sp.shiftId === fullCoverageSplitShiftId && sp.acceptorUserId === userId && sp.status === 'accepted'
     )
     await Promise.all(splitsToCancel.map((sp) => updateShiftSplit(sp.id, { status: 'cancelled' })))
-    await patchPublished(fullCoverageSplitShiftId, { shiftId: fullCoverageSplitShiftId, residentName: null, userId: null })
   }
 
-  // Assign the target shift
-  const newPub = period.publishedAssignments.map((a, i) =>
-    i === idx ? { shiftId, residentName: name, userId } : a
-  )
+  const newPub = period.publishedAssignments.map((a, i) => {
+    if (i === idx) return { shiftId, residentName: name, userId }
+    if (clearShiftId && a.shiftId === clearShiftId) return { shiftId: clearShiftId, residentName: null, userId: null }
+    if (fullCoverageSplitShiftId && a.shiftId === fullCoverageSplitShiftId) return { shiftId: fullCoverageSplitShiftId, residentName: null, userId: null }
+    return a
+  })
   await updatePeriodPublishedAssignments(shift.periodId, newPub)
   return NextResponse.json({ ok: true })
 }
