@@ -1,25 +1,26 @@
-export const CLINICS = [
-  'BC Cancer Agency CT',
-  'BC Cancer Agency MRI/PET',
-  'INITIO Medical Imaging',
-  'UBC Hospital',
-  "BC Women's Hospital",
-] as const
+export type ClinicName = string
 
-export const CLINIC_ABBR: Record<string, string> = {
-  'BC Cancer Agency CT': 'BCCA CT',
-  'BC Cancer Agency MRI/PET': 'BCCA MRI/PET',
-  'INITIO Medical Imaging': 'INITIO',
-  'UBC Hospital': 'UBC',
-  "BC Women's Hospital": 'BCWH',
+export interface Clinic {
+  id: string
+  name: string
+  abbreviation: string
+  activeDays: number[]       // 0=Sun, 1=Mon, ..., 6=Sat
+  weekdayStart: string | null
+  weekdayEnd: string | null
+  weekendStart: string | null
+  weekendEnd: string | null
+  billingMode: string        // 'simple' | 'mrct_pet_combined'
+  billingEntityCodes: string[] // e.g. ['MRCT', 'PET']
+  sortOrder: number
 }
 
-export type ClinicName = (typeof CLINICS)[number]
+// Backward-compat alias
+export type ClinicDefault = Clinic
 
 export interface Shift {
   id: string
   date: string // YYYY-MM-DD
-  clinic: ClinicName
+  clinic: string
   periodId?: string
   startTime?: string // HH:MM 24h
   endTime?: string   // HH:MM 24h
@@ -36,21 +37,12 @@ export function formatTimeRange(startTime?: string, endTime?: string): string {
   return `${fmt(startTime)} – ${fmt(endTime)}`
 }
 
-export interface ClinicDefault {
-  clinic: string
-  activeDays: number[]       // 0=Sun, 1=Mon, ..., 6=Sat
-  weekdayStart: string | null
-  weekdayEnd: string | null
-  weekendStart: string | null
-  weekendEnd: string | null
-}
-
 export function clinicDefaultShiftTimes(
-  clinic: string,
+  clinicName: string,
   dateStr: string,
-  defaults: ClinicDefault[],
+  defaults: Clinic[],
 ): { startTime: string; endTime: string } | undefined {
-  const d = defaults.find((x) => x.clinic === clinic)
+  const d = defaults.find((x) => x.name === clinicName)
   if (!d) return undefined
   const day = new Date(dateStr + 'T00:00:00Z').getUTCDay()
   const isWeekend = day === 0 || day === 6
@@ -62,11 +54,11 @@ export function clinicDefaultShiftTimes(
   return undefined
 }
 
-export function clinicDefaultActiveClinics(dateStr: string, defaults: ClinicDefault[]): Set<ClinicName> {
+export function clinicDefaultActiveClinics(dateStr: string, defaults: Clinic[]): Set<string> {
   const day = new Date(dateStr + 'T00:00:00Z').getUTCDay()
-  const active = new Set<ClinicName>()
+  const active = new Set<string>()
   for (const d of defaults) {
-    if (d.activeDays.includes(day)) active.add(d.clinic as ClinicName)
+    if (d.activeDays.includes(day)) active.add(d.name)
   }
   return active
 }

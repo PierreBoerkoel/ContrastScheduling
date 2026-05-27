@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, AvailabilitySubmission, ClinicName, SwapRequest, SchedulingPeriod, ShiftSplit } from '@/lib/types'
-import { CLINICS, CLINIC_ABBR, formatTimeRange, computeCoverageSegments, buildDisplayNames, clinicDefaultShiftTimes, clinicDefaultActiveClinics } from '@/lib/types'
-import type { ClinicDefault } from '@/lib/types'
+import type { Shift, AvailabilitySubmission, ClinicName, SwapRequest, SchedulingPeriod, ShiftSplit, Clinic } from '@/lib/types'
+import { formatTimeRange, computeCoverageSegments, buildDisplayNames, clinicDefaultShiftTimes, clinicDefaultActiveClinics } from '@/lib/types'
 import type { BillingContactRecord } from '@/lib/invoices'
 
 function formatPhone(raw: string): string {
@@ -253,8 +252,10 @@ export default function AdminPage() {
   const [adminSplitting, setAdminSplitting] = useState(false)
 
   // Clinic defaults
-  const [clinicDefaults, setClinicDefaults] = useState<ClinicDefault[]>([])
-  const clinicDefaultsRef = useRef<ClinicDefault[]>([])
+  const [clinicDefaults, setClinicDefaults] = useState<Clinic[]>([])
+  const clinicDefaultsRef = useRef<Clinic[]>([])
+  const clinicNames = clinicDefaults.map((c) => c.name)
+  const clinicAbbr = Object.fromEntries(clinicDefaults.map((c) => [c.name, c.abbreviation]))
   const [showClinicDefaults, setShowClinicDefaults] = useState(false)
   const [editingClinicDefault, setEditingClinicDefault] = useState<string | null>(null)
   const [clinicDefaultEdit, setClinicDefaultEdit] = useState<{
@@ -362,7 +363,7 @@ export default function AdminPage() {
       for (const d of dates) {
         if (!next[d]) {
           next[d] = {}
-          for (const clinic of CLINICS) {
+          for (const clinic of clinicDefaultsRef.current.map((c) => c.name)) {
             const t = clinicDefaultShiftTimes(clinic, d, clinicDefaultsRef.current)
             if (t) next[d][clinic] = t
           }
@@ -633,7 +634,7 @@ export default function AdminPage() {
   const blockAssignments = (schedPeriod?.assignments ?? []).filter((a) => blockShiftIds.has(a.shiftId))
   const blockIsPublished = !!schedPeriod?.publishedAt
 
-  const visibleClinics: ClinicName[] = scheduleClinicFilter ? [scheduleClinicFilter] : [...CLINICS]
+  const visibleClinics: string[] = scheduleClinicFilter ? [scheduleClinicFilter] : clinicNames
 
   const splitsByShift: Record<string, ShiftSplit[]> = {}
   for (const sp of splits) (splitsByShift[sp.shiftId] ??= []).push(sp)
@@ -874,8 +875,8 @@ export default function AdminPage() {
             </button>
             {showClinicDefaults && (
               <div className="border-t border-slate-100 divide-y divide-slate-100">
-                {CLINICS.map((clinic) => {
-                  const def = clinicDefaults.find((d) => d.clinic === clinic)
+                {clinicDefaults.map((def) => {
+                  const clinic = def.name
                   const isEditing = editingClinicDefault === clinic
                   const hasWeekdays = isEditing
                     ? [1, 2, 3, 4, 5].some((d) => clinicDefaultEdit.activeDays.has(d))
@@ -964,18 +965,15 @@ export default function AdminPage() {
                                 })
                                 setSavingClinicDefault(false)
                                 if (res.ok) {
-                                  const updated = {
-                                    clinic,
-                                    activeDays,
-                                    weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
-                                    weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
-                                    weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
-                                    weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
-                                  }
                                   setClinicDefaults((prev) =>
-                                    prev.some((d) => d.clinic === clinic)
-                                      ? prev.map((d) => d.clinic === clinic ? updated : d)
-                                      : [...prev, updated]
+                                    prev.map((d) => d.name === clinic ? {
+                                      ...d,
+                                      activeDays,
+                                      weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
+                                      weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
+                                      weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
+                                      weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
+                                    } : d)
                                   )
                                   setEditingClinicDefault(null)
                                 } else {
@@ -1112,9 +1110,9 @@ export default function AdminPage() {
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50">
                         <th className="text-left px-3 py-2 font-medium text-slate-600">Date</th>
-                        {CLINICS.map((c) => (
+                        {clinicNames.map((c) => (
                           <th key={c} className="text-center px-3 py-2 font-medium text-slate-600 whitespace-nowrap">
-                            {CLINIC_ABBR[c] ?? c}
+                            {clinicAbbr[c] ?? c}
                           </th>
                         ))}
                       </tr>
@@ -1126,7 +1124,7 @@ export default function AdminPage() {
                             {formatDate(date)}
                             {isWeekend(date) && <span className="ml-2 text-xs text-slate-300">weekend</span>}
                           </td>
-                          {CLINICS.map((clinic) => {
+                          {clinicNames.map((clinic) => {
                             const active = activeClinics[date]?.has(clinic) ?? false
                             const times = shiftTimes[date]?.[clinic]
                             return (
@@ -1528,7 +1526,7 @@ export default function AdminPage() {
                       className="text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
                     >
                       <option value="">All clinics</option>
-                      {CLINICS.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {clinicNames.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                     {blockIsPublished && (
                       <button
@@ -1762,7 +1760,7 @@ export default function AdminPage() {
                           <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Date</th>
                           {visibleClinics.map((clinic) => (
                             <th key={clinic} className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">
-                              {CLINIC_ABBR[clinic] ?? clinic}
+                              {clinicAbbr[clinic] ?? clinic}
                             </th>
                           ))}
                         </tr>
@@ -2155,7 +2153,7 @@ export default function AdminPage() {
                         {offeredShift ? (
                           <div className="text-xs text-slate-600">
                             <span className="font-medium">{formatDate(offeredShift.date)}</span>
-                            <span className="text-slate-400 ml-1">· {CLINIC_ABBR[offeredShift.clinic] ?? offeredShift.clinic}</span>
+                            <span className="text-slate-400 ml-1">· {clinicAbbr[offeredShift.clinic] ?? offeredShift.clinic}</span>
                           </div>
                         ) : null}
                         {accName && (

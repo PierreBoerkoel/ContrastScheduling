@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, SwapRequest, ClinicName, SchedulingPeriod, ShiftSplit } from '@/lib/types'
-import { CLINICS, CLINIC_ABBR, formatTimeRange, computeCoverageSegments, buildDisplayNames } from '@/lib/types'
+import type { Shift, SwapRequest, ClinicName, SchedulingPeriod, ShiftSplit, Clinic } from '@/lib/types'
+import { formatTimeRange, computeCoverageSegments, buildDisplayNames } from '@/lib/types'
 
 function formatDate(dateStr: string) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -96,6 +96,9 @@ export default function SchedulePage() {
   const [periods, setPeriods] = useState<SchedulingPeriod[]>([])
   const [splits, setSplits] = useState<ShiftSplit[]>([])
   const [userNames, setUserNames] = useState<Record<string, string>>({})
+  const [clinics, setClinics] = useState<Clinic[]>([])
+  const clinicNames = clinics.map((c) => c.name)
+  const clinicAbbr = Object.fromEntries(clinics.map((c) => [c.name, c.abbreviation]))
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -128,18 +131,20 @@ export default function SchedulePage() {
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set())
 
   const fetchAll = useCallback(async () => {
-    const [shiftList, swaps, periodList, splitList, names] = await Promise.all([
+    const [shiftList, swaps, periodList, splitList, names, clinicList] = await Promise.all([
       fetch('/api/shifts').then((r) => r.json()),
       fetch('/api/swaps').then((r) => r.json()),
       fetch('/api/periods').then((r) => r.json()),
       fetch('/api/splits').then((r) => r.json()),
       fetch('/api/users/names').then((r) => r.json()),
+      fetch('/api/admin/clinic-defaults').then((r) => r.json()),
     ])
     if (Array.isArray(shiftList)) setShifts(shiftList)
     if (Array.isArray(swaps)) setSwapRequests(swaps)
     if (Array.isArray(periodList)) setPeriods(periodList)
     if (Array.isArray(splitList)) setSplits(splitList)
     if (names && typeof names === 'object' && !names.error) setUserNames(names)
+    if (Array.isArray(clinicList)) setClinics(clinicList)
     setLoading(false)
   }, [])
 
@@ -707,7 +712,7 @@ export default function SchedulePage() {
                         {byDate[date]?.map((shift) => (
                           <div key={shift.id} className="px-4 py-3">
                             <div className="flex items-baseline justify-between gap-2 mb-1.5">
-                              <span className="text-sm font-medium text-slate-700">{CLINIC_ABBR[shift.clinic] ?? shift.clinic}</span>
+                              <span className="text-sm font-medium text-slate-700">{clinicAbbr[shift.clinic] ?? shift.clinic}</span>
                               {formatTimeRange(shift.startTime, shift.endTime) && (
                                 <span className="text-xs text-slate-400 shrink-0">{formatTimeRange(shift.startTime, shift.endTime)}</span>
                               )}
@@ -730,9 +735,9 @@ export default function SchedulePage() {
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-slate-100 bg-slate-50">
               <th className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">Date</th>
-              {CLINICS.map((clinic) => (
+              {clinicNames.map((clinic) => (
                 <th key={clinic} className="text-left px-4 py-3 font-medium text-slate-600 whitespace-nowrap">
-                  {CLINIC_ABBR[clinic] ?? clinic}
+                  {clinicAbbr[clinic] ?? clinic}
                 </th>
               ))}
             </tr>
@@ -741,7 +746,7 @@ export default function SchedulePage() {
             {sortedDates.map((date) => (
               <tr key={date} className="border-b border-slate-100 last:border-0">
                 <td className="px-4 py-3 font-medium text-slate-700 whitespace-nowrap">{formatDate(date)}</td>
-                {CLINICS.map((clinic) => {
+                {clinicNames.map((clinic) => {
                   const shift = byDate[date]?.find((s) => s.clinic === clinic)
                   if (!shift) return <td key={clinic} className="px-4 py-3 text-slate-200">—</td>
                   return <td key={clinic} className="px-4 py-3">{renderShiftContent(shift)}</td>
@@ -986,7 +991,7 @@ export default function SchedulePage() {
                   a.userId === myUserId
               ) : null
               const myConflictClinic = myConflict
-                ? (CLINIC_ABBR[shiftById[myConflict.shiftId]?.clinic ?? ''] ?? shiftById[myConflict.shiftId]?.clinic ?? '')
+                ? (clinicAbbr[shiftById[myConflict.shiftId]?.clinic ?? ''] ?? shiftById[myConflict.shiftId]?.clinic ?? '')
                 : null
               const requestorDisplayName = currentNameFor(req.requestorUserId, req.requestorName)
               const requestorShift = shiftById[req.requestorShiftId]
@@ -1082,7 +1087,7 @@ export default function SchedulePage() {
                   timeToMinutes(s.startTime) < timeToMinutes(split.offeredEnd)
               }) : null
               const myConflictClinic = myConflict
-                ? (CLINIC_ABBR[shiftById[myConflict.shiftId]?.clinic ?? ''] ?? shiftById[myConflict.shiftId]?.clinic ?? '')
+                ? (clinicAbbr[shiftById[myConflict.shiftId]?.clinic ?? ''] ?? shiftById[myConflict.shiftId]?.clinic ?? '')
                 : null
               return (
                 <div key={split.id} className="p-5">

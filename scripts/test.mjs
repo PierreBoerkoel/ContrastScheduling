@@ -384,7 +384,8 @@ section('2.1  Schema — required tables exist')
 const TABLES = [
   'shifts', 'scheduling_periods', 'shift_assignments', 'availability_submissions',
   'swap_requests', 'shift_splits', 'invoice_sequences',
-  'billing_rates', 'billing_contacts', 'resident_preferences', 'clinic_defaults',
+  'billing_rates', 'billing_contacts', 'resident_preferences',
+  'clinics', 'billing_entities', 'clinic_billing_entities',
 ]
 for (const t of TABLES) {
   const [{ count }] = await db`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ${t} AND table_schema = 'public'`
@@ -407,6 +408,25 @@ for (const col of ['user_id','period_id','max_shifts']) {
 const shiftCols = (await db`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'shifts' AND table_schema = 'public'`).reduce((m, r) => { m[r.column_name] = r.data_type; return m }, {})
 assert(shiftCols['id'] === 'uuid', 'shifts.id is UUID type')
 assert(shiftCols['period_id'] === 'uuid', 'shifts.period_id is UUID type')
+assert(shiftCols['clinic_id'] === 'uuid', 'shifts.clinic_id is UUID type')
+assert(!('clinic' in shiftCols), 'shifts.clinic TEXT column removed')
+
+const clinicCols = (await db`SELECT column_name FROM information_schema.columns WHERE table_name = 'clinics' AND table_schema = 'public'`).map(r => r.column_name)
+for (const col of ['id', 'name', 'abbreviation', 'active_days', 'billing_mode', 'sort_order']) {
+  assert(clinicCols.includes(col), `clinics.${col} exists`)
+}
+
+const billingEntityCols = (await db`SELECT column_name FROM information_schema.columns WHERE table_name = 'billing_entities' AND table_schema = 'public'`).map(r => r.column_name)
+assert(billingEntityCols.includes('code'), 'billing_entities.code exists')
+
+const billingRateCols = (await db`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'billing_rates' AND table_schema = 'public'`).reduce((m, r) => { m[r.column_name] = r.data_type; return m }, {})
+assert(billingRateCols['entity_id'] === 'uuid', 'billing_rates.entity_id is UUID')
+assert(billingRateCols['rate_key'] !== undefined, 'billing_rates.rate_key exists')
+assert(!('key' in billingRateCols), 'billing_rates old key column removed')
+
+const billingContactCols = (await db`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'billing_contacts' AND table_schema = 'public'`).reduce((m, r) => { m[r.column_name] = r.data_type; return m }, {})
+assert(billingContactCols['entity_id'] === 'uuid', 'billing_contacts.entity_id is UUID')
+assert(!('entity' in billingContactCols), 'billing_contacts old entity TEXT column removed')
 
 const swapCols = (await db`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'swap_requests' AND table_schema = 'public'`).reduce((m, r) => { m[r.column_name] = r.data_type; return m }, {})
 assert(swapCols['requestor_shift_id'] === 'uuid', 'swap_requests.requestor_shift_id is UUID type')
@@ -437,8 +457,8 @@ const shiftData = [
 ]
 for (const s of shiftData) {
   const [row] = await db`
-    INSERT INTO shifts (date, clinic, period_id, start_time, end_time)
-    VALUES (${s.date}, ${s.clinic}, ${pid}, ${s.startTime}, ${s.endTime})
+    INSERT INTO shifts (date, clinic_id, period_id, start_time, end_time)
+    VALUES (${s.date}, (SELECT id FROM clinics WHERE name = ${s.clinic}), ${pid}, ${s.startTime}, ${s.endTime})
     RETURNING id
   `
   TEST_SHIFTS.push({ ...s, id: row.id })

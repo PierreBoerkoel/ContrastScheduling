@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getClinicDefaults, setClinicDefault } from '@/lib/db'
-import { CLINICS } from '@/lib/types'
-
-const VALID_CLINICS = new Set<string>(CLINICS)
+import { getClinics, updateClinic } from '@/lib/db'
 
 async function requireAdmin() {
   const user = await currentUser()
@@ -13,8 +10,7 @@ async function requireAdmin() {
 export async function GET() {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const defaults = await getClinicDefaults()
-  return NextResponse.json(defaults)
+  return NextResponse.json(await getClinics())
 }
 
 export async function PUT(request: Request) {
@@ -32,13 +28,19 @@ export async function PUT(request: Request) {
   }
   const { clinic, activeDays, weekdayStart, weekdayEnd, weekendStart, weekendEnd } = body
 
-  if (!clinic || !VALID_CLINICS.has(clinic)) {
-    return NextResponse.json({ error: 'Invalid clinic' }, { status: 400 })
+  if (!clinic) {
+    return NextResponse.json({ error: 'Missing clinic name' }, { status: 400 })
   }
   if (!Array.isArray(activeDays) || !activeDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) {
     return NextResponse.json({ error: 'Invalid active days' }, { status: 400 })
   }
 
-  await setClinicDefault(clinic, { activeDays, weekdayStart, weekdayEnd, weekendStart, weekendEnd })
+  const clinics = await getClinics()
+  const existing = clinics.find((c) => c.name === clinic)
+  if (!existing) {
+    return NextResponse.json({ error: 'Clinic not found' }, { status: 404 })
+  }
+
+  await updateClinic(existing.id, { ...existing, activeDays, weekdayStart, weekdayEnd, weekendStart, weekendEnd })
   return NextResponse.json({ ok: true })
 }

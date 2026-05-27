@@ -30,8 +30,9 @@ export async function POST(request: Request) {
   await ensureDb()
 
   const { rows: existing } = await sql`
-    SELECT id FROM shifts
-    WHERE date = ${date} AND clinic = ${clinic} AND period_id = ${periodId}::uuid
+    SELECT s.id FROM shifts s
+    JOIN clinics c ON c.id = s.clinic_id
+    WHERE s.date = ${date} AND c.name = ${clinic} AND s.period_id = ${periodId}::uuid
   `
   if (existing.length > 0) {
     return NextResponse.json({ error: 'A shift for this date and clinic already exists' }, { status: 409 })
@@ -43,8 +44,8 @@ export async function POST(request: Request) {
     : (clinicDefaultShiftTimes(clinic, date, clinicDefaults) ?? { startTime: undefined, endTime: undefined })
 
   const { rows: inserted } = await sql`
-    INSERT INTO shifts (date, clinic, period_id, start_time, end_time)
-    VALUES (${date}, ${clinic}, ${periodId}::uuid, ${times.startTime ?? null}, ${times.endTime ?? null})
+    INSERT INTO shifts (date, clinic_id, period_id, start_time, end_time)
+    VALUES (${date}, (SELECT id FROM clinics WHERE name = ${clinic}), ${periodId}::uuid, ${times.startTime ?? null}, ${times.endTime ?? null})
     RETURNING id
   `
   const shiftId = inserted[0].id as string

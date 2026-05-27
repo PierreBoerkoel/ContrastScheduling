@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, SchedulingPeriod, ShiftAssignment, ShiftSplit, ClinicName } from '@/lib/types'
-import { CLINICS, CLINIC_ABBR, formatTimeRange, computeCoverageSegments } from '@/lib/types'
+import type { Shift, SchedulingPeriod, ShiftAssignment, ShiftSplit, ClinicName, Clinic } from '@/lib/types'
+import { formatTimeRange, computeCoverageSegments } from '@/lib/types'
 import { clinicEntities, calculateLineItems, ratesToBillingRates } from '@/lib/invoices'
 import type { CompletedShiftForInvoice } from '@/lib/invoices'
 import InvoiceGenerator from '@/app/components/InvoiceGenerator'
@@ -57,9 +57,6 @@ function daysInMonth(year: number, month: number): Date[] {
   return days
 }
 
-function clinicAbbr(clinic: string) {
-  return CLINIC_ABBR[clinic] ?? clinic
-}
 
 function isShiftEnded(shift: { date: string; endTime?: string }): boolean {
   const today = vanToday()
@@ -219,6 +216,10 @@ export default function ProfilePage() {
   const [weekendRanking, setWeekendRanking] = useState<string[]>([])
   const weekdayRankingSnapshot = useRef<string[]>([])
   const weekendRankingSnapshot = useRef<string[]>([])
+  const [clinics, setClinics] = useState<Clinic[]>([])
+  const clinicNames = clinics.map((c) => c.name)
+  const clinicAbbrMap = Object.fromEntries(clinics.map((c) => [c.name, c.abbreviation]))
+  const clinicAbbr = (clinic: string) => clinicAbbrMap[clinic] ?? clinic
 
   // Re-render every 60 s so isShiftEnded() stays current without a page refresh
   const [, forceUpdate] = useState(0)
@@ -236,10 +237,12 @@ export default function ProfilePage() {
       fetch('/api/shifts').then((r) => r.json()),
       fetch('/api/periods?all=true').then((r) => r.json()),
       fetch('/api/splits').then((r) => r.json()),
-    ]).then(([shiftList, periodList, splitList]) => {
+      fetch('/api/admin/clinic-defaults').then((r) => r.json()),
+    ]).then(([shiftList, periodList, splitList, clinicList]) => {
       setShifts(Array.isArray(shiftList) ? shiftList : [])
       setPeriods(Array.isArray(periodList) ? periodList : [])
       setAllSplits(Array.isArray(splitList) ? splitList : [])
+      if (Array.isArray(clinicList)) setClinics(clinicList)
       setLoading(false)
     })
   }, [])
@@ -656,7 +659,7 @@ export default function ProfilePage() {
                 defaultsSnapshot.current = { ...shiftDefaults }
                 setShiftDefaults((prev) => {
                   const next = { ...prev }
-                  for (const clinic of CLINICS) {
+                  for (const clinic of clinicNames) {
                     if (!next[clinic]) next[clinic] = { weekday: true, weekend: true }
                   }
                   return next
@@ -683,11 +686,11 @@ export default function ProfilePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {CLINICS.map((clinic) => {
+                  {clinicNames.map((clinic) => {
                     const d = shiftDefaults[clinic] ?? { weekday: true, weekend: true }
                     return (
                       <tr key={clinic}>
-                        <td className="py-2.5 pr-6 text-sm text-slate-700 whitespace-nowrap">{CLINIC_ABBR[clinic] ?? clinic}</td>
+                        <td className="py-2.5 pr-6 text-sm text-slate-700 whitespace-nowrap">{clinicAbbr(clinic)}</td>
                         <td className="py-2.5 px-4 text-center">
                           <input
                             type="checkbox"
@@ -729,12 +732,12 @@ export default function ProfilePage() {
           </div>
         ) : Object.keys(shiftDefaults).length > 0 ? (
           <div className="mt-3 divide-y divide-slate-100">
-            {CLINICS.map((clinic) => {
+            {clinicNames.map((clinic) => {
               const d = shiftDefaults[clinic] ?? { weekday: true, weekend: true }
               const parts = [...(d.weekday ? ['weekdays'] : []), ...(d.weekend ? ['weekends'] : [])]
               return (
                 <div key={clinic} className="flex items-center justify-between py-1.5">
-                  <span className="text-sm text-slate-600">{CLINIC_ABBR[clinic] ?? clinic}</span>
+                  <span className="text-sm text-slate-600">{clinicAbbr(clinic)}</span>
                   <span className={`text-xs font-medium ${parts.length === 0 ? 'text-slate-300' : 'text-slate-500'}`}>
                     {parts.length === 0 ? 'Not available' : parts.join(' & ')}
                   </span>
@@ -779,7 +782,7 @@ export default function ProfilePage() {
                   {weekdayRanking.map((clinic, idx) => (
                     <div key={clinic} className="flex items-center gap-1 py-1 border-b border-slate-100">
                       <span className="text-xs text-slate-400 w-4 shrink-0 text-right">{idx + 1}.</span>
-                      <span className="flex-1 text-xs text-slate-700 truncate ml-1">{CLINIC_ABBR[clinic] ?? clinic}</span>
+                      <span className="flex-1 text-xs text-slate-700 truncate ml-1">{clinicAbbr(clinic)}</span>
                       <button
                         disabled={idx === 0}
                         onClick={() => setWeekdayRanking((r) => { const n = [...r]; [n[idx - 1], n[idx]] = [n[idx], n[idx - 1]]; return n })}
@@ -796,10 +799,10 @@ export default function ProfilePage() {
                       >×</button>
                     </div>
                   ))}
-                  {CLINICS.filter((c) => !weekdayRanking.includes(c)).map((clinic) => (
+                  {clinicNames.filter((c) => !weekdayRanking.includes(c)).map((clinic) => (
                     <div key={clinic} className="flex items-center gap-1 py-1">
                       <span className="w-4 shrink-0" />
-                      <span className="flex-1 text-xs text-slate-400 truncate ml-1">{CLINIC_ABBR[clinic] ?? clinic}</span>
+                      <span className="flex-1 text-xs text-slate-400 truncate ml-1">{clinicAbbr(clinic)}</span>
                       <button
                         onClick={() => setWeekdayRanking((r) => [...r, clinic])}
                         className="text-slate-300 hover:text-blue-500 px-1 text-base leading-none"
@@ -817,7 +820,7 @@ export default function ProfilePage() {
                   {weekendRanking.map((clinic, idx) => (
                     <div key={clinic} className="flex items-center gap-1 py-1 border-b border-slate-100">
                       <span className="text-xs text-slate-400 w-4 shrink-0 text-right">{idx + 1}.</span>
-                      <span className="flex-1 text-xs text-slate-700 truncate ml-1">{CLINIC_ABBR[clinic] ?? clinic}</span>
+                      <span className="flex-1 text-xs text-slate-700 truncate ml-1">{clinicAbbr(clinic)}</span>
                       <button
                         disabled={idx === 0}
                         onClick={() => setWeekendRanking((r) => { const n = [...r]; [n[idx - 1], n[idx]] = [n[idx], n[idx - 1]]; return n })}
@@ -834,10 +837,10 @@ export default function ProfilePage() {
                       >×</button>
                     </div>
                   ))}
-                  {CLINICS.filter((c) => !weekendRanking.includes(c)).map((clinic) => (
+                  {clinicNames.filter((c) => !weekendRanking.includes(c)).map((clinic) => (
                     <div key={clinic} className="flex items-center gap-1 py-1">
                       <span className="w-4 shrink-0" />
-                      <span className="flex-1 text-xs text-slate-400 truncate ml-1">{CLINIC_ABBR[clinic] ?? clinic}</span>
+                      <span className="flex-1 text-xs text-slate-400 truncate ml-1">{clinicAbbr(clinic)}</span>
                       <button
                         onClick={() => setWeekendRanking((r) => [...r, clinic])}
                         className="text-slate-300 hover:text-blue-500 px-1 text-base leading-none"
@@ -875,7 +878,7 @@ export default function ProfilePage() {
                   {weekdayRanking.map((clinic, idx) => (
                     <li key={clinic} className="flex items-center gap-1.5 text-xs text-slate-600">
                       <span className="text-slate-400 w-4 text-right shrink-0">{idx + 1}.</span>
-                      <span>{CLINIC_ABBR[clinic] ?? clinic}</span>
+                      <span>{clinicAbbr(clinic)}</span>
                     </li>
                   ))}
                 </ol>
@@ -890,7 +893,7 @@ export default function ProfilePage() {
                   {weekendRanking.map((clinic, idx) => (
                     <li key={clinic} className="flex items-center gap-1.5 text-xs text-slate-600">
                       <span className="text-slate-400 w-4 text-right shrink-0">{idx + 1}.</span>
-                      <span>{CLINIC_ABBR[clinic] ?? clinic}</span>
+                      <span>{clinicAbbr(clinic)}</span>
                     </li>
                   ))}
                 </ol>

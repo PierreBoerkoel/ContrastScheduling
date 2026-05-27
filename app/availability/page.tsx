@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
-import type { Shift, ClinicName, AvailabilitySubmission, SchedulingPeriod } from '@/lib/types'
-import { CLINICS, CLINIC_ABBR, formatTimeRange } from '@/lib/types'
+import type { Shift, ClinicName, AvailabilitySubmission, SchedulingPeriod, Clinic } from '@/lib/types'
+import { formatTimeRange } from '@/lib/types'
 
 function formatDate(dateStr: string) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -38,6 +38,9 @@ export default function AvailabilityPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
+  const [clinics, setClinics] = useState<Clinic[]>([])
+  const clinicNames = clinics.map((c) => c.name)
+  const clinicAbbr = Object.fromEntries(clinics.map((c) => [c.name, c.abbreviation]))
 
   useEffect(() => {
     Promise.all([
@@ -45,11 +48,13 @@ export default function AvailabilityPage() {
       fetch('/api/availability').then((r) => r.json()),
       fetch('/api/periods').then((r) => r.json()),
       fetch('/api/preferences').then((r) => r.json()),
-    ]).then(([shiftList, submissionList, periodList, prefs]: [Shift[], AvailabilitySubmission[], SchedulingPeriod[], { shiftDefaults?: Record<string, { weekday: boolean; weekend: boolean }> }]) => {
+      fetch('/api/admin/clinic-defaults').then((r) => r.json()),
+    ]).then(([shiftList, submissionList, periodList, prefs, clinicList]: [Shift[], AvailabilitySubmission[], SchedulingPeriod[], { shiftDefaults?: Record<string, { weekday: boolean; weekend: boolean }> }, Clinic[]]) => {
       if (Array.isArray(shiftList)) setShifts(shiftList)
       if (Array.isArray(submissionList)) setSubmissions(submissionList)
       if (Array.isArray(periodList)) setPeriods(periodList)
       if (prefs?.shiftDefaults) setShiftDefaults(prefs.shiftDefaults)
+      if (Array.isArray(clinicList)) setClinics(clinicList)
       setLoading(false)
     })
   }, [user])
@@ -257,7 +262,7 @@ export default function AvailabilityPage() {
                         )}
                       </div>
                       <div className="divide-y divide-slate-100">
-                        {CLINICS.map((clinic: ClinicName) => {
+                        {clinicNames.map((clinic: ClinicName) => {
                           const shift = shiftsOnDay.find((s) => s.clinic === clinic)
                           if (!shift) return null
                           return (
@@ -266,7 +271,7 @@ export default function AvailabilityPage() {
                               className={`flex items-center justify-between px-4 py-3 gap-3 ${!selectedBlockPublished ? 'cursor-pointer active:bg-slate-50' : ''}`}
                             >
                               <div className="min-w-0">
-                                <div className="text-sm text-slate-700">{CLINIC_ABBR[clinic] ?? clinic}</div>
+                                <div className="text-sm text-slate-700">{clinicAbbr[clinic] ?? clinic}</div>
                                 {formatTimeRange(shift.startTime, shift.endTime) && (
                                   <div className="text-xs text-slate-400 mt-0.5">{formatTimeRange(shift.startTime, shift.endTime)}</div>
                                 )}
@@ -296,9 +301,9 @@ export default function AvailabilityPage() {
                       {!selectedBlockPublished && (
                         <th className="text-center px-3 py-3 font-medium text-slate-500 bg-slate-50 whitespace-nowrap"></th>
                       )}
-                      {CLINICS.map((clinic) => (
+                      {clinicNames.map((clinic) => (
                         <th key={clinic} className="text-center px-3 py-3 font-medium text-slate-600 whitespace-nowrap bg-slate-50">
-                          {CLINIC_ABBR[clinic] ?? clinic}
+                          {clinicAbbr[clinic] ?? clinic}
                         </th>
                       ))}
                     </tr>
@@ -322,7 +327,7 @@ export default function AvailabilityPage() {
                               </button>
                             </td>
                           )}
-                          {CLINICS.map((clinic: ClinicName) => {
+                          {clinicNames.map((clinic: ClinicName) => {
                             const shift = shiftsOnDay.find((s) => s.clinic === clinic)
                             if (!shift) {
                               return <td key={clinic} className="text-center px-3 py-3 text-slate-200">—</td>

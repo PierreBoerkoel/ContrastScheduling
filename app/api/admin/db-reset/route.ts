@@ -3,11 +3,10 @@ import { sql } from '@vercel/postgres'
 
 const SCOPES: Record<string, string[]> = {
   scheduling:        ['shift_splits', 'swap_requests', 'shift_assignments', 'availability_submissions', 'shifts', 'scheduling_periods'],
-  'clinic-defaults': ['clinic_defaults'],
   'billing-rates':   ['billing_rates'],
   'billing-contacts':['billing_contacts'],
   invoices:          ['invoice_history', 'invoice_sequences'],
-  all:               ['shift_splits', 'swap_requests', 'shift_assignments', 'availability_submissions', 'shifts', 'scheduling_periods', 'clinic_defaults', 'billing_rates', 'billing_contacts', 'invoice_history', 'invoice_sequences'],
+  all:               ['shift_splits', 'swap_requests', 'shift_assignments', 'availability_submissions', 'shifts', 'scheduling_periods', 'clinic_billing_entities', 'clinics', 'billing_rates', 'billing_contacts', 'invoice_history', 'invoice_sequences'],
 }
 
 export async function POST(request: Request) {

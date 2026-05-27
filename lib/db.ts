@@ -1,5 +1,5 @@
 import { sql, db } from '@vercel/postgres'
-import type { Shift, AvailabilitySubmission, SwapRequest, ShiftAssignment, SchedulingPeriod, ShiftSplit, ClinicDefault } from './types'
+import type { Shift, AvailabilitySubmission, SwapRequest, ShiftAssignment, SchedulingPeriod, ShiftSplit, Clinic } from './types'
 import type { BillingContactRecord } from './invoices'
 
 let _ready: Promise<void> | null = null
@@ -8,6 +8,7 @@ export function ensureDb(): Promise<void> {
 }
 
 export async function initDb(): Promise<void> {
+  // ── Scheduling periods ────────────────────────────────────────────────────
   await sql`
     CREATE TABLE IF NOT EXISTS scheduling_periods (
       id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -21,18 +22,87 @@ export async function initDb(): Promise<void> {
       deleted_at   TIMESTAMPTZ
     )
   `
+
+  // ── Clinics (absorbs old clinic_defaults) ─────────────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS clinics (
+      id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name          TEXT UNIQUE NOT NULL,
+      abbreviation  TEXT NOT NULL DEFAULT '',
+      active_days   INTEGER[] NOT NULL DEFAULT '{}',
+      weekday_start TEXT,
+      weekday_end   TEXT,
+      weekend_start TEXT,
+      weekend_end   TEXT,
+      billing_mode  TEXT NOT NULL DEFAULT 'simple',
+      sort_order    INTEGER NOT NULL DEFAULT 0
+    )
+  `
+  type ClinicSeedRow = [string, string, number[], string | null, string | null, string | null, string | null, string, number]
+  const clinicSeeds: ClinicSeedRow[] = [
+    ['BC Cancer Agency CT',      'BCCA CT',      [6],              '17:00', '19:00', '08:00', '16:00', 'simple',            1],
+    ['BC Cancer Agency MRI/PET', 'BCCA MRI/PET', [0,1,2,3,4,5,6], '17:00', '22:00', '08:00', '21:00', 'mrct_pet_combined', 2],
+    ['INITIO Medical Imaging',   'INITIO',       [0,1,2,3,4,5,6], '17:30', '21:30', '08:00', '16:00', 'simple',            3],
+    ['UBC Hospital',             'UBC',          [1,2,3,4,5],     '17:30', '22:30', null,    null,    'simple',            4],
+    ["BC Women's Hospital",      'BCWH',         [2],             '17:30', '21:30', null,    null,    'simple',            5],
+  ]
+  for (const [name, abbr, days, ws, we, ss, se, mode, order] of clinicSeeds) {
+    await sql`
+      INSERT INTO clinics (name, abbreviation, active_days, weekday_start, weekday_end, weekend_start, weekend_end, billing_mode, sort_order)
+      VALUES (${name}, ${abbr}, ${days as unknown as string}, ${ws}, ${we}, ${ss}, ${se}, ${mode}, ${order})
+      ON CONFLICT (name) DO NOTHING
+    `
+  }
+
+  // ── Billing entities ──────────────────────────────────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS billing_entities (
+      id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      code  TEXT UNIQUE NOT NULL,
+      label TEXT NOT NULL
+    )
+  `
+  const entitySeeds: [string, string][] = [
+    ['MRCT',   'BCCA Diagnostic Imaging'],
+    ['PET',    'BCCA Molecular Imaging and Therapy'],
+    ['UBCMR',  'Vancouver Imaging'],
+    ['BCWHMR', 'BCW Diagnostic Imaging'],
+  ]
+  for (const [code, label] of entitySeeds) {
+    await sql`INSERT INTO billing_entities (code, label) VALUES (${code}, ${label}) ON CONFLICT (code) DO NOTHING`
+  }
+
+  // ── Clinic → billing entity mapping ──────────────────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS clinic_billing_entities (
+      clinic_id UUID NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+      entity_id UUID NOT NULL REFERENCES billing_entities(id) ON DELETE CASCADE,
+      PRIMARY KEY (clinic_id, entity_id)
+    )
+  `
+  await sql`
+    INSERT INTO clinic_billing_entities (clinic_id, entity_id)
+    SELECT c.id, be.id FROM clinics c, billing_entities be
+    WHERE (c.name = 'BC Cancer Agency CT'      AND be.code = 'MRCT')
+       OR (c.name = 'BC Cancer Agency MRI/PET' AND be.code IN ('MRCT', 'PET'))
+       OR (c.name = 'UBC Hospital'             AND be.code = 'UBCMR')
+       OR (c.name = 'BC Women''s Hospital'     AND be.code = 'BCWHMR')
+    ON CONFLICT DO NOTHING
+  `
+
+  // ── Shifts (clinic_id UUID FK, replaces old clinic TEXT column) ───────────
   await sql`
     CREATE TABLE IF NOT EXISTS shifts (
       id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       date       TEXT NOT NULL,
-      clinic     TEXT NOT NULL,
+      clinic_id  UUID NOT NULL REFERENCES clinics(id) ON DELETE RESTRICT,
       period_id  UUID REFERENCES scheduling_periods(id) ON DELETE CASCADE,
       start_time TEXT,
       end_time   TEXT
     )
   `
-  // Normalized assignment table — replaces JSONB columns on scheduling_periods.
-  // (shift_id, is_draft) is the natural key: one draft and one published record per shift.
+
+  // ── Assignments, submissions, swap requests, splits ───────────────────────
   await sql`
     CREATE TABLE IF NOT EXISTS shift_assignments (
       shift_id      UUID    NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
@@ -94,41 +164,49 @@ export async function initDb(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS split_one_pending_per_person
     ON shift_splits (shift_id, offeror_user_id) WHERE status = 'pending'
   `
-  // Legacy tables that no longer exist in the new schema — safe to drop on fresh DBs.
+
+  // ── Legacy table cleanup ──────────────────────────────────────────────────
   await sql`DROP TABLE IF EXISTS shift_history`
   await sql`DROP TABLE IF EXISTS schedule`
 
-  // Add any missing columns to existing DBs during upgrade.
+  // ── Migrations for existing DBs ───────────────────────────────────────────
   await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`
 
-  // Upgrade period_id FKs to ON DELETE CASCADE if they were created without it.
+  // Ensure period_id FKs have ON DELETE CASCADE
   await sql`
     DO $$ BEGIN
-      IF EXISTS (
-        SELECT 1 FROM information_schema.table_constraints
-        WHERE constraint_name = 'swap_requests_period_id_fkey'
-          AND constraint_type = 'FOREIGN KEY'
-      ) THEN
+      IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'swap_requests_period_id_fkey' AND constraint_type = 'FOREIGN KEY') THEN
         ALTER TABLE swap_requests DROP CONSTRAINT swap_requests_period_id_fkey;
-        ALTER TABLE swap_requests ADD CONSTRAINT swap_requests_period_id_fkey
-          FOREIGN KEY (period_id) REFERENCES scheduling_periods(id) ON DELETE CASCADE;
+        ALTER TABLE swap_requests ADD CONSTRAINT swap_requests_period_id_fkey FOREIGN KEY (period_id) REFERENCES scheduling_periods(id) ON DELETE CASCADE;
       END IF;
     END $$
   `
   await sql`
     DO $$ BEGIN
-      IF EXISTS (
-        SELECT 1 FROM information_schema.table_constraints
-        WHERE constraint_name = 'shift_splits_period_id_fkey'
-          AND constraint_type = 'FOREIGN KEY'
-      ) THEN
+      IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'shift_splits_period_id_fkey' AND constraint_type = 'FOREIGN KEY') THEN
         ALTER TABLE shift_splits DROP CONSTRAINT shift_splits_period_id_fkey;
-        ALTER TABLE shift_splits ADD CONSTRAINT shift_splits_period_id_fkey
-          FOREIGN KEY (period_id) REFERENCES scheduling_periods(id) ON DELETE CASCADE;
+        ALTER TABLE shift_splits ADD CONSTRAINT shift_splits_period_id_fkey FOREIGN KEY (period_id) REFERENCES scheduling_periods(id) ON DELETE CASCADE;
       END IF;
     END $$
   `
 
+  // Migrate shifts.clinic TEXT → shifts.clinic_id UUID
+  await sql`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='shifts' AND column_name='clinic') THEN
+        ALTER TABLE shifts ADD COLUMN IF NOT EXISTS clinic_id UUID;
+        UPDATE shifts s SET clinic_id = c.id FROM clinics c WHERE c.name = s.clinic AND s.clinic_id IS NULL;
+        DELETE FROM shifts WHERE clinic_id IS NULL;
+        ALTER TABLE shifts ALTER COLUMN clinic_id SET NOT NULL;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'shifts_clinic_id_fkey') THEN
+          ALTER TABLE shifts ADD CONSTRAINT shifts_clinic_id_fkey FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE RESTRICT;
+        END IF;
+        ALTER TABLE shifts DROP COLUMN clinic;
+      END IF;
+    END $$
+  `
+
+  // ── Invoice tables ────────────────────────────────────────────────────────
   await sql`
     CREATE TABLE IF NOT EXISTS invoice_sequences (
       resident_name TEXT NOT NULL,
@@ -156,73 +234,77 @@ export async function initDb(): Promise<void> {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS invoice_history_user_idx ON invoice_history (user_id)`
+
+  // ── Billing rates (entity_id FK, replaces old key TEXT PK) ───────────────
+  // Migration: drop old KV format (no live data to preserve pre-rollout)
+  await sql`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='billing_rates' AND column_name='key') THEN
+        DROP TABLE billing_rates;
+      END IF;
+    END $$
+  `
   await sql`
     CREATE TABLE IF NOT EXISTS billing_rates (
-      key   TEXT PRIMARY KEY,
-      value NUMERIC NOT NULL
+      id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      entity_id UUID NOT NULL REFERENCES billing_entities(id) ON DELETE CASCADE,
+      rate_key  TEXT NOT NULL,
+      rate      NUMERIC NOT NULL,
+      UNIQUE (entity_id, rate_key)
     )
   `
-  await sql`
-    CREATE TABLE IF NOT EXISTS clinic_defaults (
-      clinic        TEXT PRIMARY KEY,
-      active_days   TEXT NOT NULL DEFAULT '[]',
-      weekday_start TEXT,
-      weekday_end   TEXT,
-      weekend_start TEXT,
-      weekend_end   TEXT
-    )
-  `
-  const clinicSeeds: Array<[string, string, string | null, string | null, string | null, string | null]> = [
-    ['BC Cancer Agency CT',       '[6]',               '17:00', '19:00', '08:00', '16:00'],
-    ['BC Cancer Agency MRI/PET',  '[0,1,2,3,4,5,6]',  '17:00', '22:00', '08:00', '21:00'],
-    ['INITIO Medical Imaging',    '[0,1,2,3,4,5,6]',  '17:30', '21:30', '08:00', '16:00'],
-    ['UBC Hospital',              '[1,2,3,4,5]',       '17:30', '22:30', null,    null   ],
-    ["BC Women's Hospital",       '[2]',               '17:30', '21:30', null,    null   ],
+  const rateSeeds: [string, string, number][] = [
+    ['MRCT',   'base',       50],
+    ['MRCT',   'standalone', 75],
+    ['MRCT',   'ct',         75],
+    ['PET',    'base',       25],
+    ['PET',    'standalone', 75],
+    ['UBCMR',  'MR',         75],
+    ['BCWHMR', 'MR',         75],
   ]
-  for (const [clinic, days, ws, we, ss, se] of clinicSeeds) {
+  for (const [entityCode, rateKey, rate] of rateSeeds) {
     await sql`
-      INSERT INTO clinic_defaults (clinic, active_days, weekday_start, weekday_end, weekend_start, weekend_end)
-      VALUES (${clinic}, ${days}, ${ws}, ${we}, ${ss}, ${se})
-      ON CONFLICT (clinic) DO NOTHING
+      INSERT INTO billing_rates (entity_id, rate_key, rate)
+      SELECT id, ${rateKey}, ${rate} FROM billing_entities WHERE code = ${entityCode}
+      ON CONFLICT DO NOTHING
     `
   }
 
-  const rateDefaults: Array<[string, number]> = [
-    ['MRCT_base',        50],
-    ['MRCT_standalone',  75],
-    ['MRCT_ct',          75],
-    ['PET_base',         25],
-    ['PET_standalone',   75],
-    ['UBCMR_MR',         75],
-    ['BCWHMR_MR',        75],
-  ]
-  for (const [key, value] of rateDefaults) {
-    await sql`INSERT INTO billing_rates (key, value) VALUES (${key}, ${value}) ON CONFLICT (key) DO NOTHING`
-  }
-
+  // ── Billing contacts (entity_id FK, replaces old entity TEXT PK) ─────────
+  // Migration: drop old format if present
+  await sql`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='billing_contacts' AND column_name='entity')
+         AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='billing_contacts' AND column_name='entity_id') THEN
+        DROP TABLE billing_contacts;
+      END IF;
+    END $$
+  `
   await sql`
     CREATE TABLE IF NOT EXISTS billing_contacts (
-      entity       TEXT PRIMARY KEY,
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      entity_id    UUID UNIQUE NOT NULL REFERENCES billing_entities(id) ON DELETE CASCADE,
       contact_name TEXT NOT NULL DEFAULT '',
       org          TEXT NOT NULL DEFAULT '',
       address      TEXT NOT NULL DEFAULT '',
       email        TEXT
     )
   `
-  const contactSeeds: Array<[string, string, string, string, string | null]> = [
-    ['MRCT',   'Danielle Florendo', 'BCCA Diagnostic Imaging',            '600 W 10th Ave\nVancouver BC  V5Z 4E6', null],
-    ['PET',    'Chris Raiwe',       'BCCA Molecular Imaging and Therapy', '600 W 10th Ave\nVancouver BC  V5Z 4E6', null],
+  const contactSeeds: [string, string, string, string, string | null][] = [
+    ['MRCT',   'Danielle Florendo', 'BCCA Diagnostic Imaging',            '600 W 10th Ave\nVancouver BC  V5Z 4E6',        null],
+    ['PET',    'Chris Raiwe',       'BCCA Molecular Imaging and Therapy', '600 W 10th Ave\nVancouver BC  V5Z 4E6',        null],
     ['UBCMR',  '',                  'Vancouver Imaging',                  '450-943 West Broadway\nVancouver BC  V5Z 4E1', 'finance@vancouverimaging.com'],
-    ['BCWHMR', 'Rahul Jain',        'BCW Diagnostic Imaging',             '4500 Oak St.\nVancouver BC  V6H3N1', null],
+    ['BCWHMR', 'Rahul Jain',        'BCW Diagnostic Imaging',             '4500 Oak St.\nVancouver BC  V6H3N1',           null],
   ]
-  for (const [entity, name, org, address, email] of contactSeeds) {
+  for (const [entityCode, name, org, address, email] of contactSeeds) {
     await sql`
-      INSERT INTO billing_contacts (entity, contact_name, org, address, email)
-      VALUES (${entity}, ${name}, ${org}, ${address}, ${email})
-      ON CONFLICT (entity) DO NOTHING
+      INSERT INTO billing_contacts (entity_id, contact_name, org, address, email)
+      SELECT id, ${name}, ${org}, ${address}, ${email} FROM billing_entities WHERE code = ${entityCode}
+      ON CONFLICT DO NOTHING
     `
   }
 
+  // ── Resident preferences ──────────────────────────────────────────────────
   await sql`
     CREATE TABLE IF NOT EXISTS resident_preferences (
       user_id        TEXT PRIMARY KEY,
@@ -230,17 +312,24 @@ export async function initDb(): Promise<void> {
       clinic_prefs   JSONB NOT NULL DEFAULT '{}'::jsonb
     )
   `
+
+  // ── Drop legacy clinic_defaults ───────────────────────────────────────────
+  await sql`DROP TABLE IF EXISTS clinic_defaults`
 }
 
 // ── Shifts ────────────────────────────────────────────────────────────────────
 
 export async function getShifts(): Promise<Shift[]> {
   await ensureDb()
-  const { rows } = await sql`SELECT id, date, clinic, period_id, start_time, end_time FROM shifts ORDER BY date, clinic`
+  const { rows } = await sql`
+    SELECT s.id, s.date, c.name AS clinic, s.period_id, s.start_time, s.end_time
+    FROM shifts s JOIN clinics c ON c.id = s.clinic_id
+    ORDER BY s.date, c.name
+  `
   return rows.map((r) => ({
     id: r.id,
     date: r.date,
-    clinic: r.clinic as Shift['clinic'],
+    clinic: r.clinic as string,
     periodId: r.period_id ?? undefined,
     startTime: r.start_time ?? undefined,
     endTime: r.end_time ?? undefined,
@@ -258,8 +347,8 @@ export async function setShifts(shifts: Shift[], periodId?: string): Promise<voi
     }
     for (const s of shifts) {
       await client.sql`
-        INSERT INTO shifts (id, date, clinic, period_id, start_time, end_time)
-        VALUES (${s.id}, ${s.date}, ${s.clinic}, ${periodId ?? null}, ${s.startTime ?? null}, ${s.endTime ?? null})
+        INSERT INTO shifts (id, date, clinic_id, period_id, start_time, end_time)
+        VALUES (${s.id}, ${s.date}, (SELECT id FROM clinics WHERE name = ${s.clinic}), ${periodId ?? null}, ${s.startTime ?? null}, ${s.endTime ?? null})
       `
     }
     await client.sql`COMMIT`
@@ -824,47 +913,115 @@ export async function setInvoiceSequence(userId: string, series: string, nextNum
   }
 }
 
-// ── Clinic defaults ───────────────────────────────────────────────────────────
+// ── Clinics ───────────────────────────────────────────────────────────────────
 
-export async function getClinicDefaults(): Promise<ClinicDefault[]> {
+export async function getClinics(): Promise<Clinic[]> {
   await ensureDb()
   const { rows } = await sql`
-    SELECT clinic, active_days, weekday_start, weekday_end, weekend_start, weekend_end
-    FROM clinic_defaults ORDER BY clinic
+    SELECT c.id, c.name, c.abbreviation, c.active_days, c.weekday_start, c.weekday_end,
+           c.weekend_start, c.weekend_end, c.billing_mode, c.sort_order,
+           COALESCE(array_agg(be.code ORDER BY be.code) FILTER (WHERE be.code IS NOT NULL), '{}') AS entity_codes
+    FROM clinics c
+    LEFT JOIN clinic_billing_entities cbe ON cbe.clinic_id = c.id
+    LEFT JOIN billing_entities be ON be.id = cbe.entity_id
+    GROUP BY c.id
+    ORDER BY c.sort_order, c.name
   `
   return rows.map((r) => ({
-    clinic: r.clinic as string,
-    activeDays: JSON.parse(r.active_days as string) as number[],
+    id: r.id as string,
+    name: r.name as string,
+    abbreviation: r.abbreviation as string,
+    activeDays: r.active_days as number[],
     weekdayStart: (r.weekday_start as string | null) ?? null,
     weekdayEnd: (r.weekday_end as string | null) ?? null,
     weekendStart: (r.weekend_start as string | null) ?? null,
     weekendEnd: (r.weekend_end as string | null) ?? null,
+    billingMode: r.billing_mode as string,
+    billingEntityCodes: r.entity_codes as string[],
+    sortOrder: r.sort_order as number,
   }))
 }
 
-export async function setClinicDefault(
-  clinic: string,
-  data: Omit<ClinicDefault, 'clinic'>
-): Promise<void> {
+export const getClinicDefaults = getClinics
+
+export async function addClinic(data: Omit<Clinic, 'id'>): Promise<Clinic> {
   await ensureDb()
-  const activeDaysJson = JSON.stringify(data.activeDays)
-  await sql`
-    INSERT INTO clinic_defaults (clinic, active_days, weekday_start, weekday_end, weekend_start, weekend_end)
-    VALUES (${clinic}, ${activeDaysJson}, ${data.weekdayStart}, ${data.weekdayEnd}, ${data.weekendStart}, ${data.weekendEnd})
-    ON CONFLICT (clinic) DO UPDATE SET
-      active_days   = ${activeDaysJson},
-      weekday_start = ${data.weekdayStart},
-      weekday_end   = ${data.weekdayEnd},
-      weekend_start = ${data.weekendStart},
-      weekend_end   = ${data.weekendEnd}
-  `
+  const client = await db.connect()
+  try {
+    await client.sql`BEGIN`
+    const { rows } = await client.sql`
+      INSERT INTO clinics (name, abbreviation, active_days, weekday_start, weekday_end, weekend_start, weekend_end, billing_mode, sort_order)
+      VALUES (${data.name}, ${data.abbreviation}, ${data.activeDays as unknown as string}, ${data.weekdayStart}, ${data.weekdayEnd}, ${data.weekendStart}, ${data.weekendEnd}, ${data.billingMode}, ${data.sortOrder})
+      RETURNING id
+    `
+    const id = rows[0].id as string
+    for (const code of data.billingEntityCodes) {
+      await client.sql`
+        INSERT INTO clinic_billing_entities (clinic_id, entity_id)
+        SELECT ${id}, be.id FROM billing_entities be WHERE be.code = ${code}
+        ON CONFLICT DO NOTHING
+      `
+    }
+    await client.sql`COMMIT`
+    return { ...data, id }
+  } catch (e) {
+    await client.sql`ROLLBACK`
+    throw e
+  } finally {
+    client.release()
+  }
+}
+
+export async function updateClinic(id: string, data: Omit<Clinic, 'id'>): Promise<void> {
+  await ensureDb()
+  const client = await db.connect()
+  try {
+    await client.sql`BEGIN`
+    await client.sql`
+      UPDATE clinics SET
+        name          = ${data.name},
+        abbreviation  = ${data.abbreviation},
+        active_days   = ${data.activeDays as unknown as string},
+        weekday_start = ${data.weekdayStart},
+        weekday_end   = ${data.weekdayEnd},
+        weekend_start = ${data.weekendStart},
+        weekend_end   = ${data.weekendEnd},
+        billing_mode  = ${data.billingMode},
+        sort_order    = ${data.sortOrder}
+      WHERE id = ${id}
+    `
+    await client.sql`DELETE FROM clinic_billing_entities WHERE clinic_id = ${id}`
+    for (const code of data.billingEntityCodes) {
+      await client.sql`
+        INSERT INTO clinic_billing_entities (clinic_id, entity_id)
+        SELECT ${id}, be.id FROM billing_entities be WHERE be.code = ${code}
+        ON CONFLICT DO NOTHING
+      `
+    }
+    await client.sql`COMMIT`
+  } catch (e) {
+    await client.sql`ROLLBACK`
+    throw e
+  } finally {
+    client.release()
+  }
+}
+
+export async function deleteClinic(id: string): Promise<void> {
+  await ensureDb()
+  await sql`DELETE FROM clinics WHERE id = ${id}`
 }
 
 // ── Billing contacts ──────────────────────────────────────────────────────────
 
 export async function getBillingContacts(): Promise<BillingContactRecord[]> {
   await ensureDb()
-  const { rows } = await sql`SELECT entity, contact_name, org, address, email FROM billing_contacts ORDER BY entity`
+  const { rows } = await sql`
+    SELECT be.code AS entity, bc.contact_name, bc.org, bc.address, bc.email
+    FROM billing_contacts bc
+    JOIN billing_entities be ON be.id = bc.entity_id
+    ORDER BY be.code
+  `
   return rows.map((r) => ({
     entity: r.entity as string,
     contactName: (r.contact_name as string) ?? '',
@@ -877,9 +1034,10 @@ export async function getBillingContacts(): Promise<BillingContactRecord[]> {
 export async function setBillingContact(entity: string, data: Omit<BillingContactRecord, 'entity'>): Promise<void> {
   await ensureDb()
   await sql`
-    INSERT INTO billing_contacts (entity, contact_name, org, address, email)
-    VALUES (${entity}, ${data.contactName}, ${data.org}, ${data.address}, ${data.email})
-    ON CONFLICT (entity) DO UPDATE SET
+    INSERT INTO billing_contacts (entity_id, contact_name, org, address, email)
+    SELECT be.id, ${data.contactName}, ${data.org}, ${data.address}, ${data.email}
+    FROM billing_entities be WHERE be.code = ${entity}
+    ON CONFLICT (entity_id) DO UPDATE SET
       contact_name = ${data.contactName},
       org          = ${data.org},
       address      = ${data.address},
@@ -891,13 +1049,24 @@ export async function setBillingContact(entity: string, data: Omit<BillingContac
 
 export async function getBillingRates(): Promise<Record<string, number>> {
   await ensureDb()
-  const { rows } = await sql`SELECT key, value FROM billing_rates`
-  return Object.fromEntries(rows.map((r) => [r.key as string, parseFloat(r.value as string)]))
+  const { rows } = await sql`
+    SELECT be.code, br.rate_key, br.rate
+    FROM billing_rates br
+    JOIN billing_entities be ON be.id = br.entity_id
+  `
+  return Object.fromEntries(rows.map((r) => [`${r.code}_${r.rate_key}`, parseFloat(r.rate as string)]))
 }
 
 export async function setBillingRate(key: string, value: number): Promise<void> {
   await ensureDb()
-  await sql`INSERT INTO billing_rates (key, value) VALUES (${key}, ${value}) ON CONFLICT (key) DO UPDATE SET value = ${value}`
+  const sep = key.indexOf('_')
+  const entityCode = key.slice(0, sep)
+  const rateKey = key.slice(sep + 1)
+  await sql`
+    UPDATE billing_rates br SET rate = ${value}
+    FROM billing_entities be
+    WHERE be.id = br.entity_id AND be.code = ${entityCode} AND br.rate_key = ${rateKey}
+  `
 }
 
 // ── Resident preferences ──────────────────────────────────────────────────────
