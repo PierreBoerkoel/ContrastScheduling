@@ -981,6 +981,8 @@ export default function SchedulePage() {
                 ? (CLINIC_ABBR[shiftById[myConflict.shiftId]?.clinic ?? ''] ?? shiftById[myConflict.shiftId]?.clinic ?? '')
                 : null
               const requestorDisplayName = currentNameFor(req.requestorUserId, req.requestorName)
+              const requestorShift = shiftById[req.requestorShiftId]
+              const offerStarted = isShiftStarted(requestorShift ?? { date: offerDate })
               return (
                 <div key={req.id} className="p-5">
                   <p className="text-sm text-slate-700 mb-1">
@@ -991,7 +993,9 @@ export default function SchedulePage() {
                     Offered {formatDateTime(req.requestedAt)}
                   </p>
 
-                  {!isMyOffer && acceptingId === req.id ? (
+                  {offerStarted && !isMyOffer ? (
+                    <span className="text-xs text-slate-400">Shift has started</span>
+                  ) : !isMyOffer && acceptingId === req.id ? (
                     <div className={`border rounded-lg p-4 space-y-3 ${myConflictClinic ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
                       {myConflictClinic ? (
                         <p className="text-sm text-amber-800">
@@ -1057,6 +1061,8 @@ export default function SchedulePage() {
             {pendingSplits.map((split) => {
               const isMyOffer = split.offerorUserId === myUserId
               const offerorDisplayName = currentNameFor(split.offerorUserId, split.offerorName)
+              const splitShift = shiftById[split.shiftId]
+              const splitStarted = isShiftStarted(splitShift ?? { date: split.shiftId.split('|')[0] })
               return (
                 <div key={split.id} className="p-5">
                   <p className="text-sm text-slate-700 mb-0.5">
@@ -1070,7 +1076,9 @@ export default function SchedulePage() {
                     Offered {formatDateTime(split.offeredAt)}
                   </p>
 
-                  {!isMyOffer && acceptingSplitId === split.id ? (
+                  {splitStarted && !isMyOffer ? (
+                    <span className="text-xs text-slate-400">Shift has started</span>
+                  ) : !isMyOffer && acceptingSplitId === split.id ? (
                     <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
                       <p className="text-sm text-green-800">
                         Cover the <strong>{formatTimeRange(split.offeredStart, split.offeredEnd)}</strong> portion

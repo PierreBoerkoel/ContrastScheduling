@@ -2,6 +2,22 @@ import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { getShiftSplits, updateShiftSplit, getShifts, getAllPublishedAssignments } from '@/lib/db'
 
+function shiftStarted(shiftDate: string, startTime?: string | null): boolean {
+  const now = new Date()
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Vancouver',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+  const parts = fmt.formatToParts(now)
+  const get = (t: string) => parts.find((p) => p.type === t)!.value
+  const nowDate = `${get('year')}-${get('month')}-${get('day')}`
+  if (nowDate > shiftDate) return true
+  if (nowDate < shiftDate) return false
+  if (!startTime) return false
+  return `${get('hour')}:${get('minute')}` >= startTime
+}
+
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number)
   return h * 60 + m
@@ -53,6 +69,11 @@ export async function PATCH(
     const splitDate = split.shiftId.split('|')[0]
     const [allShifts, published] = await Promise.all([getShifts(), getAllPublishedAssignments()])
     const shiftById = Object.fromEntries(allShifts.map((s) => [s.id, s]))
+
+    const offeredShift = shiftById[split.shiftId]
+    if (shiftStarted(offeredShift?.date ?? splitDate, offeredShift?.startTime)) {
+      return NextResponse.json({ error: 'This shift has already started' }, { status: 409 })
+    }
 
     // 1. Check direct published assignments on the same day (skip the shift being split)
     for (const a of published) {

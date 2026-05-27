@@ -2,6 +2,22 @@ import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { getSwapRequests, updateSwapRequest, getShifts, getPeriod, updatePeriodPublishedAssignments, updatePeriodDraft } from '@/lib/db'
 
+function shiftStarted(shiftDate: string, startTime?: string | null): boolean {
+  const now = new Date()
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Vancouver',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+  const parts = fmt.formatToParts(now)
+  const get = (t: string) => parts.find((p) => p.type === t)!.value
+  const nowDate = `${get('year')}-${get('month')}-${get('day')}`
+  if (nowDate > shiftDate) return true
+  if (nowDate < shiftDate) return false
+  if (!startTime) return false
+  return `${get('hour')}:${get('minute')}` >= startTime
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -36,6 +52,10 @@ export async function PATCH(
     const allShifts = await getShifts()
     const requestorShift = allShifts.find((s) => s.id === swapReq.requestorShiftId)
     if (!requestorShift?.periodId) return NextResponse.json({ error: 'Shift not found' }, { status: 404 })
+
+    if (shiftStarted(requestorShift.date, requestorShift.startTime)) {
+      return NextResponse.json({ error: 'This shift has already started' }, { status: 409 })
+    }
 
     const period = await getPeriod(requestorShift.periodId)
     if (!period) return NextResponse.json({ error: 'Period not found' }, { status: 404 })
