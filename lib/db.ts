@@ -554,7 +554,7 @@ export async function deleteSchedulingPeriod(id: string): Promise<void> {
   await ensureDb()
   // Hard-delete future shifts so they don't persist as orphaned upcoming shifts.
   // Past shifts are kept for invoice history. CASCADE handles assignments/splits/swaps.
-  await sql`DELETE FROM shifts WHERE period_id = ${id} AND date >= CURRENT_DATE`
+  await sql`DELETE FROM shifts WHERE period_id = ${id} AND date::date >= CURRENT_DATE`
   await sql`UPDATE scheduling_periods SET deleted_at = NOW() WHERE id = ${id}`
 }
 
