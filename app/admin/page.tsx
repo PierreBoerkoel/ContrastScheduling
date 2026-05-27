@@ -2298,18 +2298,13 @@ export default function AdminPage() {
                   className="w-full px-5 py-4 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-800">{clinic}</span>
-                      {def.abbreviation && (
-                        <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{def.abbreviation}</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                      <div className="flex gap-0.5">
+                    <span className="text-sm font-semibold text-slate-800">{clinic}</span>
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      <div className="flex gap-1">
                         {DAY_ORDER.map((day) => {
                           const active = (def.activeDays ?? []).includes(day)
                           return (
-                            <span key={day} className={`w-5 h-5 text-xs flex items-center justify-center rounded-full font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
+                            <span key={day} className={`w-6 h-6 text-xs flex items-center justify-center rounded-full font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
                               {DAY_LABELS[day]}
                             </span>
                           )
@@ -2317,6 +2312,9 @@ export default function AdminPage() {
                       </div>
                       {hasWeekdays && def.weekdayStart && def.weekdayEnd && (
                         <span className="text-xs text-slate-500">{formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
+                      )}
+                      {hasWeekends && def.weekendStart && def.weekendEnd && (
+                        <span className="text-xs text-slate-500">{formatTimeValue(def.weekendStart)} – {formatTimeValue(def.weekendEnd)}</span>
                       )}
                       {simpleRate !== undefined && (
                         <span className="text-xs text-slate-500">${simpleRate.toFixed(0)}/hr</span>
