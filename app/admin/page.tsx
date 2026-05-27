@@ -271,6 +271,7 @@ export default function AdminPage() {
   const [archivedClinics, setArchivedClinics] = useState<Clinic[]>([])
   const [archivedLoaded, setArchivedLoaded] = useState(false)
   const [archivingClinic, setArchivingClinic] = useState<string | null>(null)
+  const [deletingClinic, setDeletingClinic] = useState<string | null>(null)
   const [showArchivedSection, setShowArchivedSection] = useState(false)
 
   // Billing contacts
@@ -2490,7 +2491,7 @@ export default function AdminPage() {
                           >
                             {savingClinic ? 'Saving…' : 'Save'}
                           </button>
-                          <button onClick={() => { setEditingClinic(null); setClinicEditError(''); setArchivingClinic(null) }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+                          <button onClick={() => { setEditingClinic(null); setClinicEditError(''); setArchivingClinic(null); setDeletingClinic(null) }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
                           {archivingClinic === clinic ? (
                             <span className="flex items-center gap-2 ml-auto">
                               <span className="text-xs text-slate-500">Archive &ldquo;{def.name}&rdquo;?</span>
@@ -2512,8 +2513,33 @@ export default function AdminPage() {
                               </button>
                               <button onClick={() => setArchivingClinic(null)} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">No</button>
                             </span>
+                          ) : deletingClinic === clinic ? (
+                            <span className="flex items-center gap-2 ml-auto">
+                              <span className="text-xs text-slate-500">Permanently delete &ldquo;{def.name}&rdquo;?</span>
+                              <button
+                                onClick={async () => {
+                                  const res = await fetch('/api/admin/clinics', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: def.id }) })
+                                  if (res.ok) {
+                                    setClinicDefaults((prev) => prev.filter((d) => d.id !== def.id))
+                                    setEditingClinic(null); setDeletingClinic(null)
+                                    setExpandedClinics((prev) => { const next = new Set(prev); next.delete(clinic); return next })
+                                  } else {
+                                    const data = await res.json().catch(() => ({}))
+                                    setClinicEditError((data as { error?: string }).error ?? 'Failed to delete')
+                                    setDeletingClinic(null)
+                                  }
+                                }}
+                                className="text-xs bg-red-600 text-white px-2.5 py-1 rounded-lg hover:bg-red-700 transition-colors"
+                              >
+                                Confirm delete
+                              </button>
+                              <button onClick={() => setDeletingClinic(null)} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">No</button>
+                            </span>
                           ) : (
-                            <button onClick={() => setArchivingClinic(clinic)} className="text-xs text-amber-600 hover:text-amber-800 transition-colors ml-auto">Archive clinic</button>
+                            <span className="flex items-center gap-3 ml-auto">
+                              <button onClick={() => setArchivingClinic(clinic)} className="text-xs text-amber-600 hover:text-amber-800 transition-colors">Archive</button>
+                              <button onClick={() => setDeletingClinic(clinic)} className="text-xs text-red-500 hover:text-red-700 transition-colors">Delete</button>
+                            </span>
                           )}
                           {clinicEditError && <span className="text-xs text-red-500">{clinicEditError}</span>}
                         </div>
@@ -2628,18 +2654,44 @@ export default function AdminPage() {
                   {archivedClinics.map((def) => (
                     <div key={def.id} className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-3 flex items-center justify-between gap-3 opacity-60">
                       <span className="text-sm font-medium text-slate-600">{def.name}</span>
-                      <button
-                        onClick={async () => {
-                          const res = await fetch('/api/admin/clinics', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: def.id, archived: false }) })
-                          if (res.ok) {
-                            setArchivedClinics((prev) => prev.filter((c) => c.id !== def.id))
-                            setClinicDefaults((prev) => [...prev, { ...def, archivedAt: null }].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)))
-                          }
-                        }}
-                        className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0"
-                      >
-                        Unarchive
-                      </button>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <button
+                          onClick={async () => {
+                            const res = await fetch('/api/admin/clinics', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: def.id, archived: false }) })
+                            if (res.ok) {
+                              setArchivedClinics((prev) => prev.filter((c) => c.id !== def.id))
+                              setClinicDefaults((prev) => [...prev, { ...def, archivedAt: null }].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)))
+                            }
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                        >
+                          Unarchive
+                        </button>
+                        {deletingClinic === def.id ? (
+                          <span className="flex items-center gap-2">
+                            <span className="text-xs text-slate-500">Delete permanently?</span>
+                            <button
+                              onClick={async () => {
+                                const res = await fetch('/api/admin/clinics', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: def.id }) })
+                                if (res.ok) {
+                                  setArchivedClinics((prev) => prev.filter((c) => c.id !== def.id))
+                                  setDeletingClinic(null)
+                                } else {
+                                  const data = await res.json().catch(() => ({}))
+                                  alert((data as { error?: string }).error ?? 'Cannot delete this clinic')
+                                  setDeletingClinic(null)
+                                }
+                              }}
+                              className="text-xs bg-red-600 text-white px-2.5 py-1 rounded-lg hover:bg-red-700 transition-colors"
+                            >
+                              Confirm
+                            </button>
+                            <button onClick={() => setDeletingClinic(null)} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">No</button>
+                          </span>
+                        ) : (
+                          <button onClick={() => setDeletingClinic(def.id)} className="text-xs text-red-500 hover:text-red-700 transition-colors">Delete</button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
