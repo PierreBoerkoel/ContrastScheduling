@@ -1,16 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import type { BillingEntity, CompletedShiftForInvoice, MriPetMode, BillingContact } from '@/lib/invoices'
-import { clinicEntities, BILLING_CONTACTS } from '@/lib/invoices'
 import type { InvoiceHistoryRecord } from '@/lib/db'
-
-const ENTITY_LABELS: Record<BillingEntity, string> = {
-  MRCT: 'BCCA MRI / CT',
-  PET: 'BCCA PET',
-  UBCMR: 'UBC',
-  BCWHMR: 'BCWH',
-}
 
 const MRI_PET_MODE_LABELS: Partial<Record<MriPetMode, string>> = {
   'normal': 'MRI + PET',
@@ -21,9 +13,9 @@ const MRI_PET_MODE_LABELS: Partial<Record<MriPetMode, string>> = {
 }
 
 // Modes hidden per entity tab because they produce no billable items for that entity
-const EXCLUDED_MODES: Partial<Record<BillingEntity, MriPetMode>> = {
-  MRCT: 'mri-down', // PET-only shift — nothing to bill to MRCT
-  PET: 'pet-down',  // MRI-only shift — nothing to bill to PET
+const EXCLUDED_MODES: Partial<Record<string, MriPetMode>> = {
+  MRCT: 'mri-down',
+  PET: 'pet-down',
 }
 
 const EXCLUDED_REASON: Partial<Record<MriPetMode, string>> = {
@@ -36,6 +28,7 @@ interface Props {
   allShifts: { date: string; clinic: string; startTime?: string; endTime?: string }[]
   from: { name: string; address: string; phone: string; email: string }
   onMissingProfile: () => void
+  clinicEntityMap: Record<string, string[]>
 }
 
 function formatDateShort(d: string): string {
@@ -57,7 +50,7 @@ function currentYearMonth(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
-export default function InvoiceGenerator({ completed, allShifts, from, onMissingProfile }: Props) {
+export default function InvoiceGenerator({ completed, allShifts, from, onMissingProfile, clinicEntityMap }: Props) {
   // date → start/end times of the companion BC Cancer Agency CT shift
   const ctShiftByDate = Object.fromEntries(
     allShifts
@@ -70,14 +63,15 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
   )
   const now = new Date()
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  const [activeEntity, setActiveEntity] = useState<BillingEntity>('MRCT')
+  const [activeEntity, setActiveEntity] = useState<BillingEntity>('')
+  const [entities, setEntities] = useState<{ code: string; label: string }[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [modes, setModes] = useState<Record<string, MriPetMode>>({})
   const [parkingAmounts, setParkingAmounts] = useState<Record<string, string>>({})
   const [invoiceDate, setInvoiceDate] = useState(today)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
-  const [filterMonth, setFilterMonth] = useState<string>(currentYearMonth()) // 'YYYY-MM' or 'all'
+  const [filterMonth, setFilterMonth] = useState<string>(currentYearMonth())
   const [history, setHistory] = useState<InvoiceHistoryRecord[]>([])
   const [invoicePrefix, setInvoicePrefix] = useState('')
   const [invoiceSeq, setInvoiceSeq] = useState('')
@@ -95,15 +89,38 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
         if (Array.isArray(data)) {
           const map: Partial<Record<BillingEntity, BillingContact>> = {}
           for (const c of data) {
-            map[c.entity as BillingEntity] = { name: c.contactName, org: c.org, address: c.address, email: c.email ?? undefined }
+            map[c.entity] = { name: c.contactName, org: c.org, address: c.address, email: c.email ?? undefined }
           }
           setDbContacts(map)
         }
       })
       .catch(() => {})
+    fetch('/api/admin/billing-entities')
+      .then((r) => r.json())
+      .then((data: { code: string; label: string }[]) => {
+        if (Array.isArray(data)) setEntities(data)
+      })
+      .catch(() => {})
   }, [])
 
+  // Entity codes that have at least one eligible completed shift for this user
+  const eligibleEntityTabs = useMemo(() => {
+    const codes = new Set<string>()
+    for (const s of completed) {
+      for (const code of (clinicEntityMap[s.clinic] ?? [])) codes.add(code)
+    }
+    return entities.filter((e) => codes.has(e.code))
+  }, [completed, clinicEntityMap, entities])
+
+  // Set initial active entity once tabs are derived
   useEffect(() => {
+    if (eligibleEntityTabs.length > 0 && (!activeEntity || !eligibleEntityTabs.find((e) => e.code === activeEntity))) {
+      setActiveEntity(eligibleEntityTabs[0].code)
+    }
+  }, [eligibleEntityTabs])
+
+  useEffect(() => {
+    if (!activeEntity) return
     setSequenceLoading(true)
     fetch(`/api/invoices/sequence?entity=${activeEntity}`)
       .then((r) => r.json())
@@ -131,7 +148,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
 
   // Shifts that can contribute to the active billing entity, filtered by month
   const eligibleShifts = completed.filter((s) =>
-    clinicEntities(s.clinic).includes(activeEntity) &&
+    (clinicEntityMap[s.clinic] ?? []).includes(activeEntity) &&
     (filterMonth === 'all' || s.date.startsWith(filterMonth))
   )
 
@@ -217,7 +234,6 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
       a.download = filename
       a.click()
       URL.revokeObjectURL(url)
-      // Clear selection, refresh history and sequence
       setSelected(new Set())
       fetch('/api/invoices/history')
         .then((r) => r.json())
@@ -241,36 +257,42 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
     }
   }
 
-  const contact = dbContacts[activeEntity] ?? BILLING_CONTACTS[activeEntity]
+  const contact = dbContacts[activeEntity]
   const tabExcludedMode = EXCLUDED_MODES[activeEntity]
   const selectedCount = eligibleShifts.filter((s) =>
     selected.has(s.shiftId) &&
     !(s.clinic === 'BC Cancer Agency MRI/PET' && tabExcludedMode && modes[s.shiftId] === tabExcludedMode)
   ).length
 
+  if (eligibleEntityTabs.length === 0 && entities.length > 0) {
+    return <p className="text-sm text-slate-400 py-2">No completed shifts eligible for invoicing.</p>
+  }
+
   return (
     <div className="space-y-4">
       {/* Entity tabs */}
       <div className="flex border-b border-slate-200">
-        {(['MRCT', 'PET', 'UBCMR', 'BCWHMR'] as BillingEntity[]).map((e) => (
+        {eligibleEntityTabs.map((e) => (
           <button
-            key={e}
-            onClick={() => { setActiveEntity(e); setSelected(new Set()); setError('') }}
+            key={e.code}
+            onClick={() => { setActiveEntity(e.code); setSelected(new Set()); setError('') }}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              activeEntity === e
+              activeEntity === e.code
                 ? 'border-blue-600 text-blue-700'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
-            {ENTITY_LABELS[e]}
+            {e.label}
           </button>
         ))}
       </div>
 
       {/* Billed to */}
-      <p className="text-xs text-slate-400">
-        Billed to: {[contact.name, contact.org].filter(Boolean).join(', ')}
-      </p>
+      {contact && (
+        <p className="text-xs text-slate-400">
+          Billed to: {[contact.name, contact.org].filter(Boolean).join(', ')}
+        </p>
+      )}
 
       {/* Month filter */}
       <div className="flex items-center gap-3">
@@ -308,7 +330,6 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
               ? ` · ${formatTime(shift.startTime)}–${formatTime(shift.endTime)}`
               : ''
             const priorInvoices = (invoicedShifts.get(shift.shiftId) ?? []).filter((inv) => inv.entity === activeEntity)
-            // Dropdown options: hide the mode that produces no items for the current entity tab
             const availableModes = (Object.entries(MRI_PET_MODE_LABELS) as [MriPetMode, string][])
               .filter(([k]) => k !== excludedMode)
 

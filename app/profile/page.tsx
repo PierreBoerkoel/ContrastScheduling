@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
 import type { Shift, SchedulingPeriod, ShiftAssignment, ShiftSplit, ClinicName, Clinic } from '@/lib/types'
 import { formatTimeRange, computeCoverageSegments } from '@/lib/types'
-import { clinicEntities, calculateLineItems, ratesToBillingRates } from '@/lib/invoices'
+import { calculateLineItems, ratesToBillingRates } from '@/lib/invoices'
 import type { CompletedShiftForInvoice } from '@/lib/invoices'
 import InvoiceGenerator from '@/app/components/InvoiceGenerator'
 
@@ -220,6 +220,7 @@ export default function ProfilePage() {
   const clinicNames = clinics.map((c) => c.name)
   const clinicAbbrMap = Object.fromEntries(clinics.map((c) => [c.name, c.abbreviation]))
   const clinicAbbr = (clinic: string) => clinicAbbrMap[clinic] ?? clinic
+  const clinicEntityMap = Object.fromEntries(clinics.map((c) => [c.name, c.billingEntityCodes]))
 
   // Re-render every 60 s so isShiftEnded() stays current without a page refresh
   const [, forceUpdate] = useState(0)
@@ -454,7 +455,7 @@ export default function ProfilePage() {
 
   // Completed shifts eligible for invoice generation (must have time data and a billing entity)
   const invoiceableCompleted: CompletedShiftForInvoice[] = completed
-    .filter((s) => s.startTime && s.endTime && clinicEntities(s.clinic).length > 0)
+    .filter((s) => s.startTime && s.endTime && (clinicEntityMap[s.clinic]?.length ?? 0) > 0)
     .map((s) => ({
       shiftId: `${s.id}::${s.startTime}`,
       date: s.date,
@@ -499,7 +500,7 @@ export default function ProfilePage() {
       const rows: Row[] = []
 
       for (const shift of inRange) {
-        const entities = clinicEntities(shift.clinic)
+        const entities = clinicEntityMap[shift.clinic] ?? []
         for (const entity of entities) {
           const items = calculateLineItems(shift, null, rates)[entity]
           for (const item of items) {
@@ -1184,6 +1185,7 @@ export default function ProfilePage() {
                     setShowInvoiceGenerator(false)
                     startEditContact()
                   }}
+                  clinicEntityMap={clinicEntityMap}
                 />
               </div>
             )}

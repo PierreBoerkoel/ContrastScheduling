@@ -49,8 +49,12 @@ export async function POST(request: Request) {
     ? { name: contactRow.contactName, org: contactRow.org, address: contactRow.address, email: contactRow.email ?? undefined }
     : undefined
 
+  // For simple (DB-managed) entities, look up the flat hourly rate keyed as `${entity}_rate`
+  const simpleRate = rawRates[`${entity}_rate`]
+  const simpleEntityRates = simpleRate !== undefined ? { [entity]: simpleRate } : undefined
+
   const allLineItems: BillingLineItem[] = shifts.flatMap((shift) => {
-    const items = [...calculateLineItems(shift, modes[shift.shiftId] ?? null, rates, ctEndTimes?.[shift.shiftId], ctStartTimes?.[shift.shiftId])[entity]]
+    const items = [...(calculateLineItems(shift, modes[shift.shiftId] ?? null, rates, ctEndTimes?.[shift.shiftId], ctStartTimes?.[shift.shiftId], simpleEntityRates)[entity] ?? [])]
     const parking = parkingAmounts?.[shift.shiftId] ?? 0
     if (parking > 0) {
       items.push({

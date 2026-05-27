@@ -913,6 +913,82 @@ export async function setInvoiceSequence(userId: string, series: string, nextNum
   }
 }
 
+// ── Billing entities ─────────────────────────────────────────────────────────
+
+export interface BillingEntityRecord {
+  id: string
+  code: string
+  label: string
+  simpleRate: number | null  // single flat rate if simple; null for complex multi-rate entities
+}
+
+export async function getBillingEntities(): Promise<BillingEntityRecord[]> {
+  await ensureDb()
+  const { rows } = await sql`
+    SELECT be.id, be.code, be.label,
+           (SELECT br.rate FROM billing_rates br WHERE br.entity_id = be.id AND br.rate_key = 'rate' LIMIT 1) AS simple_rate
+    FROM billing_entities be
+    ORDER BY be.code
+  `
+  return rows.map((r) => ({
+    id: r.id as string,
+    code: r.code as string,
+    label: r.label as string,
+    simpleRate: r.simple_rate != null ? parseFloat(r.simple_rate as string) : null,
+  }))
+}
+
+export async function addBillingEntity(data: {
+  code: string
+  label: string
+  rate: number
+  contactName: string
+  org: string
+  address: string
+  email: string | null
+}): Promise<BillingEntityRecord> {
+  await ensureDb()
+  const client = await db.connect()
+  try {
+    await client.sql`BEGIN`
+    const { rows } = await client.sql`
+      INSERT INTO billing_entities (code, label)
+      VALUES (${data.code}, ${data.label})
+      RETURNING id
+    `
+    const id = rows[0].id as string
+    await client.sql`
+      INSERT INTO billing_rates (entity_id, rate_key, rate)
+      VALUES (${id}, 'rate', ${data.rate})
+    `
+    await client.sql`
+      INSERT INTO billing_contacts (entity_id, contact_name, org, address, email)
+      VALUES (${id}, ${data.contactName}, ${data.org}, ${data.address}, ${data.email})
+    `
+    await client.sql`COMMIT`
+    return { id, code: data.code, label: data.label, simpleRate: data.rate }
+  } catch (e) {
+    await client.sql`ROLLBACK`
+    throw e
+  } finally {
+    client.release()
+  }
+}
+
+export async function updateBillingEntity(id: string, data: {
+  code: string
+  label: string
+  rate: number
+}): Promise<void> {
+  await ensureDb()
+  await sql`UPDATE billing_entities SET code = ${data.code}, label = ${data.label} WHERE id = ${id}`
+  await sql`
+    INSERT INTO billing_rates (entity_id, rate_key, rate)
+    VALUES (${id}, 'rate', ${data.rate})
+    ON CONFLICT (entity_id, rate_key) DO UPDATE SET rate = ${data.rate}
+  `
+}
+
 // ── Clinics ───────────────────────────────────────────────────────────────────
 
 export async function getClinics(): Promise<Clinic[]> {

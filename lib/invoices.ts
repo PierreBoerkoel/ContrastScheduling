@@ -1,4 +1,4 @@
-export type BillingEntity = 'MRCT' | 'PET' | 'UBCMR' | 'BCWHMR'
+export type BillingEntity = string  // entity code, e.g. 'MRCT', 'PET', 'UBCMR', 'BCWHMR'
 
 export interface BillingRates {
   MRCT_base: number        // MRI with PET active
@@ -74,7 +74,7 @@ export interface BillingContactRecord {
   email: string | null
 }
 
-export const BILLING_CONTACTS: Record<BillingEntity, BillingContact> = {
+export const BILLING_CONTACTS: Record<string, BillingContact> = {
   MRCT: {
     name: 'Danielle Florendo',
     org: 'BCCA Diagnostic Imaging',
@@ -98,23 +98,8 @@ export const BILLING_CONTACTS: Record<BillingEntity, BillingContact> = {
   },
 }
 
-export const SERIES_DIGITS: Record<BillingEntity, number> = {
-  MRCT: 3,
-  PET: 3,
-  UBCMR: 3,
-  BCWHMR: 3,
-}
-
-const ENTITY_LABEL: Record<BillingEntity, string> = {
-  MRCT: 'BCCA_MRCT',
-  PET: 'BCCA_PET',
-  UBCMR: 'UBC_MRI',
-  BCWHMR: 'BCWH_MRI',
-}
-
-export function formatInvoiceNumber(initials: string, entity: BillingEntity, n: number): string {
-  const digits = SERIES_DIGITS[entity]
-  return `${initials}_${ENTITY_LABEL[entity]}${String(n).padStart(digits, '0')}`
+export function formatInvoiceNumber(initials: string, entity: string, n: number): string {
+  return `${initials}_${entity}${String(n).padStart(3, '0')}`
 }
 
 export function deriveInitials(fullName: string): string {
@@ -125,13 +110,13 @@ export function deriveInitials(fullName: string): string {
   return (parts.length > 1 ? first + last : first).toUpperCase()
 }
 
-// Which billing entities a clinic contributes to
-export function clinicEntities(clinic: string): BillingEntity[] {
+// Which billing entities a clinic contributes to (hardcoded for existing complex-billing clinics)
+export function clinicEntities(clinic: string): string[] {
   if (clinic === 'BC Cancer Agency CT') return ['MRCT']
   if (clinic === 'BC Cancer Agency MRI/PET') return ['MRCT', 'PET']
   if (clinic === 'UBC Hospital') return ['UBCMR']
   if (clinic === "BC Women's Hospital") return ['BCWHMR']
-  return [] // INITIO and unknown — no invoice
+  return []
 }
 
 // ── Time helpers ──────────────────────────────────────────────────────────────
@@ -175,14 +160,16 @@ function item(date: string, startTime: string, endTime: string, desc: string, ra
 
 // ── Main billing calculator ───────────────────────────────────────────────────
 
+// simpleEntityRates: entityCode → flat hourly rate, for DB-managed simple clinics
 export function calculateLineItems(
   shift: CompletedShiftForInvoice,
   mode: MriPetMode | null,
   rates: BillingRates = DEFAULT_RATES,
-  ctEndTime?: string,   // required when mode === 'ct-pet'; sourced from the companion CT shift
-  ctStartTime?: string, // optional for mode === 'ct-also'; overrides ctPeriod default when actual CT shift is known
-): Record<BillingEntity, BillingLineItem[]> {
-  const result: Record<BillingEntity, BillingLineItem[]> = { MRCT: [], PET: [], UBCMR: [], BCWHMR: [] }
+  ctEndTime?: string,
+  ctStartTime?: string,
+  simpleEntityRates?: Record<string, number>,
+): Record<string, BillingLineItem[]> {
+  const result: Record<string, BillingLineItem[]> = { MRCT: [], PET: [], UBCMR: [], BCWHMR: [] }
   const { date, clinic, startTime: sS, endTime: sE } = shift
 
   if (clinic === 'BC Cancer Agency CT') {
@@ -240,16 +227,11 @@ export function calculateLineItems(
       }
 
       case 'ct-pet': {
-        // MRI is down; resident covers CT + PET from the companion CT shift.
-        // ctEndTime is the end of the CT shift for this date.
         if (!ctEndTime) break
         const petEnd = mins(sE) > mins(PET_END) ? PET_END : sE
-        // Window where CT is running (shift start → CT end)
         const ctWindow = overlapInterval(sS, sE, sS, ctEndTime)
-        // Split CT window: before 9 pm (PET also active) vs after 9 pm (PET done, CT solo)
         const bothActive = ctWindow ? overlapInterval(ctWindow.start, ctWindow.end, sS, petEnd) : null
         const ctAfterPet = ctWindow ? overlapInterval(ctWindow.start, ctWindow.end, PET_END, sE) : null
-        // After CT ends but before 9 pm: PET runs alone
         const petAlone = overlapInterval(sS, sE, ctEndTime, petEnd)
         if (bothActive) {
           result.MRCT.push(item(date, bothActive.start, bothActive.end, 'CT coverage', rates.MRCT_base))
@@ -271,6 +253,13 @@ export function calculateLineItems(
   if (clinic === "BC Women's Hospital") {
     result.BCWHMR.push(item(date, sS, sE, 'MR coverage', rates.BCWHMR_MR))
     return result
+  }
+
+  // Generic simple clinic billing for DB-managed clinics
+  if (simpleEntityRates) {
+    for (const [entityCode, rate] of Object.entries(simpleEntityRates)) {
+      result[entityCode] = [item(date, sS, sE, `${clinic} coverage`, rate)]
+    }
   }
 
   return result
