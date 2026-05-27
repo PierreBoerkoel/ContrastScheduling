@@ -2311,13 +2311,10 @@ export default function AdminPage() {
                         })}
                       </div>
                       {hasWeekdays && def.weekdayStart && def.weekdayEnd && (
-                        <span className="text-xs text-slate-500">{formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
+                        <span className="text-xs text-slate-500">Weekday: {formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
                       )}
                       {hasWeekends && def.weekendStart && def.weekendEnd && (
-                        <span className="text-xs text-slate-500">{formatTimeValue(def.weekendStart)} – {formatTimeValue(def.weekendEnd)}</span>
-                      )}
-                      {simpleRate !== undefined && (
-                        <span className="text-xs text-slate-500">${simpleRate.toFixed(0)}/hr</span>
+                        <span className="text-xs text-slate-500">Weekend: {formatTimeValue(def.weekendStart)} – {formatTimeValue(def.weekendEnd)}</span>
                       )}
                     </div>
                   </div>
