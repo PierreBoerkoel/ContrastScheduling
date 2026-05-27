@@ -982,8 +982,8 @@ assert(prefs2.weekendRanking?.[0] === 'BC Cancer Agency MRI/PET', 'weekend ranki
 section('3.21 Shift started — swap accept and split accept blocked')
 // Insert a definitively-past shift directly via DB (2020-01-01)
 const [{ id: PAST_SHIFT_ID }] = await db`
-  INSERT INTO shifts (date, clinic, period_id, start_time, end_time)
-  VALUES ('2020-01-01', 'BC Cancer Agency MRI/PET', ${HTTP_PERIOD_ID}::uuid, '08:00', '17:00')
+  INSERT INTO shifts (date, clinic_id, period_id, start_time, end_time)
+  VALUES ('2020-01-01', (SELECT id FROM clinics WHERE name = 'BC Cancer Agency MRI/PET'), ${HTTP_PERIOD_ID}::uuid, '08:00', '17:00')
   RETURNING id
 `
 
