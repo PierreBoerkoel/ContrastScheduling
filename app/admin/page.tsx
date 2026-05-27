@@ -20,6 +20,7 @@ const ENTITY_DISPLAY: Record<string, string> = {
   PET:    'BCCA PET',
   UBCMR:  'UBC MRI',
   BCWHMR: "BC Women's MRI",
+  INITIO: 'INITIO Medical Imaging',
 }
 
 // Rate rows for complex BCCA billing entities — shown inline in the clinic card

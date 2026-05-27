@@ -67,6 +67,7 @@ export async function initDb(): Promise<void> {
     ['PET',    'BCCA Molecular Imaging and Therapy'],
     ['UBCMR',  'Vancouver Imaging'],
     ['BCWHMR', 'BCW Diagnostic Imaging'],
+    ['INITIO', 'INITIO Medical Imaging'],
   ]
   for (const [code, label] of entitySeeds) {
     await sql`INSERT INTO billing_entities (code, label) VALUES (${code}, ${label}) ON CONFLICT (code) DO NOTHING`
@@ -87,6 +88,7 @@ export async function initDb(): Promise<void> {
        OR (c.name = 'BC Cancer Agency MRI/PET' AND be.code IN ('MRCT', 'PET'))
        OR (c.name = 'UBC Hospital'             AND be.code = 'UBCMR')
        OR (c.name = 'BC Women''s Hospital'     AND be.code = 'BCWHMR')
+       OR (c.name = 'INITIO Medical Imaging'   AND be.code = 'INITIO')
     ON CONFLICT DO NOTHING
   `
 
@@ -261,6 +263,7 @@ export async function initDb(): Promise<void> {
     ['PET',    'standalone', 75],
     ['UBCMR',  'rate',       75],
     ['BCWHMR', 'rate',       75],
+    ['INITIO', 'rate',       75],
   ]
   for (const [entityCode, rateKey, rate] of rateSeeds) {
     await sql`
@@ -303,6 +306,7 @@ export async function initDb(): Promise<void> {
     ['PET',    'Chris Raiwe',       'BCCA Molecular Imaging and Therapy', '600 W 10th Ave\nVancouver BC  V5Z 4E6',        null],
     ['UBCMR',  '',                  'Vancouver Imaging',                  '450-943 West Broadway\nVancouver BC  V5Z 4E1', 'finance@vancouverimaging.com'],
     ['BCWHMR', 'Rahul Jain',        'BCW Diagnostic Imaging',             '4500 Oak St.\nVancouver BC  V6H3N1',           null],
+    ['INITIO', '',                  'INITIO Medical Imaging',             '',                                             null],
   ]
   for (const [entityCode, name, org, address, email] of contactSeeds) {
     await sql`
