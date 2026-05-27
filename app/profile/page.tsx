@@ -404,9 +404,10 @@ export default function ProfilePage() {
 
   const allMyCoverage = [...myScheduleCoverage, ...mySplitCoverage]
 
-  // Upcoming: not yet ended
+  // Upcoming: not yet ended and not from a deleted block
+  const deletedPeriodIds = new Set(periods.filter((p) => p.deletedAt).map((p) => p.id))
   const upcoming: Shift[] = allMyCoverage
-    .filter((s) => !isShiftEnded(s))
+    .filter((s) => !isShiftEnded(s) && !deletedPeriodIds.has(s.periodId ?? ''))
     .sort((a, b) => a.date.localeCompare(b.date))
 
   // Completed: ended shifts from all periods (including soft-deleted) via allMyCoverage
