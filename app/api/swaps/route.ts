@@ -1,12 +1,30 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getSwapRequests, addSwapRequest, getAllPublishedAssignments } from '@/lib/db'
+import { getSwapRequests, addSwapRequest, getAllPublishedAssignments, getShifts, updateSwapRequest } from '@/lib/db'
+import { shiftStarted } from '@/lib/time'
 import type { SwapRequest } from '@/lib/types'
 
 export async function GET() {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return NextResponse.json(await getSwapRequests())
+
+  const [swaps, allShifts] = await Promise.all([getSwapRequests(), getShifts()])
+  const shiftById = Object.fromEntries(allShifts.map((s) => [s.id, s]))
+
+  const expired = swaps.filter((r) => {
+    if (r.status !== 'pending') return false
+    const shift = shiftById[r.requestorShiftId]
+    return shiftStarted(shift?.date ?? r.requestorShiftId.split('|')[0], shift?.startTime)
+  })
+
+  if (expired.length > 0) {
+    await Promise.all(expired.map((r) => updateSwapRequest(r.id, { status: 'cancelled' })))
+    return NextResponse.json(swaps.map((r) =>
+      expired.find((e) => e.id === r.id) ? { ...r, status: 'cancelled' } : r
+    ))
+  }
+
+  return NextResponse.json(swaps)
 }
 
 export async function POST(request: Request) {

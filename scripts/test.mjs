@@ -1012,6 +1012,15 @@ await db`
 const { status: pastSwapAcc, body: pastSwapAccBody } = await api(R2.id, 'PATCH', `/api/swaps/${pastSwapId}`, { action: 'accept' })
 assert(pastSwapAcc === 409, 'swap accept blocked when shift has already started (409)', `status=${pastSwapAcc} body=${JSON.stringify(pastSwapAccBody)}`)
 
+// GET /api/swaps auto-cancels the pending offer and returns it as cancelled
+const { body: swapsAfterStart } = await api(R1.id, 'GET', '/api/swaps')
+const autoSwap = Array.isArray(swapsAfterStart) ? swapsAfterStart.find(r => r.id === pastSwapId) : null
+assert(autoSwap?.status === 'cancelled', 'GET /api/swaps auto-cancels pending offer for started shift')
+// Confirm DB was written (second GET should also return cancelled)
+const { body: swapsAfterStart2 } = await api(R1.id, 'GET', '/api/swaps')
+const autoSwap2 = Array.isArray(swapsAfterStart2) ? swapsAfterStart2.find(r => r.id === pastSwapId) : null
+assert(autoSwap2?.status === 'cancelled', 'cancelled status persists in DB after auto-cancel')
+
 // Insert a split offer for the past shift directly into the DB
 const pastSplitId = crypto.randomUUID()
 await db`
@@ -1020,6 +1029,11 @@ await db`
 `
 const { status: pastSplitAcc, body: pastSplitAccBody } = await api(R2.id, 'PATCH', `/api/splits/${pastSplitId}`, { action: 'accept' })
 assert(pastSplitAcc === 409, 'split accept blocked when shift has already started (409)', `status=${pastSplitAcc} body=${JSON.stringify(pastSplitAccBody)}`)
+
+// GET /api/splits auto-cancels the pending offer and returns it as cancelled
+const { body: splitsAfterStart } = await api(R1.id, 'GET', '/api/splits')
+const autoSplit = Array.isArray(splitsAfterStart) ? splitsAfterStart.find(s => s.id === pastSplitId) : null
+assert(autoSplit?.status === 'cancelled', 'GET /api/splits auto-cancels pending offer for started shift')
 
 // ════════════════════════════════════════════════════════════════════════════
 // Cleanup + summary

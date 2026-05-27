@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getShiftSplits, addShiftSplit, getShifts, getAllPublishedAssignments, getSwapRequests, addSwapRequest } from '@/lib/db'
+import { getShiftSplits, addShiftSplit, updateShiftSplit, getShifts, getAllPublishedAssignments, getSwapRequests, addSwapRequest } from '@/lib/db'
+import { shiftStarted } from '@/lib/time'
 import type { SwapRequest } from '@/lib/types'
 
 function timeToMinutes(t: string): number {
@@ -16,7 +17,24 @@ function isHalfHour(t: string): boolean {
 export async function GET() {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return NextResponse.json(await getShiftSplits())
+
+  const [splits, allShifts] = await Promise.all([getShiftSplits(), getShifts()])
+  const shiftById = Object.fromEntries(allShifts.map((s) => [s.id, s]))
+
+  const expired = splits.filter((s) => {
+    if (s.status !== 'pending') return false
+    const shift = shiftById[s.shiftId]
+    return shiftStarted(shift?.date ?? s.shiftId.split('|')[0], shift?.startTime)
+  })
+
+  if (expired.length > 0) {
+    await Promise.all(expired.map((s) => updateShiftSplit(s.id, { status: 'cancelled' })))
+    return NextResponse.json(splits.map((s) =>
+      expired.find((e) => e.id === s.id) ? { ...s, status: 'cancelled' } : s
+    ))
+  }
+
+  return NextResponse.json(splits)
 }
 
 export async function POST(request: Request) {
