@@ -11,11 +11,12 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const entity = searchParams.get('entity') as BillingEntity | null
   if (!entity) return NextResponse.json({ error: 'Missing entity' }, { status: 400 })
+  const abbr = searchParams.get('abbr')
 
   const user = await currentUser()
   const name = user?.fullName ?? [user?.firstName, user?.lastName].filter(Boolean).join(' ') ?? ''
   const initials = deriveInitials(name)
 
   const n = await peekInvoiceNumber(userId, entity)
-  return NextResponse.json({ number: n, formatted: formatInvoiceNumber(initials, entity, n) })
+  return NextResponse.json({ number: n, formatted: formatInvoiceNumber(initials, abbr || entity, n) })
 }

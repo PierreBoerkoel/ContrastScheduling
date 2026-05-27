@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { BillingEntity, CompletedShiftForInvoice, MriPetMode, BillingContact } from '@/lib/invoices'
 import type { InvoiceHistoryRecord } from '@/lib/db'
 
@@ -29,6 +29,7 @@ interface Props {
   from: { name: string; address: string; phone: string; email: string }
   onMissingProfile: () => void
   clinicEntityMap: Record<string, string[]>
+  clinicAbbrMap: Record<string, string>
 }
 
 function formatDateShort(d: string): string {
@@ -50,7 +51,7 @@ function currentYearMonth(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
-export default function InvoiceGenerator({ completed, allShifts, from, onMissingProfile, clinicEntityMap }: Props) {
+export default function InvoiceGenerator({ completed, allShifts, from, onMissingProfile, clinicEntityMap, clinicAbbrMap }: Props) {
   // date → start/end times of the companion BC Cancer Agency CT shift
   const ctShiftByDate = Object.fromEntries(
     allShifts
@@ -112,6 +113,25 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
     return entities.filter((e) => codes.has(e.code))
   }, [completed, clinicEntityMap, entities])
 
+  // For simple (1:1) entity↔clinic mappings, map entity code → clinic abbreviation
+  const entityAbbrMap = useMemo(() => {
+    const entityToClinics: Record<string, string[]> = {}
+    for (const [clinicName, codes] of Object.entries(clinicEntityMap)) {
+      for (const code of codes) {
+        if (!entityToClinics[code]) entityToClinics[code] = []
+        entityToClinics[code].push(clinicName)
+      }
+    }
+    const result: Record<string, string> = {}
+    for (const [code, clinicNames] of Object.entries(entityToClinics)) {
+      if (clinicNames.length === 1 && (clinicEntityMap[clinicNames[0]]?.length ?? 0) === 1) {
+        const abbr = clinicAbbrMap[clinicNames[0]]
+        if (abbr) result[code] = abbr
+      }
+    }
+    return result
+  }, [clinicEntityMap, clinicAbbrMap])
+
   // Set initial active entity once tabs are derived
   useEffect(() => {
     if (eligibleEntityTabs.length > 0 && (!activeEntity || !eligibleEntityTabs.find((e) => e.code === activeEntity))) {
@@ -119,10 +139,12 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
     }
   }, [eligibleEntityTabs])
 
-  useEffect(() => {
-    if (!activeEntity) return
+  const fetchSequence = useCallback((entity: string) => {
+    if (!entity) return
     setSequenceLoading(true)
-    fetch(`/api/invoices/sequence?entity=${activeEntity}`)
+    const abbr = entityAbbrMap[entity]
+    const url = `/api/invoices/sequence?entity=${entity}${abbr ? `&abbr=${encodeURIComponent(abbr)}` : ''}`
+    fetch(url)
       .then((r) => r.json())
       .then((data) => {
         if (data.formatted) {
@@ -134,7 +156,11 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
       })
       .catch(() => {})
       .finally(() => setSequenceLoading(false))
-  }, [activeEntity])
+  }, [entityAbbrMap])
+
+  useEffect(() => {
+    fetchSequence(activeEntity)
+  }, [activeEntity, fetchSequence])
 
   // Map from shiftId → list of invoices it appeared in
   const invoicedShifts = new Map<string, InvoiceHistoryRecord[]>()
@@ -239,17 +265,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
         .then((r) => r.json())
         .then((data) => { if (Array.isArray(data)) setHistory(data) })
         .catch(() => {})
-      fetch(`/api/invoices/sequence?entity=${activeEntity}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.formatted) {
-            const match = /(\d+)$/.exec(data.formatted)
-            const digits = match?.[0] ?? ''
-            setInvoicePrefix(data.formatted.slice(0, data.formatted.length - digits.length))
-            setInvoiceSeq(digits)
-          }
-        })
-        .catch(() => {})
+      fetchSequence(activeEntity)
     } catch {
       setError('Network error. Please try again.')
     } finally {
@@ -282,7 +298,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
-            {e.label}
+            {entityAbbrMap[e.code] ?? e.label}
           </button>
         ))}
       </div>

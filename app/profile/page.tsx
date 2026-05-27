@@ -1186,6 +1186,7 @@ export default function ProfilePage() {
                     startEditContact()
                   }}
                   clinicEntityMap={clinicEntityMap}
+                  clinicAbbrMap={clinicAbbrMap}
                 />
               </div>
             )}
