@@ -1588,7 +1588,7 @@ export default function AdminPage() {
                               ? new Intl.DateTimeFormat('en-CA', { month: 'short', timeZone: 'UTC' }).format(new Date(dateStr + 'T00:00:00Z'))
                               : null
                             return (
-                              <div key={dateStr} className={`bg-white min-h-[80px] p-2 ${!inBlock ? 'opacity-25' : ''}`}>
+                              <div key={dateStr} className={`relative bg-white min-h-[80px] p-2 ${!inBlock ? 'opacity-25' : ''}`}>
                                 <div className="flex items-baseline gap-1 mb-1">
                                   <span className="text-xs font-medium text-slate-600">{day}</span>
                                   {monthName && <span className="text-xs font-semibold text-blue-500 leading-none">{monthName}</span>}
@@ -1626,6 +1626,7 @@ export default function AdminPage() {
                                         const resident = currentNameForShift(shift.id)
                                         const isEditing = editingShiftId === shift.id
                                         const available = availableFor(shift.id)
+                                        const overlayPos = (i % 7) >= 4 ? 'right-0' : 'left-0'
                                         const segs = computeCoverageSegments(shift, assignmentMap[shift.id] ?? null, splitsByShift[shift.id] ?? [], shiftToUserId[shift.id])
                                         const hasSplits = segs.length > 1 || segs.some((sg) => currentNameForSeg(sg) !== (resident ?? ''))
                                         return (
@@ -1657,76 +1658,80 @@ export default function AdminPage() {
                                               )}
                                             </div>
                                             {/* Edit / remove controls */}
-                                            {isEditing && adminSplitShiftId !== shift.id ? (
-                                              <div onClick={(e) => e.stopPropagation()} className="space-y-1">
-                                                {(splitsByShift[shift.id] ?? []).filter((sp) => sp.status === 'accepted').map((sp) => (
-                                                  <div key={sp.id} className="flex items-center justify-between text-xs bg-violet-50 rounded px-1.5 py-0.5">
-                                                    <span className="text-violet-700">{sp.acceptorName} · {formatTimeRange(sp.offeredStart, sp.offeredEnd)}</span>
-                                                    <button
-                                                      onClick={() => removeAdminSplit(sp.id)}
-                                                      disabled={removingAdminSplitId === sp.id}
-                                                      className="text-red-400 hover:text-red-600 ml-1 disabled:opacity-40"
-                                                    >×</button>
+                                            {(isEditing && adminSplitShiftId !== shift.id) || adminSplitShiftId === shift.id || removingShiftId === shift.id ? (
+                                              <div className={`absolute ${overlayPos} top-0 z-20 min-w-[220px] bg-white border border-slate-200 rounded-lg shadow-md p-2`}>
+                                                {isEditing && adminSplitShiftId !== shift.id ? (
+                                                  <div onClick={(e) => e.stopPropagation()} className="space-y-1">
+                                                    {(splitsByShift[shift.id] ?? []).filter((sp) => sp.status === 'accepted').map((sp) => (
+                                                      <div key={sp.id} className="flex items-center justify-between text-xs bg-violet-50 rounded px-1.5 py-0.5">
+                                                        <span className="text-violet-700">{sp.acceptorName} · {formatTimeRange(sp.offeredStart, sp.offeredEnd)}</span>
+                                                        <button
+                                                          onClick={() => removeAdminSplit(sp.id)}
+                                                          disabled={removingAdminSplitId === sp.id}
+                                                          className="text-red-400 hover:text-red-600 ml-1 disabled:opacity-40"
+                                                        >×</button>
+                                                      </div>
+                                                    ))}
+                                                    <select
+                                                      key={resident ?? ''}
+                                                      defaultValue={resident ?? ''}
+                                                      onChange={(e) => updateAssignment(shift.id, e.target.value || null)}
+                                                      className="w-full border border-slate-200 rounded px-1 py-0.5 text-xs focus:outline-none focus:border-blue-400"
+                                                    >
+                                                      <option value="">Unassigned</option>
+                                                      {users.slice().sort((a, b) => a.fullName.localeCompare(b.fullName)).map((u) => {
+                                                        const name = userCurrentName[u.id] ?? u.fullName
+                                                        const hasSubmission = blockSubmissions.some((s) => s.userId === u.id)
+                                                        const suffix = !hasSubmission ? ' (no submission)' : !available.includes(name) ? ' (unavailable)' : ''
+                                                        return <option key={u.id} value={name}>{name}{suffix}</option>
+                                                      })}
+                                                    </select>
+                                                    <div className="flex gap-1">
+                                                      <TimeInput value={timesEdit.startTime} onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))} className="flex-1 text-xs px-1 py-0.5" />
+                                                      <span className="text-slate-300 self-center text-xs">–</span>
+                                                      <TimeInput value={timesEdit.endTime} onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))} className="flex-1 text-xs px-1 py-0.5" />
+                                                    </div>
+                                                    {timesEditError && <p className="text-xs text-red-500">{timesEditError}</p>}
+                                                    <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
+                                                      {resident && shift.startTime && shift.endTime && (
+                                                        <button onClick={() => openAdminSplit(shift.id, shift)} className="text-xs text-violet-400 hover:text-violet-600 transition-colors">Split</button>
+                                                      )}
+                                                      <button onClick={() => saveShiftTimes(shift.id)} disabled={savingTimes} className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-40">{savingTimes ? '…' : 'Save'}</button>
+                                                      <button onClick={() => { setEditingShiftId(null); setTimesEditError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                                                    </div>
                                                   </div>
-                                                ))}
-                                                <select
-                                                  key={resident ?? ''}
-                                                  defaultValue={resident ?? ''}
-                                                  onChange={(e) => updateAssignment(shift.id, e.target.value || null)}
-                                                  className="w-full border border-slate-200 rounded px-1 py-0.5 text-xs focus:outline-none focus:border-blue-400"
-                                                >
-                                                  <option value="">Unassigned</option>
-                                                  {users.slice().sort((a, b) => a.fullName.localeCompare(b.fullName)).map((u) => {
-                                                    const name = userCurrentName[u.id] ?? u.fullName
-                                                    const hasSubmission = blockSubmissions.some((s) => s.userId === u.id)
-                                                    const suffix = !hasSubmission ? ' (no submission)' : !available.includes(name) ? ' (unavailable)' : ''
-                                                    return <option key={u.id} value={name}>{name}{suffix}</option>
-                                                  })}
-                                                </select>
-                                                <div className="flex gap-1">
-                                                  <TimeInput value={timesEdit.startTime} onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))} className="flex-1 text-xs px-1 py-0.5" />
-                                                  <span className="text-slate-300 self-center text-xs">–</span>
-                                                  <TimeInput value={timesEdit.endTime} onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))} className="flex-1 text-xs px-1 py-0.5" />
-                                                </div>
-                                                {timesEditError && <p className="text-xs text-red-500">{timesEditError}</p>}
-                                                <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
-                                                  {resident && shift.startTime && shift.endTime && (
-                                                    <button onClick={() => openAdminSplit(shift.id, shift)} className="text-xs text-violet-400 hover:text-violet-600 transition-colors">Split</button>
-                                                  )}
-                                                  <button onClick={() => saveShiftTimes(shift.id)} disabled={savingTimes} className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-40">{savingTimes ? '…' : 'Save'}</button>
-                                                  <button onClick={() => { setEditingShiftId(null); setTimesEditError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
-                                                </div>
-                                              </div>
-                                            ) : adminSplitShiftId === shift.id ? (
-                                              <div onClick={(e) => e.stopPropagation()} className="space-y-1">
-                                                <div className="flex gap-1">
-                                                  <TimeInput value={adminSplitStart} onChange={setAdminSplitStart} className="flex-1 text-xs px-1 py-0.5" />
-                                                  <span className="text-slate-300 self-center">–</span>
-                                                  <TimeInput value={adminSplitEnd} onChange={setAdminSplitEnd} className="flex-1 text-xs px-1 py-0.5" />
-                                                </div>
-                                                <select
-                                                  value={adminSplitAcceptorId}
-                                                  onChange={(e) => setAdminSplitAcceptorId(e.target.value)}
-                                                  className="w-full border border-slate-200 rounded px-1 py-0.5 text-xs focus:outline-none focus:border-blue-400"
-                                                >
-                                                  <option value="">Covered by…</option>
-                                                  {users.filter((u) => u.id !== shiftToUserId[shift.id]).map((u) => (
-                                                    <option key={u.id} value={u.id}>{u.fullName}</option>
-                                                  ))}
-                                                </select>
-                                                {adminSplitError && <p className="text-xs text-red-500">{adminSplitError}</p>}
-                                                <div className="flex gap-1.5 pt-0.5">
-                                                  <button onClick={() => adminCreateSplit(shift.id)} disabled={adminSplitting} className="text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40">{adminSplitting ? '…' : 'Save'}</button>
-                                                  <button onClick={() => setAdminSplitShiftId(null)} className="text-xs text-slate-400 hover:text-slate-600">Back</button>
-                                                </div>
-                                              </div>
-                                            ) : removingShiftId === shift.id ? (
-                                              <div onClick={(e) => e.stopPropagation()} className="text-xs space-y-1">
-                                                <p className="text-slate-600">Remove?</p>
-                                                <div className="flex gap-1.5">
-                                                  <button onClick={() => removeShift(shift.id)} className="font-medium text-red-500 hover:text-red-700">Remove</button>
-                                                  <button onClick={() => setRemovingShiftId(null)} className="text-slate-400 hover:text-slate-600">Cancel</button>
-                                                </div>
+                                                ) : adminSplitShiftId === shift.id ? (
+                                                  <div onClick={(e) => e.stopPropagation()} className="space-y-1">
+                                                    <div className="flex gap-1">
+                                                      <TimeInput value={adminSplitStart} onChange={setAdminSplitStart} className="flex-1 text-xs px-1 py-0.5" />
+                                                      <span className="text-slate-300 self-center">–</span>
+                                                      <TimeInput value={adminSplitEnd} onChange={setAdminSplitEnd} className="flex-1 text-xs px-1 py-0.5" />
+                                                    </div>
+                                                    <select
+                                                      value={adminSplitAcceptorId}
+                                                      onChange={(e) => setAdminSplitAcceptorId(e.target.value)}
+                                                      className="w-full border border-slate-200 rounded px-1 py-0.5 text-xs focus:outline-none focus:border-blue-400"
+                                                    >
+                                                      <option value="">Covered by…</option>
+                                                      {users.filter((u) => u.id !== shiftToUserId[shift.id]).map((u) => (
+                                                        <option key={u.id} value={u.id}>{u.fullName}</option>
+                                                      ))}
+                                                    </select>
+                                                    {adminSplitError && <p className="text-xs text-red-500">{adminSplitError}</p>}
+                                                    <div className="flex gap-1.5 pt-0.5">
+                                                      <button onClick={() => adminCreateSplit(shift.id)} disabled={adminSplitting} className="text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40">{adminSplitting ? '…' : 'Save'}</button>
+                                                      <button onClick={() => setAdminSplitShiftId(null)} className="text-xs text-slate-400 hover:text-slate-600">Back</button>
+                                                    </div>
+                                                  </div>
+                                                ) : (
+                                                  <div onClick={(e) => e.stopPropagation()} className="text-xs space-y-1">
+                                                    <p className="text-slate-600">Remove?</p>
+                                                    <div className="flex gap-1.5">
+                                                      <button onClick={() => removeShift(shift.id)} className="font-medium text-red-500 hover:text-red-700">Remove</button>
+                                                      <button onClick={() => setRemovingShiftId(null)} className="text-slate-400 hover:text-slate-600">Cancel</button>
+                                                    </div>
+                                                  </div>
+                                                )}
                                               </div>
                                             ) : !isEditing && (
                                               <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1.5 text-xs text-slate-400 flex-wrap">
