@@ -257,12 +257,14 @@ export default function AdminPage() {
   const [expandedClinics, setExpandedClinics] = useState<Set<string>>(new Set())
   const [editingClinicDefault, setEditingClinicDefault] = useState<string | null>(null)
   const [clinicDefaultEdit, setClinicDefaultEdit] = useState<{
+    name: string
+    abbreviation: string
     activeDays: Set<number>
     weekdayStart: string
     weekdayEnd: string
     weekendStart: string
     weekendEnd: string
-  }>({ activeDays: new Set(), weekdayStart: '', weekdayEnd: '', weekendStart: '', weekendEnd: '' })
+  }>({ name: '', abbreviation: '', activeDays: new Set(), weekdayStart: '', weekdayEnd: '', weekendStart: '', weekendEnd: '' })
   const [savingClinicDefault, setSavingClinicDefault] = useState(false)
   const [clinicDefaultError, setClinicDefaultError] = useState('')
 
@@ -2250,6 +2252,8 @@ export default function AdminPage() {
                                     setEditingClinicDefault(clinic)
                                     setClinicDefaultError('')
                                     setClinicDefaultEdit({
+                                      name: def.name,
+                                      abbreviation: def.abbreviation,
                                       activeDays: new Set(def?.activeDays ?? []),
                                       weekdayStart: def?.weekdayStart ?? '',
                                       weekdayEnd: def?.weekdayEnd ?? '',
@@ -2265,6 +2269,24 @@ export default function AdminPage() {
                             </div>
                             {isEditingSchedule ? (
                               <div className="space-y-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="block text-xs text-slate-500 mb-1">Clinic name</label>
+                                    <input
+                                      value={clinicDefaultEdit.name}
+                                      onChange={(e) => setClinicDefaultEdit((p) => ({ ...p, name: e.target.value }))}
+                                      className="w-full border border-slate-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-slate-500 mb-1">Abbreviation</label>
+                                    <input
+                                      value={clinicDefaultEdit.abbreviation}
+                                      onChange={(e) => setClinicDefaultEdit((p) => ({ ...p, abbreviation: e.target.value }))}
+                                      className="w-full border border-slate-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                    />
+                                  </div>
+                                </div>
                                 <div>
                                   <div className="text-xs text-slate-500 mb-1.5">Active days</div>
                                   <div className="flex gap-1">
@@ -2314,35 +2336,53 @@ export default function AdminPage() {
                                   <button
                                     disabled={savingClinicDefault}
                                     onClick={async () => {
+                                      if (!clinicDefaultEdit.name.trim()) { setClinicDefaultError('Name is required'); return }
                                       setSavingClinicDefault(true)
                                       setClinicDefaultError('')
                                       const activeDays = [...clinicDefaultEdit.activeDays].sort()
                                       const hasWd = activeDays.some((d) => d >= 1 && d <= 5)
                                       const hasWe = activeDays.some((d) => d === 0 || d === 6)
-                                      const res = await fetch('/api/admin/clinic-defaults', {
+                                      const weekdayStart = hasWd ? clinicDefaultEdit.weekdayStart || null : null
+                                      const weekdayEnd   = hasWd ? clinicDefaultEdit.weekdayEnd   || null : null
+                                      const weekendStart = hasWe ? clinicDefaultEdit.weekendStart || null : null
+                                      const weekendEnd   = hasWe ? clinicDefaultEdit.weekendEnd   || null : null
+                                      const res = await fetch('/api/admin/clinics', {
                                         method: 'PUT',
                                         headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({
-                                          clinic,
+                                          ...def,
+                                          name: clinicDefaultEdit.name.trim(),
+                                          abbreviation: clinicDefaultEdit.abbreviation.trim(),
                                           activeDays,
-                                          weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
-                                          weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
-                                          weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
-                                          weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
+                                          weekdayStart,
+                                          weekdayEnd,
+                                          weekendStart,
+                                          weekendEnd,
                                         }),
                                       })
                                       setSavingClinicDefault(false)
                                       if (res.ok) {
+                                        const newName = clinicDefaultEdit.name.trim()
                                         setClinicDefaults((prev) =>
-                                          prev.map((d) => d.name === clinic ? {
+                                          prev.map((d) => d.id === def.id ? {
                                             ...d,
+                                            name: newName,
+                                            abbreviation: clinicDefaultEdit.abbreviation.trim(),
                                             activeDays,
-                                            weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
-                                            weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
-                                            weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
-                                            weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
+                                            weekdayStart,
+                                            weekdayEnd,
+                                            weekendStart,
+                                            weekendEnd,
                                           } : d)
                                         )
+                                        if (newName !== clinic) {
+                                          setExpandedClinics((prev) => {
+                                            const next = new Set(prev)
+                                            next.delete(clinic)
+                                            next.add(newName)
+                                            return next
+                                          })
+                                        }
                                         setEditingClinicDefault(null)
                                       } else {
                                         setClinicDefaultError('Failed to save')
