@@ -1119,6 +1119,19 @@ export async function updateClinic(id: string, data: Omit<Clinic, 'id'>): Promis
 
 export async function deleteClinic(id: string): Promise<void> {
   await ensureDb()
+  // Delete billing entities (and their contacts/rates via CASCADE) that are
+  // exclusively linked to this clinic and will become orphaned after deletion.
+  await sql`
+    DELETE FROM billing_entities
+    WHERE id IN (
+      SELECT cbe.entity_id FROM clinic_billing_entities cbe
+      WHERE cbe.clinic_id = ${id}
+        AND NOT EXISTS (
+          SELECT 1 FROM clinic_billing_entities cbe2
+          WHERE cbe2.entity_id = cbe.entity_id AND cbe2.clinic_id != ${id}
+        )
+    )
+  `
   await sql`DELETE FROM clinics WHERE id = ${id}`
 }
 
