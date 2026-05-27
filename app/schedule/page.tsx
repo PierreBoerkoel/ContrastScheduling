@@ -330,14 +330,14 @@ export default function SchedulePage() {
     }
   }
 
-  async function acceptSplit(splitId: string) {
+  async function acceptSplit(splitId: string, swap?: boolean) {
     setSubmittingSplitAccept(true)
     setSplitAcceptError('')
     try {
       const res = await fetch(`/api/splits/${splitId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'accept' }),
+        body: JSON.stringify({ action: 'accept', ...(swap ? { swap: true } : {}) }),
       })
       if (!res.ok) {
         const data = await res.json()
@@ -1063,6 +1063,19 @@ export default function SchedulePage() {
               const offerorDisplayName = currentNameFor(split.offerorUserId, split.offerorName)
               const splitShift = shiftById[split.shiftId]
               const splitStarted = isShiftStarted(splitShift ?? { date: split.shiftId.split('|')[0] })
+              const splitDate = shiftById[split.shiftId]?.date ?? split.shiftId.split('|')[0]
+              const myConflict = !isMyOffer ? filteredPublished.find((a) => {
+                if (a.userId !== myUserId) return false
+                if (a.shiftId === split.shiftId) return false
+                if ((shiftById[a.shiftId]?.date ?? a.shiftId.split('|')[0]) !== splitDate) return false
+                const s = shiftById[a.shiftId]
+                if (!s?.startTime || !s?.endTime) return false
+                return timeToMinutes(split.offeredStart) < timeToMinutes(s.endTime) &&
+                  timeToMinutes(s.startTime) < timeToMinutes(split.offeredEnd)
+              }) : null
+              const myConflictClinic = myConflict
+                ? (CLINIC_ABBR[shiftById[myConflict.shiftId]?.clinic ?? ''] ?? shiftById[myConflict.shiftId]?.clinic ?? '')
+                : null
               return (
                 <div key={split.id} className="p-5">
                   <p className="text-sm text-slate-700 mb-0.5">
@@ -1079,16 +1092,22 @@ export default function SchedulePage() {
                   {splitStarted && !isMyOffer ? (
                     <span className="text-xs text-slate-400">Shift has started</span>
                   ) : !isMyOffer && acceptingSplitId === split.id ? (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
-                      <p className="text-sm text-green-800">
-                        Cover the <strong>{formatTimeRange(split.offeredStart, split.offeredEnd)}</strong> portion
-                        of <strong>{shiftLabel(split.shiftId)}</strong> for <strong>{offerorDisplayName}</strong>?
-                      </p>
+                    <div className={`border rounded-lg p-4 space-y-3 ${myConflictClinic ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                      {myConflictClinic ? (
+                        <p className="text-sm text-amber-800">
+                          You&apos;re assigned to <strong>{myConflictClinic}</strong> on this day — accepting this portion will move you off that shift.
+                        </p>
+                      ) : (
+                        <p className="text-sm text-green-800">
+                          Cover the <strong>{formatTimeRange(split.offeredStart, split.offeredEnd)}</strong> portion
+                          of <strong>{shiftLabel(split.shiftId)}</strong> for <strong>{offerorDisplayName}</strong>?
+                        </p>
+                      )}
                       <div className="flex gap-2">
                         <button
-                          onClick={() => acceptSplit(split.id)}
+                          onClick={() => acceptSplit(split.id, !!myConflict)}
                           disabled={submittingSplitAccept}
-                          className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40 transition-colors"
+                          className={`text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition-colors ${myConflictClinic ? 'bg-amber-500 hover:bg-amber-600' : 'bg-green-600 hover:bg-green-700'}`}
                         >
                           {submittingSplitAccept ? 'Claiming…' : 'Confirm'}
                         </button>
