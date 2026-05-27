@@ -67,7 +67,7 @@ export async function initDb(): Promise<void> {
       requestor_user_id   TEXT,
       requestor_name      TEXT NOT NULL,
       requestor_shift_id  UUID NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
-      period_id           UUID REFERENCES scheduling_periods(id),
+      period_id           UUID REFERENCES scheduling_periods(id) ON DELETE CASCADE,
       acceptor_name       TEXT,
       acceptor_user_id    TEXT,
       acceptor_shift_id   UUID REFERENCES shifts(id) ON DELETE CASCADE,
@@ -78,7 +78,7 @@ export async function initDb(): Promise<void> {
     CREATE TABLE IF NOT EXISTS shift_splits (
       id               TEXT PRIMARY KEY,
       shift_id         UUID NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
-      period_id        UUID REFERENCES scheduling_periods(id),
+      period_id        UUID REFERENCES scheduling_periods(id) ON DELETE CASCADE,
       offeror_name     TEXT NOT NULL,
       offeror_user_id  TEXT NOT NULL,
       offered_start    TEXT NOT NULL,
@@ -100,6 +100,34 @@ export async function initDb(): Promise<void> {
 
   // Add any missing columns to existing DBs during upgrade.
   await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`
+
+  // Upgrade period_id FKs to ON DELETE CASCADE if they were created without it.
+  await sql`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'swap_requests_period_id_fkey'
+          AND constraint_type = 'FOREIGN KEY'
+      ) THEN
+        ALTER TABLE swap_requests DROP CONSTRAINT swap_requests_period_id_fkey;
+        ALTER TABLE swap_requests ADD CONSTRAINT swap_requests_period_id_fkey
+          FOREIGN KEY (period_id) REFERENCES scheduling_periods(id) ON DELETE CASCADE;
+      END IF;
+    END $$
+  `
+  await sql`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'shift_splits_period_id_fkey'
+          AND constraint_type = 'FOREIGN KEY'
+      ) THEN
+        ALTER TABLE shift_splits DROP CONSTRAINT shift_splits_period_id_fkey;
+        ALTER TABLE shift_splits ADD CONSTRAINT shift_splits_period_id_fkey
+          FOREIGN KEY (period_id) REFERENCES scheduling_periods(id) ON DELETE CASCADE;
+      END IF;
+    END $$
+  `
 
   await sql`
     CREATE TABLE IF NOT EXISTS invoice_sequences (
