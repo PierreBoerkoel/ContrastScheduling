@@ -14,7 +14,7 @@ export async function GET() {
   const expired = swaps.filter((r) => {
     if (r.status !== 'pending') return false
     const shift = shiftById[r.requestorShiftId]
-    return shiftStarted(shift?.date ?? r.requestorShiftId.split('|')[0], shift?.startTime)
+    return !!shift && shiftStarted(shift.date, shift.startTime)
   })
 
   if (expired.length > 0) {

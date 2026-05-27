@@ -44,14 +44,14 @@ export async function PATCH(
       return NextResponse.json({ error: 'You cannot accept your own offer' }, { status: 400 })
     }
 
-    const splitDate = split.shiftId.split('|')[0]
     const [allShifts, published, allSwaps] = await Promise.all([
       getShifts(), getAllPublishedAssignments(), getSwapRequests(),
     ])
     const shiftById = Object.fromEntries(allShifts.map((s) => [s.id, s]))
 
     const offeredShift = shiftById[split.shiftId]
-    if (shiftStarted(offeredShift?.date ?? splitDate, offeredShift?.startTime)) {
+    const splitDate = offeredShift?.date ?? ''
+    if (offeredShift && shiftStarted(offeredShift.date, offeredShift.startTime)) {
       return NextResponse.json({ error: 'This shift has already started' }, { status: 409 })
     }
 
@@ -60,7 +60,7 @@ export async function PATCH(
     for (const a of published) {
       if (a.userId !== userId) continue
       if (a.shiftId === split.shiftId) continue
-      if (a.shiftId.split('|')[0] !== splitDate) continue
+      if (shiftById[a.shiftId]?.date !== splitDate) continue
       const s = shiftById[a.shiftId]
       if (!s?.startTime || !s?.endTime) continue
       if (overlaps(split.offeredStart, split.offeredEnd, s.startTime, s.endTime)) {
@@ -116,7 +116,7 @@ export async function PATCH(
       if (s.id === split.id) continue
       if (s.status !== 'accepted') continue
       if (s.acceptorUserId !== userId) continue
-      if (s.shiftId.split('|')[0] !== splitDate) continue
+      if (shiftById[s.shiftId]?.date !== splitDate) continue
       if (overlaps(split.offeredStart, split.offeredEnd, s.offeredStart, s.offeredEnd)) {
         return NextResponse.json(
           { error: `This portion overlaps with a split you already accepted (${s.offeredStart}–${s.offeredEnd})` },

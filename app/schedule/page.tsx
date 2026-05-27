@@ -160,7 +160,7 @@ export default function SchedulePage() {
   const myAssignedDates = new Set(
     filteredPublished
       .filter((a) => a.userId === myUserId)
-      .map((a) => shiftById[a.shiftId]?.date ?? a.shiftId.split('|')[0])
+      .map((a) => shiftById[a.shiftId]?.date ?? '')
   )
 
   // Splits indexed by shift ID
@@ -234,9 +234,7 @@ export default function SchedulePage() {
   function shiftLabel(shiftId: string) {
     const s = shiftById[shiftId]
     if (s) return `${formatDate(s.date)} — ${s.clinic}`
-    const [date, clinic] = shiftId.split('|')
-    if (!clinic) return shiftId
-    return `${formatDate(date)} — ${clinic}`
+    return shiftId
   }
 
   async function claimShift(shiftId: string, swap?: boolean) {
@@ -362,11 +360,7 @@ export default function SchedulePage() {
 
   const byDate: Record<string, Shift[]> = {}
   for (const a of filteredPublished) {
-    const shift = shiftById[a.shiftId] ?? (() => {
-      const [date, clinic] = a.shiftId.split('|')
-      if (!clinic) return null
-      return { id: a.shiftId, date, clinic: clinic as ClinicName }
-    })()
+    const shift = shiftById[a.shiftId]
     if (!shift) continue
     ;(byDate[shift.date] ??= []).push(shift)
   }
@@ -460,12 +454,12 @@ export default function SchedulePage() {
     const alreadyOnDay = (myAssignedDates.has(shiftDate) && !myFullyGivenAwayDates.has(shiftDate)) || mySplitFullShiftDates.has(shiftDate)
     const hasGivenAwayPortionOnDay = !!myUserId && splits.some(
       (sp) => sp.status === 'accepted' && sp.offerorUserId === myUserId &&
-        (shiftById[sp.shiftId]?.date ?? sp.shiftId.split('|')[0]) === shiftDate
+        shiftById[sp.shiftId]?.date === shiftDate
     )
     const hasOverlappingSplit = !!shift.startTime && !!shift.endTime && !!myUserId &&
       splits.some(
         (sp) => sp.status === 'accepted' && sp.acceptorUserId === myUserId &&
-          (shiftById[sp.shiftId]?.date ?? sp.shiftId.split('|')[0]) === shiftDate &&
+          shiftById[sp.shiftId]?.date === shiftDate &&
           sp.shiftId !== shift.id &&
           timeToMinutes(shift.startTime!) < timeToMinutes(sp.offeredEnd) &&
           timeToMinutes(sp.offeredStart) < timeToMinutes(shift.endTime!)
@@ -985,10 +979,10 @@ export default function SchedulePage() {
           <div className="divide-y divide-slate-100">
             {pendingSwaps.map((req) => {
               const isMyOffer = req.requestorUserId === myUserId
-              const offerDate = shiftById[req.requestorShiftId]?.date ?? req.requestorShiftId.split('|')[0]
+              const offerDate = shiftById[req.requestorShiftId]?.date ?? ''
               const myConflict = !isMyOffer ? filteredPublished.find(
                 (a) => a.shiftId !== req.requestorShiftId &&
-                  (shiftById[a.shiftId]?.date ?? a.shiftId.split('|')[0]) === offerDate &&
+                  shiftById[a.shiftId]?.date === offerDate &&
                   a.userId === myUserId
               ) : null
               const myConflictClinic = myConflict
@@ -996,7 +990,7 @@ export default function SchedulePage() {
                 : null
               const requestorDisplayName = currentNameFor(req.requestorUserId, req.requestorName)
               const requestorShift = shiftById[req.requestorShiftId]
-              const offerStarted = isShiftStarted(requestorShift ?? { date: offerDate })
+              const offerStarted = requestorShift ? isShiftStarted(requestorShift) : false
               return (
                 <div key={req.id} className="p-5">
                   <p className="text-sm text-slate-700 mb-1">
@@ -1076,12 +1070,12 @@ export default function SchedulePage() {
               const isMyOffer = split.offerorUserId === myUserId
               const offerorDisplayName = currentNameFor(split.offerorUserId, split.offerorName)
               const splitShift = shiftById[split.shiftId]
-              const splitStarted = isShiftStarted(splitShift ?? { date: split.shiftId.split('|')[0] })
-              const splitDate = shiftById[split.shiftId]?.date ?? split.shiftId.split('|')[0]
+              const splitStarted = splitShift ? isShiftStarted(splitShift) : false
+              const splitDate = shiftById[split.shiftId]?.date ?? ''
               const myConflict = !isMyOffer ? filteredPublished.find((a) => {
                 if (a.userId !== myUserId) return false
                 if (a.shiftId === split.shiftId) return false
-                if ((shiftById[a.shiftId]?.date ?? a.shiftId.split('|')[0]) !== splitDate) return false
+                if (shiftById[a.shiftId]?.date !== splitDate) return false
                 const s = shiftById[a.shiftId]
                 if (!s?.startTime || !s?.endTime) return false
                 return timeToMinutes(split.offeredStart) < timeToMinutes(s.endTime) &&

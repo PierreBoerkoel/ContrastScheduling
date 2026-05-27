@@ -345,11 +345,10 @@ export default function ProfilePage() {
   const shiftById = Object.fromEntries(shifts.map((s) => [s.id, s]))
   const publishedAssignments = periods.flatMap((p) => p.publishedAssignments)
 
-  function assignmentToShift(a: ShiftAssignment): Shift {
+  function assignmentToShift(a: ShiftAssignment): Shift | null {
     if (shiftById[a.shiftId]) return shiftById[a.shiftId]
     if (a.date && a.clinic) return { id: a.shiftId, date: a.date, clinic: a.clinic as ClinicName, startTime: a.startTime, endTime: a.endTime } as Shift
-    const [date, ...parts] = a.shiftId.split('|')
-    return { id: a.shiftId, date, clinic: parts.join('|') } as Shift
+    return null
   }
 
   // Build split-aware coverage: resolve exact time windows each resident covers
@@ -360,6 +359,7 @@ export default function ProfilePage() {
   const myScheduleCoverage: Shift[] = []
   for (const a of publishedAssignments.filter((a) => a.userId === myUserId)) {
     const base = assignmentToShift(a)
+    if (!base) continue
     const segs = computeCoverageSegments(base, a.residentName, splitsByShift[a.shiftId] ?? [], a.userId)
     for (const seg of segs.filter((s) => s.userId === myUserId)) {
       myScheduleCoverage.push({
@@ -382,6 +382,7 @@ export default function ProfilePage() {
     const shift = shiftById[sid]
     if (!shift) continue  // shift from a deleted period not in shiftById
     const base = assignmentToShift({ shiftId: sid, residentName: myName })
+    if (!base) continue
     if (!shift.startTime || !shift.endTime) {
       mySplitCoverage.push(base)
       continue

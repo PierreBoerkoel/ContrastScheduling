@@ -24,7 +24,7 @@ export async function GET() {
   const expired = splits.filter((s) => {
     if (s.status !== 'pending') return false
     const shift = shiftById[s.shiftId]
-    return shiftStarted(shift?.date ?? s.shiftId.split('|')[0], shift?.startTime)
+    return !!shift && shiftStarted(shift.date, shift.startTime)
   })
 
   if (expired.length > 0) {

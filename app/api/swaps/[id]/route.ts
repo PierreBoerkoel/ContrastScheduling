@@ -51,9 +51,10 @@ export async function PATCH(
       return NextResponse.json({ error: 'The offering resident is no longer assigned to that shift' }, { status: 409 })
     }
 
-    const offerDate = swapReq.requestorShiftId.split('|')[0]
+    const shiftById = Object.fromEntries(allShifts.map((s) => [s.id, s]))
+    const offerDate = requestorShift.date
     const acceptorDayConflict = published.some(
-      (a) => a.userId === userId && a.shiftId.startsWith(offerDate + '|')
+      (a) => a.userId === userId && shiftById[a.shiftId]?.date === offerDate
     )
     if (acceptorDayConflict && !swap) {
       return NextResponse.json({ error: 'You are already scheduled on the same day as this shift' }, { status: 409 })
@@ -66,7 +67,7 @@ export async function PATCH(
         (s) =>
           s.acceptorUserId === userId &&
           s.status === 'accepted' &&
-          s.shiftId.split('|')[0] === offerDate &&
+          shiftById[s.shiftId]?.date === offerDate &&
           overlaps(requestorShift.startTime!, requestorShift.endTime!, s.offeredStart, s.offeredEnd)
       )
       if (conflictingSplit) {
@@ -79,7 +80,7 @@ export async function PATCH(
 
     const transfer = (a: typeof published[number]) => {
       if (a.shiftId === swapReq.requestorShiftId) return { ...a, residentName: acceptorName, userId }
-      if (swap && a.userId === userId && a.shiftId.startsWith(offerDate + '|')) {
+      if (swap && a.userId === userId && shiftById[a.shiftId]?.date === offerDate) {
         return { ...a, residentName: null, userId: null }
       }
       return a

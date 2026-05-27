@@ -92,7 +92,8 @@ export async function PUT(request: Request) {
 
   // Find the period this shift belongs to and verify it's published
   const allShifts = await getShifts()
-  const shift = allShifts.find((s) => s.id === shiftId)
+  const shiftById = Object.fromEntries(allShifts.map((s) => [s.id, s]))
+  const shift = shiftById[shiftId]
   if (!shift?.periodId) return NextResponse.json({ error: 'Shift not found' }, { status: 404 })
 
   const period = await getPeriod(shift.periodId)
@@ -111,13 +112,12 @@ export async function PUT(request: Request) {
   const name = user?.fullName ?? [user?.firstName, user?.lastName].filter(Boolean).join(' ') ?? ''
   if (!name) return NextResponse.json({ error: 'Could not determine your name' }, { status: 400 })
 
-  const targetDate = shiftId.split('|')[0]
+  const targetDate = shift.date
   const existingOnDay = published.find(
-    (a) => a.shiftId !== shiftId && a.shiftId.startsWith(targetDate + '|') && a.userId === userId
+    (a) => a.shiftId !== shiftId && shiftById[a.shiftId]?.date === targetDate && a.userId === userId
   )
 
   const [allSplits, allSwaps] = await Promise.all([getShiftSplits(), getSwapRequests()])
-  const shiftById = Object.fromEntries(allShifts.map((s) => [s.id, s]))
 
   const userFullyGivenAway = existingOnDay ? (() => {
     const existingShift = shiftById[existingOnDay.shiftId]
@@ -136,7 +136,7 @@ export async function PUT(request: Request) {
   let fullCoverageSplitShiftId: string | null = null
   const myAcceptedSplitsOnDay = allSplits.filter(
     (sp) => sp.status === 'accepted' && sp.acceptorUserId === userId &&
-      sp.shiftId.split('|')[0] === targetDate
+      shiftById[sp.shiftId]?.date === targetDate
   )
   if (myAcceptedSplitsOnDay.length > 0) {
     const shiftIdsOnDay = [...new Set(myAcceptedSplitsOnDay.map((sp) => sp.shiftId))]
@@ -165,7 +165,7 @@ export async function PUT(request: Request) {
     for (const sp of allSplits) {
       if (sp.status !== 'accepted') continue
       if (sp.acceptorUserId !== userId) continue
-      if (sp.shiftId.split('|')[0] !== targetDate) continue
+      if (shiftById[sp.shiftId]?.date !== targetDate) continue
       if (overlaps(newShift.startTime, newShift.endTime, sp.offeredStart, sp.offeredEnd)) {
         return NextResponse.json({ error: 'You are already scheduled on this day' }, { status: 409 })
       }
@@ -183,7 +183,7 @@ export async function PUT(request: Request) {
       for (const sp of allSplits) {
         if (sp.status !== 'pending') continue
         if (sp.offerorUserId !== userId) continue
-        if (sp.shiftId.split('|')[0] !== targetDate) continue
+        if (shiftById[sp.shiftId]?.date !== targetDate) continue
         if (overlaps(newShift.startTime, newShift.endTime, sp.offeredStart, sp.offeredEnd)) {
           return NextResponse.json(
             { error: `You have a pending portion offer (${sp.offeredStart}–${sp.offeredEnd}) on this day. Cancel it before swapping.` },
@@ -194,7 +194,7 @@ export async function PUT(request: Request) {
       for (const req of allSwaps) {
         if (req.status !== 'pending') continue
         if (req.requestorUserId !== userId) continue
-        if (req.requestorShiftId.split('|')[0] !== targetDate) continue
+        if (shiftById[req.requestorShiftId]?.date !== targetDate) continue
         const reqShift = shiftById[req.requestorShiftId]
         if (!reqShift?.startTime || !reqShift?.endTime) continue
         if (overlaps(newShift.startTime, newShift.endTime, reqShift.startTime, reqShift.endTime)) {

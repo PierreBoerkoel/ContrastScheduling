@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     const dateStr = current.toISOString().split('T')[0]
     for (const clinic of activeClinics[dateStr] ?? []) {
       const times = shiftTimes?.[dateStr]?.[clinic] ?? clinicDefaultShiftTimes(clinic, dateStr, clinicDefaults)
-      shifts.push({ id: `${dateStr}|${clinic}`, date: dateStr, clinic, periodId: period.id, ...times })
+      shifts.push({ id: crypto.randomUUID(), date: dateStr, clinic, periodId: period.id, ...times })
     }
     current.setUTCDate(current.getUTCDate() + 1)
   }

@@ -10,10 +10,10 @@ export function ensureDb(): Promise<void> {
 export async function initDb(): Promise<void> {
   await sql`
     CREATE TABLE IF NOT EXISTS shifts (
-      id         TEXT PRIMARY KEY,
+      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       date       TEXT NOT NULL,
       clinic     TEXT NOT NULL,
-      period_id  TEXT,
+      period_id  UUID REFERENCES scheduling_periods(id) ON DELETE CASCADE,
       start_time TEXT,
       end_time   TEXT
     )
@@ -35,8 +35,8 @@ export async function initDb(): Promise<void> {
   // (shift_id, is_draft) is the natural key: one draft and one published record per shift.
   await sql`
     CREATE TABLE IF NOT EXISTS shift_assignments (
-      shift_id      TEXT    NOT NULL,
-      period_id     TEXT    NOT NULL,
+      shift_id      UUID    NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
+      period_id     UUID    NOT NULL REFERENCES scheduling_periods(id) ON DELETE CASCADE,
       is_draft      BOOLEAN NOT NULL,
       user_id       TEXT,
       resident_name TEXT,
@@ -66,19 +66,19 @@ export async function initDb(): Promise<void> {
       status              TEXT NOT NULL DEFAULT 'pending',
       requestor_user_id   TEXT,
       requestor_name      TEXT NOT NULL,
-      requestor_shift_id  TEXT NOT NULL,
-      period_id           TEXT,
+      requestor_shift_id  UUID NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
+      period_id           UUID REFERENCES scheduling_periods(id),
       acceptor_name       TEXT,
       acceptor_user_id    TEXT,
-      acceptor_shift_id   TEXT,
+      acceptor_shift_id   UUID REFERENCES shifts(id) ON DELETE CASCADE,
       accepted_at         TIMESTAMPTZ
     )
   `
   await sql`
     CREATE TABLE IF NOT EXISTS shift_splits (
       id               TEXT PRIMARY KEY,
-      shift_id         TEXT NOT NULL,
-      period_id        TEXT,
+      shift_id         UUID NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
+      period_id        UUID REFERENCES scheduling_periods(id),
       offeror_name     TEXT NOT NULL,
       offeror_user_id  TEXT NOT NULL,
       offered_start    TEXT NOT NULL,
@@ -100,8 +100,6 @@ export async function initDb(): Promise<void> {
 
   // Add any missing columns to existing DBs during upgrade.
   await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`
-  await sql`ALTER TABLE shift_splits       ADD COLUMN IF NOT EXISTS period_id TEXT`
-  await sql`ALTER TABLE swap_requests      ADD COLUMN IF NOT EXISTS period_id TEXT`
 
   await sql`
     CREATE TABLE IF NOT EXISTS invoice_sequences (
