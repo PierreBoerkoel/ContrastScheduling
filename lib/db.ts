@@ -9,16 +9,6 @@ export function ensureDb(): Promise<void> {
 
 export async function initDb(): Promise<void> {
   await sql`
-    CREATE TABLE IF NOT EXISTS shifts (
-      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      date       TEXT NOT NULL,
-      clinic     TEXT NOT NULL,
-      period_id  UUID REFERENCES scheduling_periods(id) ON DELETE CASCADE,
-      start_time TEXT,
-      end_time   TEXT
-    )
-  `
-  await sql`
     CREATE TABLE IF NOT EXISTS scheduling_periods (
       id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       name         TEXT NOT NULL,
@@ -29,6 +19,16 @@ export async function initDb(): Promise<void> {
       generated_at TIMESTAMPTZ,
       updated_at   TIMESTAMPTZ,
       deleted_at   TIMESTAMPTZ
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS shifts (
+      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      date       TEXT NOT NULL,
+      clinic     TEXT NOT NULL,
+      period_id  UUID REFERENCES scheduling_periods(id) ON DELETE CASCADE,
+      start_time TEXT,
+      end_time   TEXT
     )
   `
   // Normalized assignment table — replaces JSONB columns on scheduling_periods.
