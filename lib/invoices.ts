@@ -6,8 +6,6 @@ export interface BillingRates {
   MRCT_ct: number          // CT coverage
   PET_base: number         // PET with MRI active
   PET_standalone: number   // PET-only (MRI down)
-  UBCMR_MR: number         // UBC Hospital MR
-  BCWHMR_MR: number        // BC Women's Hospital MR
 }
 
 export const DEFAULT_RATES: BillingRates = {
@@ -16,8 +14,6 @@ export const DEFAULT_RATES: BillingRates = {
   MRCT_ct: 75,
   PET_base: 25,
   PET_standalone: 75,
-  UBCMR_MR: 75,
-  BCWHMR_MR: 75,
 }
 
 export function ratesToBillingRates(raw: Record<string, number>): BillingRates {
@@ -27,8 +23,6 @@ export function ratesToBillingRates(raw: Record<string, number>): BillingRates {
     MRCT_ct:         raw['MRCT_ct']         ?? DEFAULT_RATES.MRCT_ct,
     PET_base:        raw['PET_base']        ?? DEFAULT_RATES.PET_base,
     PET_standalone:  raw['PET_standalone']  ?? DEFAULT_RATES.PET_standalone,
-    UBCMR_MR:        raw['UBCMR_MR']        ?? DEFAULT_RATES.UBCMR_MR,
-    BCWHMR_MR:       raw['BCWHMR_MR']       ?? DEFAULT_RATES.BCWHMR_MR,
   }
 }
 
@@ -169,7 +163,7 @@ export function calculateLineItems(
   ctStartTime?: string,
   simpleEntityRates?: Record<string, number>,
 ): Record<string, BillingLineItem[]> {
-  const result: Record<string, BillingLineItem[]> = { MRCT: [], PET: [], UBCMR: [], BCWHMR: [] }
+  const result: Record<string, BillingLineItem[]> = { MRCT: [], PET: [] }
   const { date, clinic, startTime: sS, endTime: sE } = shift
 
   if (clinic === 'BC Cancer Agency CT') {
@@ -245,17 +239,7 @@ export function calculateLineItems(
     return result
   }
 
-  if (clinic === 'UBC Hospital') {
-    result.UBCMR.push(item(date, sS, sE, 'MR coverage', rates.UBCMR_MR))
-    return result
-  }
-
-  if (clinic === "BC Women's Hospital") {
-    result.BCWHMR.push(item(date, sS, sE, 'MR coverage', rates.BCWHMR_MR))
-    return result
-  }
-
-  // Generic simple clinic billing for DB-managed clinics
+  // Simple clinic billing — rate looked up from simpleEntityRates (DB-managed)
   if (simpleEntityRates) {
     for (const [entityCode, rate] of Object.entries(simpleEntityRates)) {
       result[entityCode] = [item(date, sS, sE, `${clinic} coverage`, rate)]

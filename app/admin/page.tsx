@@ -15,12 +15,6 @@ function formatPhone(raw: string): string {
 
 type Tab = 'shifts' | 'availability' | 'schedule' | 'swaps' | 'users' | 'clinics'
 
-interface RateRow {
-  key: string
-  label: string
-  description: string
-}
-
 const ENTITY_DISPLAY: Record<string, string> = {
   MRCT:   'BCCA MRI/CT',
   PET:    'BCCA PET',
@@ -28,15 +22,18 @@ const ENTITY_DISPLAY: Record<string, string> = {
   BCWHMR: "BC Women's MRI",
 }
 
-const RATE_ROWS: RateRow[] = [
-  { key: 'MRCT_base',       label: 'BCCA MRI (with PET active)',  description: 'MRI coverage while PET is running' },
-  { key: 'MRCT_standalone', label: 'BCCA MRI standalone',         description: 'MRI-only coverage (PET down or after 9 PM)' },
-  { key: 'MRCT_ct',         label: 'BCCA CT coverage',            description: 'BC Cancer Agency CT-only shifts' },
-  { key: 'PET_base',        label: 'BCCA PET (with MRI active)',  description: 'PET component while MRI is running' },
-  { key: 'PET_standalone',  label: 'BCCA PET standalone',         description: 'PET-only coverage when MRI is down' },
-  { key: 'UBCMR_MR',        label: 'UBC Hospital MRI',            description: 'MRI coverage at UBC Hospital' },
-  { key: 'BCWHMR_MR',       label: "BC Women's MRI",              description: "MRI coverage at BC Women's Hospital" },
-]
+// Rate rows for complex BCCA billing entities — shown inline in the clinic card
+const COMPLEX_ENTITY_RATES: Record<string, { key: string; label: string }[]> = {
+  MRCT: [
+    { key: 'MRCT_base',       label: 'MRI + PET (normal)' },
+    { key: 'MRCT_standalone', label: 'MRI standalone / MRI + CT' },
+    { key: 'MRCT_ct',         label: 'CT-only coverage' },
+  ],
+  PET: [
+    { key: 'PET_base',        label: 'PET + MRI (normal)' },
+    { key: 'PET_standalone',  label: 'PET standalone (MRI down)' },
+  ],
+}
 
 interface ClerkUser {
   id: string
@@ -256,6 +253,7 @@ export default function AdminPage() {
   const clinicNames = clinicDefaults.map((c) => c.name)
   const clinicAbbr = Object.fromEntries(clinicDefaults.map((c) => [c.name, c.abbreviation]))
   const [showClinicDefaults, setShowClinicDefaults] = useState(true)
+  const [expandedClinics, setExpandedClinics] = useState<Set<string>>(new Set())
   const [editingClinicDefault, setEditingClinicDefault] = useState<string | null>(null)
   const [clinicDefaultEdit, setClinicDefaultEdit] = useState<{
     activeDays: Set<number>
@@ -866,6 +864,8 @@ export default function AdminPage() {
         const newEntity = await entityRes.json()
         entityCode = newEntity.code
         setBillingEntities((prev) => [...prev, newEntity])
+        setBillingRates((prev) => ({ ...prev, [`${newEntity.code}_rate`]: parseFloat(addClinicNewRate) }))
+        setBillingContacts((prev) => [...prev, { entity: newEntity.code, contactName: addClinicNewContact.trim(), org: addClinicNewOrg.trim(), address: addClinicNewAddress.trim(), email: addClinicNewEmail.trim() || null }])
       }
       const activeDays = [...addClinicActiveDays].sort()
       const hasWd = activeDays.some((d) => d >= 1 && d <= 5)
@@ -2168,8 +2168,6 @@ export default function AdminPage() {
       {/* ── CLINIC MANAGEMENT TAB ── */}
       {tab === 'clinics' && (
         <div className="space-y-6">
-
-          {/* ── Clinics ── */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <button
               onClick={() => setShowClinicDefaults((v) => !v)}
@@ -2177,7 +2175,7 @@ export default function AdminPage() {
             >
               <div>
                 <div className="text-sm font-semibold text-slate-700">Clinics</div>
-                <div className="text-xs text-slate-400 mt-0.5">Active days, shift times, and billing entity for each clinic. Used to pre-fill new blocks.</div>
+                <div className="text-xs text-slate-400 mt-0.5">Active days, shift times, rates, and billing contacts for each clinic.</div>
               </div>
               <svg className={`w-4 h-4 text-slate-400 transition-transform ${showClinicDefaults ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -2187,157 +2185,394 @@ export default function AdminPage() {
               <div className="border-t border-slate-100 divide-y divide-slate-100">
                 {clinicDefaults.map((def) => {
                   const clinic = def.name
-                  const isEditing = editingClinicDefault === clinic
-                  const hasWeekdays = isEditing
+                  const isExpanded = expandedClinics.has(clinic)
+                  const isEditingSchedule = editingClinicDefault === clinic
+                  const hasWeekdays = isEditingSchedule
                     ? [1, 2, 3, 4, 5].some((d) => clinicDefaultEdit.activeDays.has(d))
                     : (def?.activeDays ?? []).some((d) => d >= 1 && d <= 5)
-                  const hasWeekends = isEditing
+                  const hasWeekends = isEditingSchedule
                     ? [0, 6].some((d) => clinicDefaultEdit.activeDays.has(d))
                     : (def?.activeDays ?? []).some((d) => d === 0 || d === 6)
-
                   return (
-                    <div key={clinic} className="px-5 py-4">
-                      {isEditing ? (
-                        <>
-                          <div className="text-sm font-medium text-slate-800 mb-3">{clinic}</div>
-                          <div className="flex flex-wrap gap-x-6 gap-y-4 mb-4">
-                            <div>
-                              <div className="text-xs text-slate-500 mb-1.5">Active days</div>
-                              <div className="flex gap-1">
-                                {DAY_ORDER.map((day) => {
-                                  const active = clinicDefaultEdit.activeDays.has(day)
-                                  return (
-                                    <button
-                                      key={day}
-                                      onClick={() => {
-                                        setClinicDefaultEdit((prev) => {
-                                          const next = new Set(prev.activeDays)
-                                          active ? next.delete(day) : next.add(day)
-                                          return { ...prev, activeDays: next }
-                                        })
-                                      }}
-                                      className={`w-8 h-8 text-xs rounded-full font-medium transition-colors ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                                    >
-                                      {DAY_LABELS[day]}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            </div>
-                            {hasWeekdays && (
-                              <div>
-                                <div className="text-xs text-slate-500 mb-1.5">Weekday times</div>
-                                <div className="flex items-center gap-2">
-                                  <TimeInput value={clinicDefaultEdit.weekdayStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayStart: v }))} className="w-24 px-2 py-1 text-sm" />
-                                  <span className="text-slate-400 text-xs">–</span>
-                                  <TimeInput value={clinicDefaultEdit.weekdayEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayEnd: v }))} className="w-24 px-2 py-1 text-sm" />
-                                </div>
-                              </div>
-                            )}
-                            {hasWeekends && (
-                              <div>
-                                <div className="text-xs text-slate-500 mb-1.5">Weekend times</div>
-                                <div className="flex items-center gap-2">
-                                  <TimeInput value={clinicDefaultEdit.weekendStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendStart: v }))} className="w-24 px-2 py-1 text-sm" />
-                                  <span className="text-slate-400 text-xs">–</span>
-                                  <TimeInput value={clinicDefaultEdit.weekendEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendEnd: v }))} className="w-24 px-2 py-1 text-sm" />
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              disabled={savingClinicDefault}
-                              onClick={async () => {
-                                setSavingClinicDefault(true)
-                                setClinicDefaultError('')
-                                const activeDays = [...clinicDefaultEdit.activeDays].sort()
-                                const hasWd = activeDays.some((d) => d >= 1 && d <= 5)
-                                const hasWe = activeDays.some((d) => d === 0 || d === 6)
-                                const res = await fetch('/api/admin/clinic-defaults', {
-                                  method: 'PUT',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({
-                                    clinic,
-                                    activeDays,
-                                    weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
-                                    weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
-                                    weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
-                                    weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
-                                  }),
-                                })
-                                setSavingClinicDefault(false)
-                                if (res.ok) {
-                                  setClinicDefaults((prev) =>
-                                    prev.map((d) => d.name === clinic ? {
-                                      ...d,
-                                      activeDays,
-                                      weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
-                                      weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
-                                      weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
-                                      weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
-                                    } : d)
-                                  )
-                                  setEditingClinicDefault(null)
-                                } else {
-                                  setClinicDefaultError('Failed to save')
-                                }
-                              }}
-                              className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                            >
-                              {savingClinicDefault ? 'Saving…' : 'Save'}
-                            </button>
-                            <button onClick={() => { setEditingClinicDefault(null); setClinicDefaultError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
-                              Cancel
-                            </button>
-                            {clinicDefaultError && <span className="text-xs text-red-500">{clinicDefaultError}</span>}
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex items-center gap-4">
-                          <div className="shrink-0 w-36">
-                            <div className="text-sm font-medium text-slate-800">{clinic}</div>
+                    <div key={clinic}>
+                      {/* Clinic header row */}
+                      <div className="px-5 py-3 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-slate-800">{clinic}</span>
                             {def.abbreviation && def.abbreviation !== clinic && (
-                              <div className="text-xs text-slate-400">{def.abbreviation}</div>
+                              <span className="text-xs text-slate-400 font-mono">{def.abbreviation}</span>
                             )}
                           </div>
-                          <div className="flex flex-wrap items-center gap-4 flex-1 min-w-0">
-                            <div className="flex gap-1">
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <div className="flex gap-0.5">
                               {DAY_ORDER.map((day) => {
                                 const active = (def?.activeDays ?? []).includes(day)
                                 return (
-                                  <span key={day} className={`w-7 h-7 text-xs flex items-center justify-center rounded-full font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
+                                  <span key={day} className={`w-6 h-6 text-xs flex items-center justify-center rounded-full font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
                                     {DAY_LABELS[day]}
                                   </span>
                                 )
                               })}
                             </div>
-                            {hasWeekdays && def?.weekdayStart && def?.weekdayEnd && (
-                              <span className="text-xs text-slate-500">Weekday: {formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
-                            )}
-                            {hasWeekends && def?.weekendStart && def?.weekendEnd && (
-                              <span className="text-xs text-slate-500">Weekend: {formatTimeValue(def.weekendStart)} – {formatTimeValue(def.weekendEnd)}</span>
-                            )}
-                            {def.billingEntityCodes.length > 0 && (
-                              <span className="text-xs text-slate-400 font-mono">{def.billingEntityCodes.join(', ')}</span>
+                            {def.billingEntityCodes.map((code) => (
+                              <span key={code} className="text-xs font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{code}</span>
+                            ))}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setExpandedClinics((prev) => {
+                            const next = new Set(prev)
+                            isExpanded ? next.delete(clinic) : next.add(clinic)
+                            return next
+                          })}
+                          className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0 flex items-center gap-1"
+                        >
+                          {isExpanded ? 'Collapse' : 'Expand'}
+                          <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                      </div>
+
+                      {/* Expanded body */}
+                      {isExpanded && (
+                        <div className="border-t border-slate-100 bg-slate-50/40 px-5 py-4 space-y-5">
+
+                          {/* Schedule defaults */}
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Schedule defaults</span>
+                              {!isEditingSchedule && (
+                                <button
+                                  onClick={() => {
+                                    setEditingClinicDefault(clinic)
+                                    setClinicDefaultError('')
+                                    setClinicDefaultEdit({
+                                      activeDays: new Set(def?.activeDays ?? []),
+                                      weekdayStart: def?.weekdayStart ?? '',
+                                      weekdayEnd: def?.weekdayEnd ?? '',
+                                      weekendStart: def?.weekendStart ?? '',
+                                      weekendEnd: def?.weekendEnd ?? '',
+                                    })
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                            </div>
+                            {isEditingSchedule ? (
+                              <div className="space-y-3">
+                                <div>
+                                  <div className="text-xs text-slate-500 mb-1.5">Active days</div>
+                                  <div className="flex gap-1">
+                                    {DAY_ORDER.map((day) => {
+                                      const active = clinicDefaultEdit.activeDays.has(day)
+                                      return (
+                                        <button
+                                          key={day}
+                                          onClick={() => {
+                                            setClinicDefaultEdit((prev) => {
+                                              const next = new Set(prev.activeDays)
+                                              active ? next.delete(day) : next.add(day)
+                                              return { ...prev, activeDays: next }
+                                            })
+                                          }}
+                                          className={`w-8 h-8 text-xs rounded-full font-medium transition-colors ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                        >
+                                          {DAY_LABELS[day]}
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap gap-x-6 gap-y-3">
+                                  {hasWeekdays && (
+                                    <div>
+                                      <div className="text-xs text-slate-500 mb-1.5">Weekday times</div>
+                                      <div className="flex items-center gap-2">
+                                        <TimeInput value={clinicDefaultEdit.weekdayStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayStart: v }))} className="w-24 px-2 py-1 text-sm" />
+                                        <span className="text-slate-400 text-xs">–</span>
+                                        <TimeInput value={clinicDefaultEdit.weekdayEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayEnd: v }))} className="w-24 px-2 py-1 text-sm" />
+                                      </div>
+                                    </div>
+                                  )}
+                                  {hasWeekends && (
+                                    <div>
+                                      <div className="text-xs text-slate-500 mb-1.5">Weekend times</div>
+                                      <div className="flex items-center gap-2">
+                                        <TimeInput value={clinicDefaultEdit.weekendStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendStart: v }))} className="w-24 px-2 py-1 text-sm" />
+                                        <span className="text-slate-400 text-xs">–</span>
+                                        <TimeInput value={clinicDefaultEdit.weekendEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendEnd: v }))} className="w-24 px-2 py-1 text-sm" />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    disabled={savingClinicDefault}
+                                    onClick={async () => {
+                                      setSavingClinicDefault(true)
+                                      setClinicDefaultError('')
+                                      const activeDays = [...clinicDefaultEdit.activeDays].sort()
+                                      const hasWd = activeDays.some((d) => d >= 1 && d <= 5)
+                                      const hasWe = activeDays.some((d) => d === 0 || d === 6)
+                                      const res = await fetch('/api/admin/clinic-defaults', {
+                                        method: 'PUT',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                          clinic,
+                                          activeDays,
+                                          weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
+                                          weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
+                                          weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
+                                          weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
+                                        }),
+                                      })
+                                      setSavingClinicDefault(false)
+                                      if (res.ok) {
+                                        setClinicDefaults((prev) =>
+                                          prev.map((d) => d.name === clinic ? {
+                                            ...d,
+                                            activeDays,
+                                            weekdayStart: hasWd ? clinicDefaultEdit.weekdayStart || null : null,
+                                            weekdayEnd:   hasWd ? clinicDefaultEdit.weekdayEnd   || null : null,
+                                            weekendStart: hasWe ? clinicDefaultEdit.weekendStart || null : null,
+                                            weekendEnd:   hasWe ? clinicDefaultEdit.weekendEnd   || null : null,
+                                          } : d)
+                                        )
+                                        setEditingClinicDefault(null)
+                                      } else {
+                                        setClinicDefaultError('Failed to save')
+                                      }
+                                    }}
+                                    className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                                  >
+                                    {savingClinicDefault ? 'Saving…' : 'Save'}
+                                  </button>
+                                  <button onClick={() => { setEditingClinicDefault(null); setClinicDefaultError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+                                  {clinicDefaultError && <span className="text-xs text-red-500">{clinicDefaultError}</span>}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                                <div className="flex gap-0.5">
+                                  {DAY_ORDER.map((day) => {
+                                    const active = (def?.activeDays ?? []).includes(day)
+                                    return (
+                                      <span key={day} className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
+                                        {DAY_LABELS[day]}
+                                      </span>
+                                    )
+                                  })}
+                                </div>
+                                {hasWeekdays && def?.weekdayStart && def?.weekdayEnd && (
+                                  <span>Weekday: {formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
+                                )}
+                                {hasWeekends && def?.weekendStart && def?.weekendEnd && (
+                                  <span>Weekend: {formatTimeValue(def.weekendStart)} – {formatTimeValue(def.weekendEnd)}</span>
+                                )}
+                              </div>
                             )}
                           </div>
-                          <button
-                            onClick={() => {
-                              setEditingClinicDefault(clinic)
-                              setClinicDefaultError('')
-                              setClinicDefaultEdit({
-                                activeDays: new Set(def?.activeDays ?? []),
-                                weekdayStart: def?.weekdayStart ?? '',
-                                weekdayEnd: def?.weekdayEnd ?? '',
-                                weekendStart: def?.weekendStart ?? '',
-                                weekendEnd: def?.weekendEnd ?? '',
-                              })
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0"
-                          >
-                            Edit
-                          </button>
+
+                          {/* Billing per entity */}
+                          {def.billingEntityCodes.map((entityCode) => {
+                            const displayName = ENTITY_DISPLAY[entityCode] ?? billingEntities.find((e) => e.code === entityCode)?.label ?? entityCode
+                            const contact = billingContacts.find((c) => c.entity === entityCode)
+                            const complexRates = COMPLEX_ENTITY_RATES[entityCode]
+                            const isEditingThisContact = editingContactEntity === entityCode
+                            return (
+                              <div key={entityCode} className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+                                <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
+                                  <span className="text-xs font-semibold text-slate-600">{displayName}</span>
+                                </div>
+
+                                {/* Rates */}
+                                <div className="divide-y divide-slate-100">
+                                  {complexRates ? (
+                                    complexRates.map((row) => {
+                                      const isEditingRate = editingRateKey === row.key
+                                      const current = billingRates[row.key]
+                                      return (
+                                        <div key={row.key} className="px-4 py-2.5 flex items-center gap-3">
+                                          <span className="flex-1 text-xs text-slate-600">{row.label}</span>
+                                          {isEditingRate ? (
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                              <span className="text-xs text-slate-500">$</span>
+                                              <input
+                                                type="number" min="0" step="0.01"
+                                                value={rateEditValue}
+                                                onChange={(e) => { setRateEditValue(e.target.value); setRateSaveError('') }}
+                                                className="w-16 border border-slate-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                                autoFocus
+                                              />
+                                              <span className="text-xs text-slate-400">/hr</span>
+                                              <button
+                                                disabled={savingRate}
+                                                onClick={async () => {
+                                                  const val = parseFloat(rateEditValue)
+                                                  if (isNaN(val) || val < 0) { setRateSaveError('Invalid'); return }
+                                                  setSavingRate(true); setRateSaveError('')
+                                                  const res = await fetch('/api/admin/billing-rates', {
+                                                    method: 'PUT',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ key: row.key, value: val }),
+                                                  })
+                                                  setSavingRate(false)
+                                                  if (res.ok) { setBillingRates((prev) => ({ ...prev, [row.key]: val })); setEditingRateKey(null) }
+                                                  else setRateSaveError('Failed to save')
+                                                }}
+                                                className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                                              >
+                                                {savingRate ? '…' : 'Save'}
+                                              </button>
+                                              <button onClick={() => { setEditingRateKey(null); setRateSaveError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                                              {rateSaveError && <span className="text-xs text-red-500">{rateSaveError}</span>}
+                                            </div>
+                                          ) : (
+                                            <div className="flex items-center gap-2 shrink-0">
+                                              <span className="text-xs font-medium text-slate-700">{current !== undefined ? `$${current.toFixed(2)}/hr` : '—'}</span>
+                                              <button onClick={() => { setEditingRateKey(row.key); setRateEditValue(current !== undefined ? String(current) : ''); setRateSaveError('') }} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
+                                    })
+                                  ) : (() => {
+                                    const rateKey = `${entityCode}_rate`
+                                    const isEditingRate = editingRateKey === rateKey
+                                    const current = billingRates[rateKey]
+                                    return (
+                                      <div className="px-4 py-2.5 flex items-center gap-3">
+                                        <span className="flex-1 text-xs text-slate-600">Hourly rate</span>
+                                        {isEditingRate ? (
+                                          <div className="flex items-center gap-1.5 shrink-0">
+                                            <span className="text-xs text-slate-500">$</span>
+                                            <input
+                                              type="number" min="0" step="0.01"
+                                              value={rateEditValue}
+                                              onChange={(e) => { setRateEditValue(e.target.value); setRateSaveError('') }}
+                                              className="w-16 border border-slate-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                              autoFocus
+                                            />
+                                            <span className="text-xs text-slate-400">/hr</span>
+                                            <button
+                                              disabled={savingRate}
+                                              onClick={async () => {
+                                                const val = parseFloat(rateEditValue)
+                                                if (isNaN(val) || val < 0) { setRateSaveError('Invalid'); return }
+                                                setSavingRate(true); setRateSaveError('')
+                                                const res = await fetch('/api/admin/billing-rates', {
+                                                  method: 'PUT',
+                                                  headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ key: rateKey, value: val }),
+                                                })
+                                                setSavingRate(false)
+                                                if (res.ok) { setBillingRates((prev) => ({ ...prev, [rateKey]: val })); setEditingRateKey(null) }
+                                                else setRateSaveError('Failed to save')
+                                              }}
+                                              className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                                            >
+                                              {savingRate ? '…' : 'Save'}
+                                            </button>
+                                            <button onClick={() => { setEditingRateKey(null); setRateSaveError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                                            {rateSaveError && <span className="text-xs text-red-500">{rateSaveError}</span>}
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            <span className="text-xs font-medium text-slate-700">{current !== undefined ? `$${current.toFixed(2)}/hr` : '—'}</span>
+                                            <button onClick={() => { setEditingRateKey(rateKey); setRateEditValue(current !== undefined ? String(current) : ''); setRateSaveError('') }} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })()}
+                                </div>
+
+                                {/* Billing contact */}
+                                <div className="border-t border-slate-100 px-4 py-3">
+                                  {isEditingThisContact ? (
+                                    <div className="space-y-2">
+                                      <div className="text-xs font-medium text-slate-600 mb-1.5">Billing contact</div>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <div>
+                                          <label className="block text-xs text-slate-400 mb-0.5">Contact person</label>
+                                          <input value={contactEdit.contactName} onChange={(e) => setContactEdit((p) => ({ ...p, contactName: e.target.value }))} placeholder="e.g. Jane Smith" className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                        </div>
+                                        <div>
+                                          <label className="block text-xs text-slate-400 mb-0.5">Organization</label>
+                                          <input value={contactEdit.org} onChange={(e) => setContactEdit((p) => ({ ...p, org: e.target.value }))} placeholder="e.g. BCCA Diagnostic Imaging" className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <div>
+                                          <label className="block text-xs text-slate-400 mb-0.5">Address</label>
+                                          <textarea value={contactEdit.address} onChange={(e) => setContactEdit((p) => ({ ...p, address: e.target.value }))} rows={2} placeholder={'600 W 10th Ave\nVancouver BC  V5Z 4E6'} className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none" />
+                                        </div>
+                                        <div>
+                                          <label className="block text-xs text-slate-400 mb-0.5">Email (optional)</label>
+                                          <input type="email" value={contactEdit.email} onChange={(e) => setContactEdit((p) => ({ ...p, email: e.target.value }))} placeholder="billing@example.com" className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 pt-0.5">
+                                        <button
+                                          disabled={savingContact}
+                                          onClick={async () => {
+                                            setSavingContact(true); setContactSaveError('')
+                                            const res = await fetch('/api/admin/billing-contacts', {
+                                              method: 'PUT',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ entity: entityCode, ...contactEdit, email: contactEdit.email || null }),
+                                            })
+                                            setSavingContact(false)
+                                            if (res.ok) {
+                                              setBillingContacts((prev) => {
+                                                const existing = prev.find((c) => c.entity === entityCode)
+                                                if (existing) return prev.map((c) => c.entity === entityCode ? { ...c, ...contactEdit, email: contactEdit.email || null } : c)
+                                                return [...prev, { entity: entityCode, ...contactEdit, email: contactEdit.email || null }]
+                                              })
+                                              setEditingContactEntity(null)
+                                            } else {
+                                              setContactSaveError('Failed to save')
+                                            }
+                                          }}
+                                          className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                                        >
+                                          {savingContact ? 'Saving…' : 'Save'}
+                                        </button>
+                                        <button onClick={() => { setEditingContactEntity(null); setContactSaveError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                                        {contactSaveError && <span className="text-xs text-red-500">{contactSaveError}</span>}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-start gap-3">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-xs font-medium text-slate-500 mb-1">Billing contact</div>
+                                        <div className="text-xs text-slate-500 space-y-0.5">
+                                          {contact?.contactName && <div className="font-medium text-slate-700">{contact.contactName}</div>}
+                                          {contact?.org && <div>{contact.org}</div>}
+                                          {contact?.address && contact.address.split('\n').map((l, i) => <div key={i}>{l}</div>)}
+                                          {contact?.email && <div>{contact.email}</div>}
+                                          {!contact && <div className="text-slate-300 italic">No contact configured</div>}
+                                        </div>
+                                      </div>
+                                      <button
+                                        onClick={() => {
+                                          setEditingContactEntity(entityCode); setContactSaveError('')
+                                          setContactEdit({ contactName: contact?.contactName ?? '', org: contact?.org ?? '', address: contact?.address ?? '', email: contact?.email ?? '' })
+                                        }}
+                                        className="text-xs text-blue-600 hover:text-blue-800 shrink-0"
+                                      >
+                                        Edit
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
@@ -2427,21 +2662,11 @@ export default function AdminPage() {
                       <div className="text-xs text-slate-500 mb-2">Billing entity</div>
                       <div className="flex gap-4 mb-3">
                         <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
-                          <input
-                            type="radio"
-                            checked={addClinicBillingType === 'existing'}
-                            onChange={() => setAddClinicBillingType('existing')}
-                            className="accent-blue-600"
-                          />
+                          <input type="radio" checked={addClinicBillingType === 'existing'} onChange={() => setAddClinicBillingType('existing')} className="accent-blue-600" />
                           Use existing
                         </label>
                         <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
-                          <input
-                            type="radio"
-                            checked={addClinicBillingType === 'new'}
-                            onChange={() => setAddClinicBillingType('new')}
-                            className="accent-blue-600"
-                          />
+                          <input type="radio" checked={addClinicBillingType === 'new'} onChange={() => setAddClinicBillingType('new')} className="accent-blue-600" />
                           Create new
                         </label>
                       </div>
@@ -2472,9 +2697,7 @@ export default function AdminPage() {
                             <div>
                               <label className="block text-xs text-slate-500 mb-1">Hourly rate ($/hr)</label>
                               <input
-                                type="number"
-                                min="0"
-                                step="0.01"
+                                type="number" min="0" step="0.01"
                                 value={addClinicNewRate}
                                 onChange={(e) => setAddClinicNewRate(e.target.value)}
                                 placeholder="75.00"
@@ -2485,59 +2708,30 @@ export default function AdminPage() {
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                               <label className="block text-xs text-slate-500 mb-1">Contact person (optional)</label>
-                              <input
-                                value={addClinicNewContact}
-                                onChange={(e) => setAddClinicNewContact(e.target.value)}
-                                placeholder="e.g. Jane Smith"
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                              />
+                              <input value={addClinicNewContact} onChange={(e) => setAddClinicNewContact(e.target.value)} placeholder="e.g. Jane Smith" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
                             </div>
                             <div>
                               <label className="block text-xs text-slate-500 mb-1">Organization</label>
-                              <input
-                                value={addClinicNewOrg}
-                                onChange={(e) => setAddClinicNewOrg(e.target.value)}
-                                placeholder="e.g. Lions Gate Radiology"
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                              />
+                              <input value={addClinicNewOrg} onChange={(e) => setAddClinicNewOrg(e.target.value)} placeholder="e.g. Lions Gate Radiology" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
                             </div>
                           </div>
                           <div>
                             <label className="block text-xs text-slate-500 mb-1">Billing address</label>
-                            <textarea
-                              value={addClinicNewAddress}
-                              onChange={(e) => setAddClinicNewAddress(e.target.value)}
-                              rows={2}
-                              placeholder={'231 East 15th St\nNorth Vancouver BC  V7L 2L7'}
-                              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
-                            />
+                            <textarea value={addClinicNewAddress} onChange={(e) => setAddClinicNewAddress(e.target.value)} rows={2} placeholder={'231 East 15th St\nNorth Vancouver BC  V7L 2L7'} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none" />
                           </div>
                           <div>
                             <label className="block text-xs text-slate-500 mb-1">Billing email (optional)</label>
-                            <input
-                              type="email"
-                              value={addClinicNewEmail}
-                              onChange={(e) => setAddClinicNewEmail(e.target.value)}
-                              placeholder="billing@example.com"
-                              className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                            />
+                            <input type="email" value={addClinicNewEmail} onChange={(e) => setAddClinicNewEmail(e.target.value)} placeholder="billing@example.com" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
                           </div>
                         </div>
                       )}
                     </div>
 
                     <div className="flex items-center gap-2 pt-1">
-                      <button
-                        onClick={handleAddClinic}
-                        disabled={addClinicSaving}
-                        className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                      >
+                      <button onClick={handleAddClinic} disabled={addClinicSaving} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors">
                         {addClinicSaving ? 'Saving…' : 'Add Clinic'}
                       </button>
-                      <button
-                        onClick={() => { setShowAddClinic(false); setAddClinicError('') }}
-                        className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
-                      >
+                      <button onClick={() => { setShowAddClinic(false); setAddClinicError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
                         Cancel
                       </button>
                       {addClinicError && <span className="text-xs text-red-500">{addClinicError}</span>}
@@ -2546,237 +2740,6 @@ export default function AdminPage() {
                 )}
               </div>
             )}
-          </div>
-
-          {/* ── Shift Rates ── */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
-              <h2 className="text-sm font-semibold text-slate-700">Shift Rates</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Hourly billing rates used when generating invoices. Changes take effect immediately on the next invoice generated.</p>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {RATE_ROWS.map((row) => {
-                const current = billingRates[row.key]
-                const isEditing = editingRateKey === row.key
-                return (
-                  <div key={row.key} className="px-5 py-4 flex items-center gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-800">{row.label}</div>
-                      <div className="text-xs text-slate-400 mt-0.5">{row.description}</div>
-                    </div>
-                    {isEditing ? (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-sm text-slate-500">$</span>
-                        <input
-                          type="number" min="0" step="0.01"
-                          value={rateEditValue}
-                          onChange={(e) => { setRateEditValue(e.target.value); setRateSaveError('') }}
-                          className="w-20 border border-slate-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                          autoFocus
-                        />
-                        <span className="text-xs text-slate-400">/hr</span>
-                        <button
-                          disabled={savingRate}
-                          onClick={async () => {
-                            const val = parseFloat(rateEditValue)
-                            if (isNaN(val) || val < 0) { setRateSaveError('Invalid'); return }
-                            setSavingRate(true); setRateSaveError('')
-                            const res = await fetch('/api/admin/billing-rates', {
-                              method: 'PUT',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ key: row.key, value: val }),
-                            })
-                            setSavingRate(false)
-                            if (res.ok) { setBillingRates((prev) => ({ ...prev, [row.key]: val })); setEditingRateKey(null) }
-                            else setRateSaveError('Failed to save')
-                          }}
-                          className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                        >
-                          {savingRate ? 'Saving…' : 'Save'}
-                        </button>
-                        <button onClick={() => { setEditingRateKey(null); setRateSaveError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
-                        {rateSaveError && <span className="text-xs text-red-500">{rateSaveError}</span>}
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-sm font-medium text-slate-800">{current !== undefined ? `$${current.toFixed(2)}/hr` : '—'}</span>
-                        <button onClick={() => { setEditingRateKey(row.key); setRateEditValue(current !== undefined ? String(current) : ''); setRateSaveError('') }} className="text-xs text-blue-600 hover:text-blue-800 transition-colors">Edit</button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-              {billingEntities.filter((e) => e.simpleRate != null).map((entity) => {
-                const key = `${entity.code}_rate`
-                const current = billingRates[key]
-                const isEditing = editingRateKey === key
-                return (
-                  <div key={key} className="px-5 py-4 flex items-center gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-800">{entity.label}</div>
-                      <div className="text-xs text-slate-400 mt-0.5">Flat hourly rate</div>
-                    </div>
-                    {isEditing ? (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-sm text-slate-500">$</span>
-                        <input
-                          type="number" min="0" step="0.01"
-                          value={rateEditValue}
-                          onChange={(e) => { setRateEditValue(e.target.value); setRateSaveError('') }}
-                          className="w-20 border border-slate-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                          autoFocus
-                        />
-                        <span className="text-xs text-slate-400">/hr</span>
-                        <button
-                          disabled={savingRate}
-                          onClick={async () => {
-                            const val = parseFloat(rateEditValue)
-                            if (isNaN(val) || val < 0) { setRateSaveError('Invalid'); return }
-                            setSavingRate(true); setRateSaveError('')
-                            const res = await fetch('/api/admin/billing-rates', {
-                              method: 'PUT',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ key, value: val }),
-                            })
-                            setSavingRate(false)
-                            if (res.ok) { setBillingRates((prev) => ({ ...prev, [key]: val })); setEditingRateKey(null) }
-                            else setRateSaveError('Failed to save')
-                          }}
-                          className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                        >
-                          {savingRate ? 'Saving…' : 'Save'}
-                        </button>
-                        <button onClick={() => { setEditingRateKey(null); setRateSaveError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
-                        {rateSaveError && <span className="text-xs text-red-500">{rateSaveError}</span>}
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-sm font-medium text-slate-800">{current !== undefined ? `$${current.toFixed(2)}/hr` : '—'}</span>
-                        <button onClick={() => { setEditingRateKey(key); setRateEditValue(current !== undefined ? String(current) : ''); setRateSaveError('') }} className="text-xs text-blue-600 hover:text-blue-800 transition-colors">Edit</button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* ── Billing Contacts ── */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
-              <h2 className="text-sm font-semibold text-slate-700">Billing Contacts</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Contact details printed on the "TO" section of generated invoices.</p>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {billingEntities.map((entityRec) => {
-                const entity = entityRec.code
-                const displayName = ENTITY_DISPLAY[entity] ?? entityRec.label
-                const rec = billingContacts.find((c) => c.entity === entity)
-                const isEditing = editingContactEntity === entity
-                return (
-                  <div key={entity} className="px-5 py-4">
-                    {isEditing ? (
-                      <>
-                        <div className="text-sm font-medium text-slate-800 mb-3">{displayName}</div>
-                        <div className="space-y-3">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-xs text-slate-500 mb-1">Contact person</label>
-                              <input
-                                value={contactEdit.contactName}
-                                onChange={(e) => setContactEdit((p) => ({ ...p, contactName: e.target.value }))}
-                                placeholder="e.g. Jane Smith"
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs text-slate-500 mb-1">Organization</label>
-                              <input
-                                value={contactEdit.org}
-                                onChange={(e) => setContactEdit((p) => ({ ...p, org: e.target.value }))}
-                                placeholder="e.g. BCCA Diagnostic Imaging"
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                              />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-xs text-slate-500 mb-1">Address</label>
-                              <textarea
-                                value={contactEdit.address}
-                                onChange={(e) => setContactEdit((p) => ({ ...p, address: e.target.value }))}
-                                rows={2}
-                                placeholder={'600 W 10th Ave\nVancouver BC  V5Z 4E6'}
-                                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs text-slate-500 mb-1">Email (optional)</label>
-                              <input
-                                value={contactEdit.email}
-                                onChange={(e) => setContactEdit((p) => ({ ...p, email: e.target.value }))}
-                                placeholder="billing@example.com"
-                                type="email"
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 mt-3">
-                          <button
-                            disabled={savingContact}
-                            onClick={async () => {
-                              setSavingContact(true); setContactSaveError('')
-                              const res = await fetch('/api/admin/billing-contacts', {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ entity, ...contactEdit, email: contactEdit.email || null }),
-                              })
-                              setSavingContact(false)
-                              if (res.ok) {
-                                setBillingContacts((prev) => {
-                                  const existing = prev.find((c) => c.entity === entity)
-                                  if (existing) return prev.map((c) => c.entity === entity ? { ...c, ...contactEdit, email: contactEdit.email || null } : c)
-                                  return [...prev, { entity, ...contactEdit, email: contactEdit.email || null }]
-                                })
-                                setEditingContactEntity(null)
-                              } else {
-                                setContactSaveError('Failed to save')
-                              }
-                            }}
-                            className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                          >
-                            {savingContact ? 'Saving…' : 'Save'}
-                          </button>
-                          <button onClick={() => { setEditingContactEntity(null); setContactSaveError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
-                          {contactSaveError && <span className="text-xs text-red-500">{contactSaveError}</span>}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex items-start gap-4">
-                        <span className="text-sm font-medium text-slate-800 shrink-0 w-28">{displayName}</span>
-                        <div className="flex-1 min-w-0 text-xs text-slate-500 space-y-0.5">
-                          {rec?.contactName && <div className="font-medium text-slate-700">{rec.contactName}</div>}
-                          {rec?.org && <div>{rec.org}</div>}
-                          {rec?.address && rec.address.split('\n').map((l, i) => <div key={i}>{l}</div>)}
-                          {rec?.email && <div>{rec.email}</div>}
-                          {!rec && <div className="text-slate-300 italic">No contact configured</div>}
-                        </div>
-                        <button
-                          onClick={() => {
-                            setEditingContactEntity(entity); setContactSaveError('')
-                            setContactEdit({ contactName: rec?.contactName ?? '', org: rec?.org ?? '', address: rec?.address ?? '', email: rec?.email ?? '' })
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0"
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
           </div>
         </div>
       )}

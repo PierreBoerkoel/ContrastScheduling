@@ -259,8 +259,8 @@ export async function initDb(): Promise<void> {
     ['MRCT',   'ct',         75],
     ['PET',    'base',       25],
     ['PET',    'standalone', 75],
-    ['UBCMR',  'MR',         75],
-    ['BCWHMR', 'MR',         75],
+    ['UBCMR',  'rate',       75],
+    ['BCWHMR', 'rate',       75],
   ]
   for (const [entityCode, rateKey, rate] of rateSeeds) {
     await sql`
@@ -269,6 +269,14 @@ export async function initDb(): Promise<void> {
       ON CONFLICT DO NOTHING
     `
   }
+  // Migrate UBCMR and BCWHMR from legacy rate_key='MR' to 'rate' (simple billing)
+  await sql`
+    UPDATE billing_rates br SET rate_key = 'rate'
+    FROM billing_entities be
+    WHERE br.entity_id = be.id
+      AND be.code IN ('UBCMR', 'BCWHMR')
+      AND br.rate_key = 'MR'
+  `
 
   // ── Billing contacts (entity_id FK, replaces old entity TEXT PK) ─────────
   // Migration: drop old format if present
