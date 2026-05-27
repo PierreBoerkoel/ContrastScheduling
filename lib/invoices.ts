@@ -242,7 +242,7 @@ export function calculateLineItems(
   // Simple clinic billing — rate looked up from simpleEntityRates (DB-managed)
   if (simpleEntityRates) {
     for (const [entityCode, rate] of Object.entries(simpleEntityRates)) {
-      result[entityCode] = [item(date, sS, sE, `${clinic} coverage`, rate)]
+      result[entityCode] = [item(date, sS, sE, 'Contrast Reaction Monitoring', rate)]
     }
   }
 
