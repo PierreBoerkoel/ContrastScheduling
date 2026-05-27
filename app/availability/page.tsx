@@ -72,6 +72,9 @@ export default function AvailabilityPage() {
     : []
 
   const selectedBlockPublished = !loading && !!selectedPeriod?.publishedAt
+  const hasExistingSubmission = submissions.some(
+    (s) => s.periodId === effectivePeriodId && s.userId === myUserId
+  )
 
   // When the selected block changes, restore existing submission or auto-populate from defaults
   useEffect(() => {
@@ -83,7 +86,8 @@ export default function AvailabilityPage() {
       setSelected(new Set(existing.availableShiftIds))
       setMaxShifts(existing.maxShifts ?? '')
     } else {
-      if (Object.keys(shiftDefaults).length > 0) {
+      const isPublished = !!periods.find((p) => p.id === effectivePeriodId)?.publishedAt
+      if (!isPublished && Object.keys(shiftDefaults).length > 0) {
         const blockShifts = shifts.filter((s) => s.periodId === effectivePeriodId)
         const autoSelected = new Set<string>()
         for (const shift of blockShifts) {
@@ -102,7 +106,7 @@ export default function AvailabilityPage() {
     }
     setSubmitted(false)
     setError('')
-  }, [effectivePeriodId, submissions, myUserId, shifts, shiftDefaults])
+  }, [effectivePeriodId, submissions, myUserId, shifts, shiftDefaults, periods])
 
   function toggleShift(id: string) {
     setSelected((prev) => {
@@ -210,14 +214,13 @@ export default function AvailabilityPage() {
             })}
           </div>
 
-          {selectedBlockPublished && (
+          {selectedBlockPublished && hasExistingSubmission && (
             <div className="mb-4 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm text-slate-600">
               <span>🗓</span>
               This block has been scheduled. Your past availability submission is shown below.
             </div>
           )}
 
-          {/* Per-block content */}
           {submitted && (
             <div className="mb-4 flex items-center justify-between gap-3 bg-green-50 border border-green-200 rounded-lg px-4 py-2.5 text-sm text-green-800">
               <span>Availability for <strong>{selectedPeriod?.name}</strong> saved successfully.</span>
@@ -225,7 +228,11 @@ export default function AvailabilityPage() {
             </div>
           )}
 
-          {visibleShifts.length === 0 ? (
+          {selectedBlockPublished && !hasExistingSubmission ? (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm">
+              You did not submit availability for {selectedPeriod?.name ?? 'this block'}.
+            </div>
+          ) : visibleShifts.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm">
               No shifts configured for {selectedPeriod?.name ?? 'this block'} yet.
             </div>
