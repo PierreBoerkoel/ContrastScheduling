@@ -4,6 +4,11 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { BillingEntity, CompletedShiftForInvoice, MriPetMode, BillingContact } from '@/lib/invoices'
 import type { InvoiceHistoryRecord } from '@/lib/db'
 
+const ENTITY_TAB_LABELS: Record<string, string> = {
+  MRCT: 'BCCA MRI/CT',
+  PET:  'BCCA PET',
+}
+
 const MRI_PET_MODE_LABELS: Partial<Record<MriPetMode, string>> = {
   'normal': 'MRI + PET',
   'ct-also': 'MRI + PET + CT',
@@ -298,7 +303,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
-            {entityAbbrMap[e.code] ?? e.label}
+            {ENTITY_TAB_LABELS[e.code] ?? entityAbbrMap[e.code] ?? e.label}
           </button>
         ))}
       </div>
