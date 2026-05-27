@@ -253,10 +253,9 @@ export default function AdminPage() {
   const clinicDefaultsRef = useRef<Clinic[]>([])
   const clinicNames = clinicDefaults.map((c) => c.name)
   const clinicAbbr = Object.fromEntries(clinicDefaults.map((c) => [c.name, c.abbreviation]))
-  const [showClinicDefaults, setShowClinicDefaults] = useState(true)
   const [expandedClinics, setExpandedClinics] = useState<Set<string>>(new Set())
-  const [editingClinicDefault, setEditingClinicDefault] = useState<string | null>(null)
-  const [clinicDefaultEdit, setClinicDefaultEdit] = useState<{
+  const [editingClinic, setEditingClinic] = useState<string | null>(null)
+  const [clinicEdit, setClinicEdit] = useState<{
     name: string
     abbreviation: string
     activeDays: Set<number>
@@ -264,23 +263,17 @@ export default function AdminPage() {
     weekdayEnd: string
     weekendStart: string
     weekendEnd: string
-  }>({ name: '', abbreviation: '', activeDays: new Set(), weekdayStart: '', weekdayEnd: '', weekendStart: '', weekendEnd: '' })
-  const [savingClinicDefault, setSavingClinicDefault] = useState(false)
-  const [clinicDefaultError, setClinicDefaultError] = useState('')
+    rates: Record<string, string>
+    contacts: Record<string, { contactName: string; org: string; address: string; email: string }>
+  }>({ name: '', abbreviation: '', activeDays: new Set(), weekdayStart: '', weekdayEnd: '', weekendStart: '', weekendEnd: '', rates: {}, contacts: {} })
+  const [savingClinic, setSavingClinic] = useState(false)
+  const [clinicEditError, setClinicEditError] = useState('')
 
   // Billing contacts
   const [billingContacts, setBillingContacts] = useState<BillingContactRecord[]>([])
-  const [editingContactEntity, setEditingContactEntity] = useState<string | null>(null)
-  const [contactEdit, setContactEdit] = useState({ contactName: '', org: '', address: '', email: '' })
-  const [savingContact, setSavingContact] = useState(false)
-  const [contactSaveError, setContactSaveError] = useState('')
 
   // Billing rates
   const [billingRates, setBillingRates] = useState<Record<string, number>>({})
-  const [editingRateKey, setEditingRateKey] = useState<string | null>(null)
-  const [rateEditValue, setRateEditValue] = useState('')
-  const [savingRate, setSavingRate] = useState(false)
-  const [rateSaveError, setRateSaveError] = useState('')
 
   // Billing entities (DB-managed list)
   const [billingEntities, setBillingEntities] = useState<{ id: string; code: string; label: string; simpleRate: number | null }[]>([])
@@ -2170,618 +2163,432 @@ export default function AdminPage() {
       )}
       {/* ── CLINIC MANAGEMENT TAB ── */}
       {tab === 'clinics' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <button
-              onClick={() => setShowClinicDefaults((v) => !v)}
-              className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-slate-50 transition-colors"
-            >
-              <div>
-                <div className="text-sm font-semibold text-slate-700">Clinics</div>
-                <div className="text-xs text-slate-400 mt-0.5">Active days, shift times, rates, and billing contacts for each clinic.</div>
+        <div className="space-y-3">
+          {/* Add Clinic CTA at top */}
+          {!showAddClinic ? (
+            <div>
+              <button
+                onClick={() => { setShowAddClinic(true); setAddClinicError('') }}
+                className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded-lg px-3 py-1.5 transition-colors"
+              >
+                + Add Clinic
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-5 space-y-4">
+              <div className="text-sm font-medium text-slate-800">New Clinic</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Clinic name</label>
+                  <input value={addClinicName} onChange={(e) => setAddClinicName(e.target.value)} placeholder="e.g. Lions Gate Hospital" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Abbreviation</label>
+                  <input value={addClinicAbbr} onChange={(e) => setAddClinicAbbr(e.target.value)} placeholder="e.g. LGH" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                </div>
               </div>
-              <svg className={`w-4 h-4 text-slate-400 transition-transform ${showClinicDefaults ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {showClinicDefaults && (
-              <div className="border-t border-slate-100 divide-y divide-slate-100">
-                {clinicDefaults.map((def) => {
-                  const clinic = def.name
-                  const isExpanded = expandedClinics.has(clinic)
-                  const isEditingSchedule = editingClinicDefault === clinic
-                  const hasWeekdays = isEditingSchedule
-                    ? [1, 2, 3, 4, 5].some((d) => clinicDefaultEdit.activeDays.has(d))
-                    : (def?.activeDays ?? []).some((d) => d >= 1 && d <= 5)
-                  const hasWeekends = isEditingSchedule
-                    ? [0, 6].some((d) => clinicDefaultEdit.activeDays.has(d))
-                    : (def?.activeDays ?? []).some((d) => d === 0 || d === 6)
-                  return (
-                    <div key={clinic}>
-                      {/* Clinic header row */}
-                      <div className="px-5 py-3 flex items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-medium text-slate-800">{clinic}</span>
-                            {def.abbreviation && def.abbreviation !== clinic && (
-                              <span className="text-xs text-slate-400 font-mono">{def.abbreviation}</span>
+              <div>
+                <div className="text-xs text-slate-500 mb-1.5">Active days</div>
+                <div className="flex gap-1">
+                  {DAY_ORDER.map((day) => {
+                    const active = addClinicActiveDays.has(day)
+                    return (
+                      <button key={day} onClick={() => setAddClinicActiveDays((prev) => { const next = new Set(prev); active ? next.delete(day) : next.add(day); return next })} className={`w-8 h-8 text-xs rounded-full font-medium transition-colors ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                        {DAY_LABELS[day]}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              {[1, 2, 3, 4, 5].some((d) => addClinicActiveDays.has(d)) && (
+                <div>
+                  <div className="text-xs text-slate-500 mb-1.5">Weekday times</div>
+                  <div className="flex items-center gap-2">
+                    <TimeInput value={addClinicWeekdayStart} onChange={setAddClinicWeekdayStart} className="w-24 px-2 py-1 text-sm" />
+                    <span className="text-slate-400 text-xs">–</span>
+                    <TimeInput value={addClinicWeekdayEnd} onChange={setAddClinicWeekdayEnd} className="w-24 px-2 py-1 text-sm" />
+                  </div>
+                </div>
+              )}
+              {[0, 6].some((d) => addClinicActiveDays.has(d)) && (
+                <div>
+                  <div className="text-xs text-slate-500 mb-1.5">Weekend times</div>
+                  <div className="flex items-center gap-2">
+                    <TimeInput value={addClinicWeekendStart} onChange={setAddClinicWeekendStart} className="w-24 px-2 py-1 text-sm" />
+                    <span className="text-slate-400 text-xs">–</span>
+                    <TimeInput value={addClinicWeekendEnd} onChange={setAddClinicWeekendEnd} className="w-24 px-2 py-1 text-sm" />
+                  </div>
+                </div>
+              )}
+              <div>
+                <div className="text-xs text-slate-500 mb-2">Billing entity</div>
+                <div className="flex gap-4 mb-3">
+                  <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
+                    <input type="radio" checked={addClinicBillingType === 'existing'} onChange={() => setAddClinicBillingType('existing')} className="accent-blue-600" />
+                    Use existing
+                  </label>
+                  <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
+                    <input type="radio" checked={addClinicBillingType === 'new'} onChange={() => setAddClinicBillingType('new')} className="accent-blue-600" />
+                    Create new
+                  </label>
+                </div>
+                {addClinicBillingType === 'existing' ? (
+                  <select value={addClinicEntityCode} onChange={(e) => setAddClinicEntityCode(e.target.value)} className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 w-full max-w-xs">
+                    <option value="">Select entity…</option>
+                    {billingEntities.map((e) => <option key={e.code} value={e.code}>{e.label}</option>)}
+                  </select>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Entity code</label>
+                        <input value={addClinicNewCode} onChange={(e) => setAddClinicNewCode(e.target.value.toUpperCase().replace(/\s+/g, ''))} placeholder="e.g. LGHMR" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Hourly rate ($/hr)</label>
+                        <input type="number" min="0" step="0.01" value={addClinicNewRate} onChange={(e) => setAddClinicNewRate(e.target.value)} placeholder="75.00" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Contact person (optional)</label>
+                        <input value={addClinicNewContact} onChange={(e) => setAddClinicNewContact(e.target.value)} placeholder="e.g. Jane Smith" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Organization</label>
+                        <input value={addClinicNewOrg} onChange={(e) => setAddClinicNewOrg(e.target.value)} placeholder="e.g. Lions Gate Radiology" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Billing address</label>
+                      <textarea value={addClinicNewAddress} onChange={(e) => setAddClinicNewAddress(e.target.value)} rows={2} placeholder={'231 East 15th St\nNorth Vancouver BC  V7L 2L7'} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Billing email (optional)</label>
+                      <input type="email" value={addClinicNewEmail} onChange={(e) => setAddClinicNewEmail(e.target.value)} placeholder="billing@example.com" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <button onClick={handleAddClinic} disabled={addClinicSaving} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors">{addClinicSaving ? 'Saving…' : 'Add Clinic'}</button>
+                <button onClick={() => { setShowAddClinic(false); setAddClinicError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+                {addClinicError && <span className="text-xs text-red-500">{addClinicError}</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Clinic cards */}
+          {clinicDefaults.map((def) => {
+            const clinic = def.name
+            const isExpanded = expandedClinics.has(clinic)
+            const isEditing = editingClinic === clinic
+            const isComplex = def.billingEntityCodes.some((code) => COMPLEX_ENTITY_RATES[code] !== undefined)
+            const hasWeekdays = (def.activeDays ?? []).some((d) => d >= 1 && d <= 5)
+            const hasWeekends = (def.activeDays ?? []).some((d) => d === 0 || d === 6)
+            const editHasWeekdays = isEditing ? [...clinicEdit.activeDays].some((d) => d >= 1 && d <= 5) : false
+            const editHasWeekends = isEditing ? [...clinicEdit.activeDays].some((d) => d === 0 || d === 6) : false
+            const simpleRateCode = !isComplex && def.billingEntityCodes.length === 1 ? def.billingEntityCodes[0] : null
+            const simpleRate = simpleRateCode !== null ? billingRates[`${simpleRateCode}_rate`] : undefined
+            return (
+              <div key={clinic} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                {/* Clickable header row */}
+                <button
+                  onClick={() => setExpandedClinics((prev) => { const next = new Set(prev); isExpanded ? next.delete(clinic) : next.add(clinic); return next })}
+                  className="w-full px-5 py-4 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-800">{clinic}</span>
+                      {def.abbreviation && (
+                        <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{def.abbreviation}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                      <div className="flex gap-0.5">
+                        {DAY_ORDER.map((day) => {
+                          const active = (def.activeDays ?? []).includes(day)
+                          return (
+                            <span key={day} className={`w-5 h-5 text-xs flex items-center justify-center rounded-full font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
+                              {DAY_LABELS[day]}
+                            </span>
+                          )
+                        })}
+                      </div>
+                      {hasWeekdays && def.weekdayStart && def.weekdayEnd && (
+                        <span className="text-xs text-slate-500">{formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
+                      )}
+                      {simpleRate !== undefined && (
+                        <span className="text-xs text-slate-500">${simpleRate.toFixed(0)}/hr</span>
+                      )}
+                    </div>
+                  </div>
+                  <svg className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {isExpanded && (
+                  <div className="border-t border-slate-100">
+                    {isEditing ? (
+                      /* ── Edit mode ── */
+                      <div className="px-5 py-4 space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">Clinic name</label>
+                            <input value={clinicEdit.name} onChange={(e) => setClinicEdit((p) => ({ ...p, name: e.target.value }))} className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">Abbreviation</label>
+                            <input value={clinicEdit.abbreviation} onChange={(e) => setClinicEdit((p) => ({ ...p, abbreviation: e.target.value }))} className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-500 mb-1.5">Active days</div>
+                          <div className="flex gap-1">
+                            {DAY_ORDER.map((day) => {
+                              const active = clinicEdit.activeDays.has(day)
+                              return (
+                                <button key={day} type="button"
+                                  onClick={() => setClinicEdit((prev) => { const next = new Set(prev.activeDays); active ? next.delete(day) : next.add(day); return { ...prev, activeDays: next } })}
+                                  className={`w-8 h-8 text-xs rounded-full font-medium transition-colors ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                >
+                                  {DAY_LABELS[day]}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                        {(editHasWeekdays || editHasWeekends) && (
+                          <div className="flex flex-wrap gap-x-6 gap-y-3">
+                            {editHasWeekdays && (
+                              <div>
+                                <div className="text-xs text-slate-500 mb-1.5">Weekday times</div>
+                                <div className="flex items-center gap-2">
+                                  <TimeInput value={clinicEdit.weekdayStart} onChange={(v) => setClinicEdit((p) => ({ ...p, weekdayStart: v }))} className="w-24 px-2 py-1 text-sm" />
+                                  <span className="text-slate-400 text-xs">–</span>
+                                  <TimeInput value={clinicEdit.weekdayEnd} onChange={(v) => setClinicEdit((p) => ({ ...p, weekdayEnd: v }))} className="w-24 px-2 py-1 text-sm" />
+                                </div>
+                              </div>
+                            )}
+                            {editHasWeekends && (
+                              <div>
+                                <div className="text-xs text-slate-500 mb-1.5">Weekend times</div>
+                                <div className="flex items-center gap-2">
+                                  <TimeInput value={clinicEdit.weekendStart} onChange={(v) => setClinicEdit((p) => ({ ...p, weekendStart: v }))} className="w-24 px-2 py-1 text-sm" />
+                                  <span className="text-slate-400 text-xs">–</span>
+                                  <TimeInput value={clinicEdit.weekendEnd} onChange={(v) => setClinicEdit((p) => ({ ...p, weekendEnd: v }))} className="w-24 px-2 py-1 text-sm" />
+                                </div>
+                              </div>
                             )}
                           </div>
-                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        )}
+                        {def.billingEntityCodes.map((entityCode) => {
+                          const complexRows = COMPLEX_ENTITY_RATES[entityCode]
+                          const displayName = ENTITY_DISPLAY[entityCode] ?? entityCode
+                          const contact = clinicEdit.contacts[entityCode]
+                          return (
+                            <div key={entityCode} className="space-y-3 pt-2 border-t border-slate-100">
+                              {isComplex && <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{displayName}</div>}
+                              {complexRows ? (
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                  {complexRows.map((row) => (
+                                    <div key={row.key}>
+                                      <label className="block text-xs text-slate-500 mb-1">{row.label}</label>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs text-slate-400">$</span>
+                                        <input type="number" min="0" step="0.01" value={clinicEdit.rates[row.key] ?? ''} onChange={(e) => setClinicEdit((p) => ({ ...p, rates: { ...p.rates, [row.key]: e.target.value } }))} className="w-full border border-slate-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                        <span className="text-xs text-slate-400">/hr</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <label className="text-xs text-slate-500 w-20 shrink-0">Hourly rate</label>
+                                  <span className="text-xs text-slate-400">$</span>
+                                  <input type="number" min="0" step="0.01" value={clinicEdit.rates[`${entityCode}_rate`] ?? ''} onChange={(e) => setClinicEdit((p) => ({ ...p, rates: { ...p.rates, [`${entityCode}_rate`]: e.target.value } }))} className="w-24 border border-slate-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                  <span className="text-xs text-slate-400">/hr</span>
+                                </div>
+                              )}
+                              {contact && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-xs text-slate-400 mb-0.5">Contact person</label>
+                                    <input value={contact.contactName} onChange={(e) => setClinicEdit((p) => ({ ...p, contacts: { ...p.contacts, [entityCode]: { ...p.contacts[entityCode], contactName: e.target.value } } }))} placeholder="e.g. Jane Smith" className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-slate-400 mb-0.5">Organization</label>
+                                    <input value={contact.org} onChange={(e) => setClinicEdit((p) => ({ ...p, contacts: { ...p.contacts, [entityCode]: { ...p.contacts[entityCode], org: e.target.value } } }))} className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-slate-400 mb-0.5">Address</label>
+                                    <textarea value={contact.address} onChange={(e) => setClinicEdit((p) => ({ ...p, contacts: { ...p.contacts, [entityCode]: { ...p.contacts[entityCode], address: e.target.value } } }))} rows={2} className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none" />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-slate-400 mb-0.5">Email (optional)</label>
+                                    <input type="email" value={contact.email} onChange={(e) => setClinicEdit((p) => ({ ...p, contacts: { ...p.contacts, [entityCode]: { ...p.contacts[entityCode], email: e.target.value } } }))} className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <span className="text-xs text-slate-400">Billing entity:</span>
+                          {def.billingEntityCodes.map((code) => (
+                            <span key={code} className="text-xs font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{code}</span>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            disabled={savingClinic}
+                            onClick={async () => {
+                              if (!clinicEdit.name.trim()) { setClinicEditError('Name is required'); return }
+                              const activeDays = [...clinicEdit.activeDays].sort()
+                              const hasWd = activeDays.some((d) => d >= 1 && d <= 5)
+                              const hasWe = activeDays.some((d) => d === 0 || d === 6)
+                              const weekdayStart = hasWd ? clinicEdit.weekdayStart || null : null
+                              const weekdayEnd   = hasWd ? clinicEdit.weekdayEnd   || null : null
+                              const weekendStart = hasWe ? clinicEdit.weekendStart || null : null
+                              const weekendEnd   = hasWe ? clinicEdit.weekendEnd   || null : null
+                              setSavingClinic(true)
+                              setClinicEditError('')
+                              try {
+                                const saves: Promise<Response>[] = [
+                                  fetch('/api/admin/clinics', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...def, name: clinicEdit.name.trim(), abbreviation: clinicEdit.abbreviation.trim(), activeDays, weekdayStart, weekdayEnd, weekendStart, weekendEnd }) }),
+                                ]
+                                for (const [key, val] of Object.entries(clinicEdit.rates)) {
+                                  const num = parseFloat(val)
+                                  if (!isNaN(num) && num >= 0) saves.push(fetch('/api/admin/billing-rates', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value: num }) }))
+                                }
+                                for (const [entityCode, c] of Object.entries(clinicEdit.contacts)) {
+                                  saves.push(fetch('/api/admin/billing-contacts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entity: entityCode, ...c, email: c.email || null }) }))
+                                }
+                                const results = await Promise.all(saves)
+                                if (results.some((r) => !r.ok)) { setClinicEditError('Failed to save'); return }
+                                const newName = clinicEdit.name.trim()
+                                setClinicDefaults((prev) => prev.map((d) => d.id === def.id ? { ...d, name: newName, abbreviation: clinicEdit.abbreviation.trim(), activeDays, weekdayStart, weekdayEnd, weekendStart, weekendEnd } : d))
+                                const rateUpdates: Record<string, number> = {}
+                                for (const [key, val] of Object.entries(clinicEdit.rates)) { const n = parseFloat(val); if (!isNaN(n)) rateUpdates[key] = n }
+                                setBillingRates((prev) => ({ ...prev, ...rateUpdates }))
+                                for (const [entityCode, c] of Object.entries(clinicEdit.contacts)) {
+                                  setBillingContacts((prev) => {
+                                    const existing = prev.find((x) => x.entity === entityCode)
+                                    const record = { entity: entityCode, ...c, email: c.email || null }
+                                    return existing ? prev.map((x) => x.entity === entityCode ? record : x) : [...prev, record]
+                                  })
+                                }
+                                if (newName !== def.name) {
+                                  setExpandedClinics((prev) => { const next = new Set(prev); next.delete(def.name); next.add(newName); return next })
+                                }
+                                setEditingClinic(null)
+                              } finally {
+                                setSavingClinic(false)
+                              }
+                            }}
+                            className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                          >
+                            {savingClinic ? 'Saving…' : 'Save'}
+                          </button>
+                          <button onClick={() => { setEditingClinic(null); setClinicEditError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+                          {clinicEditError && <span className="text-xs text-red-500">{clinicEditError}</span>}
+                        </div>
+                      </div>
+                    ) : (
+                      /* ── Read-only view ── */
+                      <div className="px-5 py-4 space-y-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                             <div className="flex gap-0.5">
                               {DAY_ORDER.map((day) => {
-                                const active = (def?.activeDays ?? []).includes(day)
+                                const active = (def.activeDays ?? []).includes(day)
                                 return (
-                                  <span key={day} className={`w-6 h-6 text-xs flex items-center justify-center rounded-full font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
+                                  <span key={day} className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
                                     {DAY_LABELS[day]}
                                   </span>
                                 )
                               })}
                             </div>
-                            {def.billingEntityCodes.map((code) => (
-                              <span key={code} className="text-xs font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{code}</span>
-                            ))}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => setExpandedClinics((prev) => {
-                            const next = new Set(prev)
-                            isExpanded ? next.delete(clinic) : next.add(clinic)
-                            return next
-                          })}
-                          className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0 flex items-center gap-1"
-                        >
-                          {isExpanded ? 'Collapse' : 'Expand'}
-                          <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
-                      </div>
-
-                      {/* Expanded body */}
-                      {isExpanded && (
-                        <div className="border-t border-slate-100 bg-slate-50/40 px-5 py-4 space-y-5">
-
-                          {/* Schedule defaults */}
-                          <div>
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Schedule defaults</span>
-                              {!isEditingSchedule && (
-                                <button
-                                  onClick={() => {
-                                    setEditingClinicDefault(clinic)
-                                    setClinicDefaultError('')
-                                    setClinicDefaultEdit({
-                                      name: def.name,
-                                      abbreviation: def.abbreviation,
-                                      activeDays: new Set(def?.activeDays ?? []),
-                                      weekdayStart: def?.weekdayStart ?? '',
-                                      weekdayEnd: def?.weekdayEnd ?? '',
-                                      weekendStart: def?.weekendStart ?? '',
-                                      weekendEnd: def?.weekendEnd ?? '',
-                                    })
-                                  }}
-                                  className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
-                                >
-                                  Edit
-                                </button>
-                              )}
-                            </div>
-                            {isEditingSchedule ? (
-                              <div className="space-y-3">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                  <div>
-                                    <label className="block text-xs text-slate-500 mb-1">Clinic name</label>
-                                    <input
-                                      value={clinicDefaultEdit.name}
-                                      onChange={(e) => setClinicDefaultEdit((p) => ({ ...p, name: e.target.value }))}
-                                      className="w-full border border-slate-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="block text-xs text-slate-500 mb-1">Abbreviation</label>
-                                    <input
-                                      value={clinicDefaultEdit.abbreviation}
-                                      onChange={(e) => setClinicDefaultEdit((p) => ({ ...p, abbreviation: e.target.value }))}
-                                      className="w-full border border-slate-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
-                                    />
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="text-xs text-slate-500 mb-1.5">Active days</div>
-                                  <div className="flex gap-1">
-                                    {DAY_ORDER.map((day) => {
-                                      const active = clinicDefaultEdit.activeDays.has(day)
-                                      return (
-                                        <button
-                                          key={day}
-                                          onClick={() => {
-                                            setClinicDefaultEdit((prev) => {
-                                              const next = new Set(prev.activeDays)
-                                              active ? next.delete(day) : next.add(day)
-                                              return { ...prev, activeDays: next }
-                                            })
-                                          }}
-                                          className={`w-8 h-8 text-xs rounded-full font-medium transition-colors ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                                        >
-                                          {DAY_LABELS[day]}
-                                        </button>
-                                      )
-                                    })}
-                                  </div>
-                                </div>
-                                <div className="flex flex-wrap gap-x-6 gap-y-3">
-                                  {hasWeekdays && (
-                                    <div>
-                                      <div className="text-xs text-slate-500 mb-1.5">Weekday times</div>
-                                      <div className="flex items-center gap-2">
-                                        <TimeInput value={clinicDefaultEdit.weekdayStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayStart: v }))} className="w-24 px-2 py-1 text-sm" />
-                                        <span className="text-slate-400 text-xs">–</span>
-                                        <TimeInput value={clinicDefaultEdit.weekdayEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekdayEnd: v }))} className="w-24 px-2 py-1 text-sm" />
-                                      </div>
-                                    </div>
-                                  )}
-                                  {hasWeekends && (
-                                    <div>
-                                      <div className="text-xs text-slate-500 mb-1.5">Weekend times</div>
-                                      <div className="flex items-center gap-2">
-                                        <TimeInput value={clinicDefaultEdit.weekendStart} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendStart: v }))} className="w-24 px-2 py-1 text-sm" />
-                                        <span className="text-slate-400 text-xs">–</span>
-                                        <TimeInput value={clinicDefaultEdit.weekendEnd} onChange={(v) => setClinicDefaultEdit((p) => ({ ...p, weekendEnd: v }))} className="w-24 px-2 py-1 text-sm" />
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    disabled={savingClinicDefault}
-                                    onClick={async () => {
-                                      if (!clinicDefaultEdit.name.trim()) { setClinicDefaultError('Name is required'); return }
-                                      setSavingClinicDefault(true)
-                                      setClinicDefaultError('')
-                                      const activeDays = [...clinicDefaultEdit.activeDays].sort()
-                                      const hasWd = activeDays.some((d) => d >= 1 && d <= 5)
-                                      const hasWe = activeDays.some((d) => d === 0 || d === 6)
-                                      const weekdayStart = hasWd ? clinicDefaultEdit.weekdayStart || null : null
-                                      const weekdayEnd   = hasWd ? clinicDefaultEdit.weekdayEnd   || null : null
-                                      const weekendStart = hasWe ? clinicDefaultEdit.weekendStart || null : null
-                                      const weekendEnd   = hasWe ? clinicDefaultEdit.weekendEnd   || null : null
-                                      const res = await fetch('/api/admin/clinics', {
-                                        method: 'PUT',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({
-                                          ...def,
-                                          name: clinicDefaultEdit.name.trim(),
-                                          abbreviation: clinicDefaultEdit.abbreviation.trim(),
-                                          activeDays,
-                                          weekdayStart,
-                                          weekdayEnd,
-                                          weekendStart,
-                                          weekendEnd,
-                                        }),
-                                      })
-                                      setSavingClinicDefault(false)
-                                      if (res.ok) {
-                                        const newName = clinicDefaultEdit.name.trim()
-                                        setClinicDefaults((prev) =>
-                                          prev.map((d) => d.id === def.id ? {
-                                            ...d,
-                                            name: newName,
-                                            abbreviation: clinicDefaultEdit.abbreviation.trim(),
-                                            activeDays,
-                                            weekdayStart,
-                                            weekdayEnd,
-                                            weekendStart,
-                                            weekendEnd,
-                                          } : d)
-                                        )
-                                        if (newName !== clinic) {
-                                          setExpandedClinics((prev) => {
-                                            const next = new Set(prev)
-                                            next.delete(clinic)
-                                            next.add(newName)
-                                            return next
-                                          })
-                                        }
-                                        setEditingClinicDefault(null)
-                                      } else {
-                                        setClinicDefaultError('Failed to save')
-                                      }
-                                    }}
-                                    className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                                  >
-                                    {savingClinicDefault ? 'Saving…' : 'Save'}
-                                  </button>
-                                  <button onClick={() => { setEditingClinicDefault(null); setClinicDefaultError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
-                                  {clinicDefaultError && <span className="text-xs text-red-500">{clinicDefaultError}</span>}
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                                <div className="flex gap-0.5">
-                                  {DAY_ORDER.map((day) => {
-                                    const active = (def?.activeDays ?? []).includes(day)
-                                    return (
-                                      <span key={day} className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
-                                        {DAY_LABELS[day]}
-                                      </span>
-                                    )
-                                  })}
-                                </div>
-                                {hasWeekdays && def?.weekdayStart && def?.weekdayEnd && (
-                                  <span>Weekday: {formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
-                                )}
-                                {hasWeekends && def?.weekendStart && def?.weekendEnd && (
-                                  <span>Weekend: {formatTimeValue(def.weekendStart)} – {formatTimeValue(def.weekendEnd)}</span>
-                                )}
-                              </div>
+                            {hasWeekdays && def.weekdayStart && def.weekdayEnd && (
+                              <span>Weekday: {formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
+                            )}
+                            {hasWeekends && def.weekendStart && def.weekendEnd && (
+                              <span>Weekend: {formatTimeValue(def.weekendStart)} – {formatTimeValue(def.weekendEnd)}</span>
                             )}
                           </div>
-
-                          {/* Billing per entity */}
-                          {def.billingEntityCodes.map((entityCode) => {
-                            const displayName = ENTITY_DISPLAY[entityCode] ?? billingEntities.find((e) => e.code === entityCode)?.label ?? entityCode
-                            const contact = billingContacts.find((c) => c.entity === entityCode)
-                            const complexRates = COMPLEX_ENTITY_RATES[entityCode]
-                            const isEditingThisContact = editingContactEntity === entityCode
-                            return (
-                              <div key={entityCode} className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+                          <button
+                            onClick={() => {
+                              setClinicEditError('')
+                              setClinicEdit({
+                                name: def.name,
+                                abbreviation: def.abbreviation,
+                                activeDays: new Set(def.activeDays ?? []),
+                                weekdayStart: def.weekdayStart ?? '',
+                                weekdayEnd: def.weekdayEnd ?? '',
+                                weekendStart: def.weekendStart ?? '',
+                                weekendEnd: def.weekendEnd ?? '',
+                                rates: Object.fromEntries(
+                                  def.billingEntityCodes.flatMap((code) => {
+                                    const rows = COMPLEX_ENTITY_RATES[code]
+                                    if (rows) return rows.map((r) => [r.key, billingRates[r.key] !== undefined ? String(billingRates[r.key]) : ''])
+                                    return [[`${code}_rate`, billingRates[`${code}_rate`] !== undefined ? String(billingRates[`${code}_rate`]) : '']]
+                                  })
+                                ),
+                                contacts: Object.fromEntries(
+                                  def.billingEntityCodes.map((code) => {
+                                    const c = billingContacts.find((x) => x.entity === code)
+                                    return [code, { contactName: c?.contactName ?? '', org: c?.org ?? '', address: c?.address ?? '', email: c?.email ?? '' }]
+                                  })
+                                ),
+                              })
+                              setEditingClinic(clinic)
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                        {def.billingEntityCodes.map((entityCode) => {
+                          const complexRows = COMPLEX_ENTITY_RATES[entityCode]
+                          const contact = billingContacts.find((c) => c.entity === entityCode)
+                          const displayName = ENTITY_DISPLAY[entityCode] ?? billingEntities.find((e) => e.code === entityCode)?.label ?? entityCode
+                          return (
+                            <div key={entityCode} className={isComplex ? 'rounded-lg border border-slate-200 overflow-hidden' : ''}>
+                              {isComplex && (
                                 <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
                                   <span className="text-xs font-semibold text-slate-600">{displayName}</span>
                                 </div>
-
-                                {/* Rates */}
-                                <div className="divide-y divide-slate-100">
-                                  {complexRates ? (
-                                    complexRates.map((row) => {
-                                      const isEditingRate = editingRateKey === row.key
-                                      const current = billingRates[row.key]
-                                      return (
-                                        <div key={row.key} className="px-4 py-2.5 flex items-center gap-3">
-                                          <span className="flex-1 text-xs text-slate-600">{row.label}</span>
-                                          {isEditingRate ? (
-                                            <div className="flex items-center gap-1.5 shrink-0">
-                                              <span className="text-xs text-slate-500">$</span>
-                                              <input
-                                                type="number" min="0" step="0.01"
-                                                value={rateEditValue}
-                                                onChange={(e) => { setRateEditValue(e.target.value); setRateSaveError('') }}
-                                                className="w-16 border border-slate-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-                                                autoFocus
-                                              />
-                                              <span className="text-xs text-slate-400">/hr</span>
-                                              <button
-                                                disabled={savingRate}
-                                                onClick={async () => {
-                                                  const val = parseFloat(rateEditValue)
-                                                  if (isNaN(val) || val < 0) { setRateSaveError('Invalid'); return }
-                                                  setSavingRate(true); setRateSaveError('')
-                                                  const res = await fetch('/api/admin/billing-rates', {
-                                                    method: 'PUT',
-                                                    headers: { 'Content-Type': 'application/json' },
-                                                    body: JSON.stringify({ key: row.key, value: val }),
-                                                  })
-                                                  setSavingRate(false)
-                                                  if (res.ok) { setBillingRates((prev) => ({ ...prev, [row.key]: val })); setEditingRateKey(null) }
-                                                  else setRateSaveError('Failed to save')
-                                                }}
-                                                className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                                              >
-                                                {savingRate ? '…' : 'Save'}
-                                              </button>
-                                              <button onClick={() => { setEditingRateKey(null); setRateSaveError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
-                                              {rateSaveError && <span className="text-xs text-red-500">{rateSaveError}</span>}
-                                            </div>
-                                          ) : (
-                                            <div className="flex items-center gap-2 shrink-0">
-                                              <span className="text-xs font-medium text-slate-700">{current !== undefined ? `$${current.toFixed(2)}/hr` : '—'}</span>
-                                              <button onClick={() => { setEditingRateKey(row.key); setRateEditValue(current !== undefined ? String(current) : ''); setRateSaveError('') }} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
-                                            </div>
-                                          )}
-                                        </div>
-                                      )
-                                    })
-                                  ) : (() => {
-                                    const rateKey = `${entityCode}_rate`
-                                    const isEditingRate = editingRateKey === rateKey
-                                    const current = billingRates[rateKey]
-                                    return (
-                                      <div className="px-4 py-2.5 flex items-center gap-3">
-                                        <span className="flex-1 text-xs text-slate-600">Hourly rate</span>
-                                        {isEditingRate ? (
-                                          <div className="flex items-center gap-1.5 shrink-0">
-                                            <span className="text-xs text-slate-500">$</span>
-                                            <input
-                                              type="number" min="0" step="0.01"
-                                              value={rateEditValue}
-                                              onChange={(e) => { setRateEditValue(e.target.value); setRateSaveError('') }}
-                                              className="w-16 border border-slate-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
-                                              autoFocus
-                                            />
-                                            <span className="text-xs text-slate-400">/hr</span>
-                                            <button
-                                              disabled={savingRate}
-                                              onClick={async () => {
-                                                const val = parseFloat(rateEditValue)
-                                                if (isNaN(val) || val < 0) { setRateSaveError('Invalid'); return }
-                                                setSavingRate(true); setRateSaveError('')
-                                                const res = await fetch('/api/admin/billing-rates', {
-                                                  method: 'PUT',
-                                                  headers: { 'Content-Type': 'application/json' },
-                                                  body: JSON.stringify({ key: rateKey, value: val }),
-                                                })
-                                                setSavingRate(false)
-                                                if (res.ok) { setBillingRates((prev) => ({ ...prev, [rateKey]: val })); setEditingRateKey(null) }
-                                                else setRateSaveError('Failed to save')
-                                              }}
-                                              className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                                            >
-                                              {savingRate ? '…' : 'Save'}
-                                            </button>
-                                            <button onClick={() => { setEditingRateKey(null); setRateSaveError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
-                                            {rateSaveError && <span className="text-xs text-red-500">{rateSaveError}</span>}
-                                          </div>
-                                        ) : (
-                                          <div className="flex items-center gap-2 shrink-0">
-                                            <span className="text-xs font-medium text-slate-700">{current !== undefined ? `$${current.toFixed(2)}/hr` : '—'}</span>
-                                            <button onClick={() => { setEditingRateKey(rateKey); setRateEditValue(current !== undefined ? String(current) : ''); setRateSaveError('') }} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
-                                          </div>
-                                        )}
-                                      </div>
-                                    )
-                                  })()}
-                                </div>
-
-                                {/* Billing contact */}
-                                <div className="border-t border-slate-100 px-4 py-3">
-                                  {isEditingThisContact ? (
-                                    <div className="space-y-2">
-                                      <div className="text-xs font-medium text-slate-600 mb-1.5">Billing contact</div>
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        <div>
-                                          <label className="block text-xs text-slate-400 mb-0.5">Contact person</label>
-                                          <input value={contactEdit.contactName} onChange={(e) => setContactEdit((p) => ({ ...p, contactName: e.target.value }))} placeholder="e.g. Jane Smith" className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
-                                        </div>
-                                        <div>
-                                          <label className="block text-xs text-slate-400 mb-0.5">Organization</label>
-                                          <input value={contactEdit.org} onChange={(e) => setContactEdit((p) => ({ ...p, org: e.target.value }))} placeholder="e.g. BCCA Diagnostic Imaging" className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
-                                        </div>
-                                      </div>
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        <div>
-                                          <label className="block text-xs text-slate-400 mb-0.5">Address</label>
-                                          <textarea value={contactEdit.address} onChange={(e) => setContactEdit((p) => ({ ...p, address: e.target.value }))} rows={2} placeholder={'600 W 10th Ave\nVancouver BC  V5Z 4E6'} className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none" />
-                                        </div>
-                                        <div>
-                                          <label className="block text-xs text-slate-400 mb-0.5">Email (optional)</label>
-                                          <input type="email" value={contactEdit.email} onChange={(e) => setContactEdit((p) => ({ ...p, email: e.target.value }))} placeholder="billing@example.com" className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
-                                        </div>
-                                      </div>
-                                      <div className="flex items-center gap-2 pt-0.5">
-                                        <button
-                                          disabled={savingContact}
-                                          onClick={async () => {
-                                            setSavingContact(true); setContactSaveError('')
-                                            const res = await fetch('/api/admin/billing-contacts', {
-                                              method: 'PUT',
-                                              headers: { 'Content-Type': 'application/json' },
-                                              body: JSON.stringify({ entity: entityCode, ...contactEdit, email: contactEdit.email || null }),
-                                            })
-                                            setSavingContact(false)
-                                            if (res.ok) {
-                                              setBillingContacts((prev) => {
-                                                const existing = prev.find((c) => c.entity === entityCode)
-                                                if (existing) return prev.map((c) => c.entity === entityCode ? { ...c, ...contactEdit, email: contactEdit.email || null } : c)
-                                                return [...prev, { entity: entityCode, ...contactEdit, email: contactEdit.email || null }]
-                                              })
-                                              setEditingContactEntity(null)
-                                            } else {
-                                              setContactSaveError('Failed to save')
-                                            }
-                                          }}
-                                          className="text-xs bg-blue-600 text-white px-2.5 py-1 rounded hover:bg-blue-700 disabled:opacity-40 transition-colors"
-                                        >
-                                          {savingContact ? 'Saving…' : 'Save'}
-                                        </button>
-                                        <button onClick={() => { setEditingContactEntity(null); setContactSaveError('') }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
-                                        {contactSaveError && <span className="text-xs text-red-500">{contactSaveError}</span>}
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-start gap-3">
-                                      <div className="flex-1 min-w-0">
-                                        <div className="text-xs font-medium text-slate-500 mb-1">Billing contact</div>
-                                        <div className="text-xs text-slate-500 space-y-0.5">
-                                          {contact?.contactName && <div className="font-medium text-slate-700">{contact.contactName}</div>}
-                                          {contact?.org && <div>{contact.org}</div>}
-                                          {contact?.address && contact.address.split('\n').map((l, i) => <div key={i}>{l}</div>)}
-                                          {contact?.email && <div>{contact.email}</div>}
-                                          {!contact && <div className="text-slate-300 italic">No contact configured</div>}
-                                        </div>
-                                      </div>
-                                      <button
-                                        onClick={() => {
-                                          setEditingContactEntity(entityCode); setContactSaveError('')
-                                          setContactEdit({ contactName: contact?.contactName ?? '', org: contact?.org ?? '', address: contact?.address ?? '', email: contact?.email ?? '' })
-                                        }}
-                                        className="text-xs text-blue-600 hover:text-blue-800 shrink-0"
-                                      >
-                                        Edit
-                                      </button>
-                                    </div>
-                                  )}
+                              )}
+                              <div className={isComplex ? 'px-4 py-3 space-y-3' : 'space-y-2'}>
+                                {complexRows ? (
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                                    {complexRows.map((row) => {
+                                      const val = billingRates[row.key]
+                                      return <span key={row.key}>{row.label}: <span className="font-medium text-slate-800">{val !== undefined ? `$${val.toFixed(0)}/hr` : '—'}</span></span>
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-slate-600">Rate: <span className="font-medium text-slate-800">{billingRates[`${entityCode}_rate`] !== undefined ? `$${billingRates[`${entityCode}_rate`].toFixed(0)}/hr` : '—'}</span></div>
+                                )}
+                                <div className="text-xs text-slate-500 space-y-0.5">
+                                  {contact?.contactName && <div className="font-medium text-slate-700">{contact.contactName}</div>}
+                                  {contact?.org && <div>{contact.org}</div>}
+                                  {contact?.address && contact.address.split('\n').map((l, i) => <div key={i}>{l}</div>)}
+                                  {contact?.email && <div>{contact.email}</div>}
+                                  {!contact && <div className="italic text-slate-300">No billing contact</div>}
                                 </div>
                               </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-
-                {/* Add Clinic */}
-                {!showAddClinic ? (
-                  <div className="px-5 py-4">
-                    <button
-                      onClick={() => { setShowAddClinic(true); setAddClinicError('') }}
-                      className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded-lg px-3 py-1.5 transition-colors"
-                    >
-                      + Add Clinic
-                    </button>
-                  </div>
-                ) : (
-                  <div className="px-5 py-5 bg-slate-50/60 space-y-4">
-                    <div className="text-sm font-medium text-slate-800">New Clinic</div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Clinic name</label>
-                        <input
-                          value={addClinicName}
-                          onChange={(e) => setAddClinicName(e.target.value)}
-                          placeholder="e.g. Lions Gate Hospital"
-                          className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Abbreviation</label>
-                        <input
-                          value={addClinicAbbr}
-                          onChange={(e) => setAddClinicAbbr(e.target.value)}
-                          placeholder="e.g. LGH"
-                          className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="text-xs text-slate-500 mb-1.5">Active days</div>
-                      <div className="flex gap-1">
-                        {DAY_ORDER.map((day) => {
-                          const active = addClinicActiveDays.has(day)
-                          return (
-                            <button
-                              key={day}
-                              onClick={() => setAddClinicActiveDays((prev) => {
-                                const next = new Set(prev)
-                                active ? next.delete(day) : next.add(day)
-                                return next
-                              })}
-                              className={`w-8 h-8 text-xs rounded-full font-medium transition-colors ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                            >
-                              {DAY_LABELS[day]}
-                            </button>
+                            </div>
                           )
                         })}
                       </div>
-                    </div>
-
-                    {[1, 2, 3, 4, 5].some((d) => addClinicActiveDays.has(d)) && (
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1.5">Weekday times</div>
-                        <div className="flex items-center gap-2">
-                          <TimeInput value={addClinicWeekdayStart} onChange={setAddClinicWeekdayStart} className="w-24 px-2 py-1 text-sm" />
-                          <span className="text-slate-400 text-xs">–</span>
-                          <TimeInput value={addClinicWeekdayEnd} onChange={setAddClinicWeekdayEnd} className="w-24 px-2 py-1 text-sm" />
-                        </div>
-                      </div>
                     )}
-
-                    {[0, 6].some((d) => addClinicActiveDays.has(d)) && (
-                      <div>
-                        <div className="text-xs text-slate-500 mb-1.5">Weekend times</div>
-                        <div className="flex items-center gap-2">
-                          <TimeInput value={addClinicWeekendStart} onChange={setAddClinicWeekendStart} className="w-24 px-2 py-1 text-sm" />
-                          <span className="text-slate-400 text-xs">–</span>
-                          <TimeInput value={addClinicWeekendEnd} onChange={setAddClinicWeekendEnd} className="w-24 px-2 py-1 text-sm" />
-                        </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <div className="text-xs text-slate-500 mb-2">Billing entity</div>
-                      <div className="flex gap-4 mb-3">
-                        <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
-                          <input type="radio" checked={addClinicBillingType === 'existing'} onChange={() => setAddClinicBillingType('existing')} className="accent-blue-600" />
-                          Use existing
-                        </label>
-                        <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
-                          <input type="radio" checked={addClinicBillingType === 'new'} onChange={() => setAddClinicBillingType('new')} className="accent-blue-600" />
-                          Create new
-                        </label>
-                      </div>
-
-                      {addClinicBillingType === 'existing' ? (
-                        <select
-                          value={addClinicEntityCode}
-                          onChange={(e) => setAddClinicEntityCode(e.target.value)}
-                          className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 w-full max-w-xs"
-                        >
-                          <option value="">Select entity…</option>
-                          {billingEntities.map((e) => (
-                            <option key={e.code} value={e.code}>{e.label}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <div className="space-y-3">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-xs text-slate-500 mb-1">Entity code</label>
-                              <input
-                                value={addClinicNewCode}
-                                onChange={(e) => setAddClinicNewCode(e.target.value.toUpperCase().replace(/\s+/g, ''))}
-                                placeholder="e.g. LGHMR"
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs text-slate-500 mb-1">Hourly rate ($/hr)</label>
-                              <input
-                                type="number" min="0" step="0.01"
-                                value={addClinicNewRate}
-                                onChange={(e) => setAddClinicNewRate(e.target.value)}
-                                placeholder="75.00"
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                              />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-xs text-slate-500 mb-1">Contact person (optional)</label>
-                              <input value={addClinicNewContact} onChange={(e) => setAddClinicNewContact(e.target.value)} placeholder="e.g. Jane Smith" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                            </div>
-                            <div>
-                              <label className="block text-xs text-slate-500 mb-1">Organization</label>
-                              <input value={addClinicNewOrg} onChange={(e) => setAddClinicNewOrg(e.target.value)} placeholder="e.g. Lions Gate Radiology" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">Billing address</label>
-                            <textarea value={addClinicNewAddress} onChange={(e) => setAddClinicNewAddress(e.target.value)} rows={2} placeholder={'231 East 15th St\nNorth Vancouver BC  V7L 2L7'} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none" />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-slate-500 mb-1">Billing email (optional)</label>
-                            <input type="email" value={addClinicNewEmail} onChange={(e) => setAddClinicNewEmail(e.target.value)} placeholder="billing@example.com" className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2 pt-1">
-                      <button onClick={handleAddClinic} disabled={addClinicSaving} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors">
-                        {addClinicSaving ? 'Saving…' : 'Add Clinic'}
-                      </button>
-                      <button onClick={() => { setShowAddClinic(false); setAddClinicError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
-                        Cancel
-                      </button>
-                      {addClinicError && <span className="text-xs text-red-500">{addClinicError}</span>}
-                    </div>
                   </div>
                 )}
               </div>
-            )}
-          </div>
+            )
+          })}
         </div>
       )}
     </div>

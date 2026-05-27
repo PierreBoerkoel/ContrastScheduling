@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { getBillingContacts, setBillingContact } from '@/lib/db'
 
-const VALID_ENTITIES = new Set(['MRCT', 'PET', 'UBC', 'BCWH'])
-
 async function requireAdmin() {
   const user = await currentUser()
   return (user?.publicMetadata as { role?: string })?.role === 'admin'
@@ -29,8 +27,8 @@ export async function PUT(request: Request) {
   }
   const { entity, contactName, org, address, email } = body
 
-  if (!entity || !VALID_ENTITIES.has(entity)) {
-    return NextResponse.json({ error: 'Invalid entity' }, { status: 400 })
+  if (!entity || typeof entity !== 'string') {
+    return NextResponse.json({ error: 'Missing entity' }, { status: 400 })
   }
   if (typeof org !== 'string' || typeof address !== 'string') {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })

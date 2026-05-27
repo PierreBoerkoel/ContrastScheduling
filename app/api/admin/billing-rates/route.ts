@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { getBillingRates, setBillingRate } from '@/lib/db'
-import { DEFAULT_RATES } from '@/lib/invoices'
-
-const VALID_KEYS = new Set(Object.keys(DEFAULT_RATES))
 
 async function requireAdmin() {
   const user = await currentUser()
@@ -26,7 +23,7 @@ export async function PUT(request: Request) {
   const body = (await request.json()) as { key: string; value: number }
   const { key, value } = body
 
-  if (!key || !VALID_KEYS.has(key)) {
+  if (!key || typeof key !== 'string' || !key.includes('_')) {
     return NextResponse.json({ error: 'Invalid rate key' }, { status: 400 })
   }
   if (typeof value !== 'number' || value < 0 || !isFinite(value)) {
