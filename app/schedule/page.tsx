@@ -392,9 +392,23 @@ export default function SchedulePage() {
   }
 
   // Stable key per person: userId when available, name for legacy records
-  // userNames comes from Clerk (current names), so cName always resolves to the current name
   const cKey = (userId: string | null | undefined, name: string | null | undefined) => userId ?? name ?? ''
-  const cName = (key: string) => userNames[key] ?? key
+
+  // Last known name for each userId, sourced from stored data — used as fallback when a user is deleted from Clerk
+  const storedNameByUserId: Record<string, string> = {}
+  for (const a of filteredPublished) {
+    if (a.userId && a.residentName) storedNameByUserId[a.userId] = a.residentName
+  }
+  for (const sp of splits) {
+    if (sp.offerorUserId && sp.offerorName) storedNameByUserId[sp.offerorUserId] = sp.offerorName
+    if (sp.acceptorUserId && sp.acceptorName) storedNameByUserId[sp.acceptorUserId] = sp.acceptorName
+  }
+  for (const req of swapRequests) {
+    if (req.requestorUserId && req.requestorName) storedNameByUserId[req.requestorUserId] = req.requestorName
+    if (req.acceptorUserId && req.acceptorName) storedNameByUserId[req.acceptorUserId] = req.acceptorName
+  }
+
+  const cName = (key: string) => userNames[key] ?? storedNameByUserId[key] ?? key
 
   const currentNameFor = (userId: string | null | undefined, fallback: string | null | undefined): string =>
     (userId && userNames[userId]) ? userNames[userId] : (fallback ?? '')
