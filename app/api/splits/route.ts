@@ -142,7 +142,7 @@ export async function POST(request: Request) {
       acceptorShiftId: null,
       acceptedAt: null,
     }
-    await addSwapRequest({ ...swapReq, requestorUserId: userId })
+    await addSwapRequest({ ...swapReq, requestorUserId: userId, periodId: shift.periodId })
     return NextResponse.json(swapReq, { status: 201 })
   }
 
@@ -165,6 +165,7 @@ export async function POST(request: Request) {
     offeredStart,
     offeredEnd,
     status: 'pending',
+    periodId: shift.periodId,
   })
 
   return NextResponse.json(newSplit, { status: 201 })

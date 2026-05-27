@@ -39,7 +39,7 @@ export async function POST(request: Request) {
 
   const { requestorShiftId } = (await request.json()) as { requestorShiftId: string }
 
-  const published = await getAllPublishedAssignments()
+  const [published, allShifts] = await Promise.all([getAllPublishedAssignments(), getShifts()])
   if (!published.length) {
     return NextResponse.json({ error: 'No published schedule' }, { status: 400 })
   }
@@ -59,6 +59,7 @@ export async function POST(request: Request) {
     )
   }
 
+  const shift = allShifts.find((s) => s.id === requestorShiftId)
   const req: SwapRequest = {
     id: crypto.randomUUID(),
     requestedAt: new Date().toISOString(),
@@ -70,6 +71,6 @@ export async function POST(request: Request) {
     acceptedAt: null,
   }
 
-  await addSwapRequest({ ...req, requestorUserId: userId })
+  await addSwapRequest({ ...req, requestorUserId: userId, periodId: shift?.periodId })
   return NextResponse.json(req, { status: 201 })
 }

@@ -2,7 +2,6 @@ import { sql, db } from '@vercel/postgres'
 import type { Shift, AvailabilitySubmission, SwapRequest, ShiftAssignment, SchedulingPeriod, ShiftSplit, ClinicDefault } from './types'
 import type { BillingContactRecord } from './invoices'
 
-// Run migrations once per Lambda cold-start; all DDL uses IF NOT EXISTS so it is safe to re-run.
 let _ready: Promise<void> | null = null
 export function ensureDb(): Promise<void> {
   return (_ready ??= initDb())
@@ -11,9 +10,37 @@ export function ensureDb(): Promise<void> {
 export async function initDb(): Promise<void> {
   await sql`
     CREATE TABLE IF NOT EXISTS shifts (
-      id      TEXT PRIMARY KEY,
-      date    TEXT NOT NULL,
-      clinic  TEXT NOT NULL
+      id         TEXT PRIMARY KEY,
+      date       TEXT NOT NULL,
+      clinic     TEXT NOT NULL,
+      period_id  TEXT,
+      start_time TEXT,
+      end_time   TEXT
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS scheduling_periods (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name         TEXT NOT NULL,
+      start_date   DATE NOT NULL,
+      end_date     DATE NOT NULL,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      published_at TIMESTAMPTZ,
+      generated_at TIMESTAMPTZ,
+      updated_at   TIMESTAMPTZ,
+      deleted_at   TIMESTAMPTZ
+    )
+  `
+  // Normalized assignment table — replaces JSONB columns on scheduling_periods.
+  // (shift_id, is_draft) is the natural key: one draft and one published record per shift.
+  await sql`
+    CREATE TABLE IF NOT EXISTS shift_assignments (
+      shift_id      TEXT    NOT NULL,
+      period_id     TEXT    NOT NULL,
+      is_draft      BOOLEAN NOT NULL,
+      user_id       TEXT,
+      resident_name TEXT,
+      PRIMARY KEY (shift_id, is_draft)
     )
   `
   await sql`
@@ -22,10 +49,16 @@ export async function initDb(): Promise<void> {
       user_id             TEXT,
       resident_name       TEXT NOT NULL,
       submitted_at        TIMESTAMPTZ NOT NULL,
-      available_shift_ids TEXT[] NOT NULL DEFAULT '{}'
+      available_shift_ids TEXT[] NOT NULL DEFAULT '{}',
+      period_id           TEXT,
+      max_shifts          INTEGER
     )
   `
-  await sql`DROP TABLE IF EXISTS schedule`
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS submissions_user_period_idx
+    ON availability_submissions (user_id, period_id)
+    WHERE user_id IS NOT NULL AND period_id IS NOT NULL
+  `
   await sql`
     CREATE TABLE IF NOT EXISTS swap_requests (
       id                  TEXT PRIMARY KEY,
@@ -34,45 +67,18 @@ export async function initDb(): Promise<void> {
       requestor_user_id   TEXT,
       requestor_name      TEXT NOT NULL,
       requestor_shift_id  TEXT NOT NULL,
+      period_id           TEXT,
       acceptor_name       TEXT,
+      acceptor_user_id    TEXT,
       acceptor_shift_id   TEXT,
       accepted_at         TIMESTAMPTZ
     )
   `
   await sql`
-    CREATE TABLE IF NOT EXISTS scheduling_periods (
-      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name       TEXT NOT NULL,
-      start_date DATE NOT NULL,
-      end_date   DATE NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `
-  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ`
-  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ`
-  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ`
-  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS assignments JSONB NOT NULL DEFAULT '[]'::jsonb`
-  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS published_assignments JSONB NOT NULL DEFAULT '[]'::jsonb`
-  // Add columns to existing tables if upgrading from the pre-auth schema
-  await sql`ALTER TABLE availability_submissions ADD COLUMN IF NOT EXISTS user_id TEXT`
-  await sql`ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS requestor_user_id TEXT`
-  await sql`ALTER TABLE shifts ADD COLUMN IF NOT EXISTS period_id TEXT`
-  await sql`ALTER TABLE shifts ADD COLUMN IF NOT EXISTS start_time TEXT`
-  await sql`ALTER TABLE shifts ADD COLUMN IF NOT EXISTS end_time TEXT`
-  await sql`ALTER TABLE availability_submissions ADD COLUMN IF NOT EXISTS period_id TEXT`
-  await sql`ALTER TABLE availability_submissions ADD COLUMN IF NOT EXISTS max_shifts INTEGER`
-  // Old single-user indexes replaced by composite (user_id, period_id) index below
-  await sql`DROP INDEX IF EXISTS submissions_user_id_idx`
-  await sql`DROP INDEX IF EXISTS submissions_name_lower_idx`
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS submissions_user_period_idx
-    ON availability_submissions (user_id, period_id)
-    WHERE user_id IS NOT NULL AND period_id IS NOT NULL
-  `
-  await sql`
     CREATE TABLE IF NOT EXISTS shift_splits (
       id               TEXT PRIMARY KEY,
       shift_id         TEXT NOT NULL,
+      period_id        TEXT,
       offeror_name     TEXT NOT NULL,
       offeror_user_id  TEXT NOT NULL,
       offered_start    TEXT NOT NULL,
@@ -88,29 +94,24 @@ export async function initDb(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS split_one_pending_per_person
     ON shift_splits (shift_id, offeror_user_id) WHERE status = 'pending'
   `
-  await sql`
-    CREATE TABLE IF NOT EXISTS shift_history (
-      shift_id      TEXT PRIMARY KEY,
-      date          TEXT NOT NULL,
-      clinic        TEXT NOT NULL,
-      resident_name TEXT NOT NULL,
-      start_time    TEXT,
-      end_time      TEXT
-    )
-  `
-  await sql`ALTER TABLE shift_history ADD COLUMN IF NOT EXISTS start_time TEXT`
-  await sql`ALTER TABLE shift_history ADD COLUMN IF NOT EXISTS end_time TEXT`
-  await sql`ALTER TABLE shift_history ADD COLUMN IF NOT EXISTS user_id TEXT`
-  await sql`ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS acceptor_user_id TEXT`
+  // Legacy tables that no longer exist in the new schema — safe to drop on fresh DBs.
+  await sql`DROP TABLE IF EXISTS shift_history`
+  await sql`DROP TABLE IF EXISTS schedule`
+
+  // Add any missing columns to existing DBs during upgrade.
+  await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`
+  await sql`ALTER TABLE shift_splits       ADD COLUMN IF NOT EXISTS period_id TEXT`
+  await sql`ALTER TABLE swap_requests      ADD COLUMN IF NOT EXISTS period_id TEXT`
+
   await sql`
     CREATE TABLE IF NOT EXISTS invoice_sequences (
       resident_name TEXT NOT NULL,
       series        TEXT NOT NULL,
       next_number   INTEGER NOT NULL DEFAULT 1,
+      user_id       TEXT,
       PRIMARY KEY (resident_name, series)
     )
   `
-  await sql`ALTER TABLE invoice_sequences ADD COLUMN IF NOT EXISTS user_id TEXT`
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS invoice_seq_user_series_idx
     ON invoice_sequences (user_id, series)
@@ -160,8 +161,7 @@ export async function initDb(): Promise<void> {
     `
   }
 
-  // Seed billing rate defaults — only inserts when the key doesn't already exist
-  const defaults: Array<[string, number]> = [
+  const rateDefaults: Array<[string, number]> = [
     ['MRCT_base',        50],
     ['MRCT_standalone',  75],
     ['MRCT_ct',          75],
@@ -170,7 +170,7 @@ export async function initDb(): Promise<void> {
     ['UBCMR_MR',         75],
     ['BCWHMR_MR',        75],
   ]
-  for (const [key, value] of defaults) {
+  for (const [key, value] of rateDefaults) {
     await sql`INSERT INTO billing_rates (key, value) VALUES (${key}, ${value}) ON CONFLICT (key) DO NOTHING`
   }
 
@@ -199,9 +199,9 @@ export async function initDb(): Promise<void> {
 
   await sql`
     CREATE TABLE IF NOT EXISTS resident_preferences (
-      user_id       TEXT PRIMARY KEY,
+      user_id        TEXT PRIMARY KEY,
       shift_defaults JSONB NOT NULL DEFAULT '{}'::jsonb,
-      clinic_prefs  JSONB NOT NULL DEFAULT '{}'::jsonb
+      clinic_prefs   JSONB NOT NULL DEFAULT '{}'::jsonb
     )
   `
 }
@@ -231,7 +231,10 @@ export async function setShifts(shifts: Shift[], periodId?: string): Promise<voi
       await client.sql`DELETE FROM shifts WHERE period_id IS NULL`
     }
     for (const s of shifts) {
-      await client.sql`INSERT INTO shifts (id, date, clinic, period_id, start_time, end_time) VALUES (${s.id}, ${s.date}, ${s.clinic}, ${periodId ?? null}, ${s.startTime ?? null}, ${s.endTime ?? null})`
+      await client.sql`
+        INSERT INTO shifts (id, date, clinic, period_id, start_time, end_time)
+        VALUES (${s.id}, ${s.date}, ${s.clinic}, ${periodId ?? null}, ${s.startTime ?? null}, ${s.endTime ?? null})
+      `
     }
     await client.sql`COMMIT`
   } catch (e) {
@@ -270,7 +273,6 @@ export async function upsertSubmission(
   const maxShifts = submission.maxShifts ?? null
 
   if (periodId !== null) {
-    // Use the partial unique index (user_id, period_id) WHERE both NOT NULL
     await sql`
       INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids, period_id, max_shifts)
       VALUES (${submission.id}, ${submission.userId}, ${submission.residentName}, ${submission.submittedAt}, ${submission.availableShiftIds as unknown as string}, ${periodId}, ${maxShifts})
@@ -284,8 +286,7 @@ export async function upsertSubmission(
     `
   } else {
     const { rows } = await sql`
-      SELECT id FROM availability_submissions
-      WHERE user_id = ${submission.userId} AND period_id IS NULL
+      SELECT id FROM availability_submissions WHERE user_id = ${submission.userId} AND period_id IS NULL
     `
     if (rows.length > 0) {
       await sql`
@@ -308,13 +309,7 @@ export async function upsertSubmission(
 
 // ── Scheduling periods ────────────────────────────────────────────────────────
 
-function parseJsonb(v: unknown): ShiftAssignment[] {
-  if (Array.isArray(v)) return v as ShiftAssignment[]
-  if (typeof v === 'string') return JSON.parse(v) as ShiftAssignment[]
-  return []
-}
-
-function periodFromRow(r: Record<string, unknown>): SchedulingPeriod {
+function periodMetaFromRow(r: Record<string, unknown>): Omit<SchedulingPeriod, 'assignments' | 'publishedAssignments'> {
   return {
     id: r.id as string,
     name: r.name as string,
@@ -324,30 +319,90 @@ function periodFromRow(r: Record<string, unknown>): SchedulingPeriod {
     publishedAt: (r.published_at as string | null) ?? undefined,
     generatedAt: (r.generated_at as string | null) ?? undefined,
     updatedAt: (r.updated_at as string | null) ?? undefined,
-    assignments: parseJsonb(r.assignments),
-    publishedAssignments: parseJsonb(r.published_assignments),
+    deletedAt: (r.deleted_at as string | null) ?? undefined,
   }
+}
+
+async function loadAssignmentsForPeriods(periodIds: string[]): Promise<{
+  draft: Map<string, ShiftAssignment[]>
+  published: Map<string, ShiftAssignment[]>
+}> {
+  const draft = new Map<string, ShiftAssignment[]>()
+  const published = new Map<string, ShiftAssignment[]>()
+  if (periodIds.length === 0) return { draft, published }
+
+  const { rows } = await sql`
+    SELECT shift_id, period_id, is_draft, user_id, resident_name
+    FROM shift_assignments
+    WHERE period_id = ANY(${periodIds as unknown as string})
+  `
+  for (const r of rows) {
+    const pid = r.period_id as string
+    const a: ShiftAssignment = {
+      shiftId: r.shift_id as string,
+      residentName: (r.resident_name as string | null) ?? null,
+      userId: (r.user_id as string | null) ?? null,
+    }
+    if (r.is_draft) {
+      if (!draft.has(pid)) draft.set(pid, [])
+      draft.get(pid)!.push(a)
+    } else {
+      if (!published.has(pid)) published.set(pid, [])
+      published.get(pid)!.push(a)
+    }
+  }
+  return { draft, published }
 }
 
 export async function getSchedulingPeriods(): Promise<SchedulingPeriod[]> {
   await ensureDb()
   const { rows } = await sql`
     SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
-           created_at, published_at, generated_at, updated_at, assignments, published_assignments
+           created_at, published_at, generated_at, updated_at, deleted_at
+    FROM scheduling_periods
+    WHERE deleted_at IS NULL
+    ORDER BY start_date
+  `
+  const ids = rows.map((r) => r.id as string)
+  const { draft, published } = await loadAssignmentsForPeriods(ids)
+  return rows.map((r) => ({
+    ...periodMetaFromRow(r),
+    assignments: draft.get(r.id as string) ?? [],
+    publishedAssignments: published.get(r.id as string) ?? [],
+  }))
+}
+
+export async function getAllSchedulingPeriods(): Promise<SchedulingPeriod[]> {
+  await ensureDb()
+  const { rows } = await sql`
+    SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
+           created_at, published_at, generated_at, updated_at, deleted_at
     FROM scheduling_periods
     ORDER BY start_date
   `
-  return rows.map(periodFromRow)
+  const ids = rows.map((r) => r.id as string)
+  const { draft, published } = await loadAssignmentsForPeriods(ids)
+  return rows.map((r) => ({
+    ...periodMetaFromRow(r),
+    assignments: draft.get(r.id as string) ?? [],
+    publishedAssignments: published.get(r.id as string) ?? [],
+  }))
 }
 
 export async function getPeriod(id: string): Promise<SchedulingPeriod | null> {
   await ensureDb()
   const { rows } = await sql`
     SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
-           created_at, published_at, generated_at, updated_at, assignments, published_assignments
+           created_at, published_at, generated_at, updated_at, deleted_at
     FROM scheduling_periods WHERE id = ${id}
   `
-  return rows.length === 0 ? null : periodFromRow(rows[0])
+  if (rows.length === 0) return null
+  const { draft, published } = await loadAssignmentsForPeriods([id])
+  return {
+    ...periodMetaFromRow(rows[0]),
+    assignments: draft.get(id) ?? [],
+    publishedAssignments: published.get(id) ?? [],
+  }
 }
 
 export async function addSchedulingPeriod(
@@ -358,24 +413,60 @@ export async function addSchedulingPeriod(
     INSERT INTO scheduling_periods (name, start_date, end_date)
     VALUES (${period.name}, ${period.startDate}, ${period.endDate})
     RETURNING id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
-              created_at, published_at, generated_at, updated_at, assignments, published_assignments
+              created_at, published_at, generated_at, updated_at, deleted_at
   `
-  return periodFromRow(rows[0])
+  return { ...periodMetaFromRow(rows[0]), assignments: [], publishedAssignments: [] }
 }
 
 export async function deleteSchedulingPeriod(id: string): Promise<void> {
   await ensureDb()
-  await sql`DELETE FROM scheduling_periods WHERE id = ${id}`
+  await sql`UPDATE scheduling_periods SET deleted_at = NOW() WHERE id = ${id}`
 }
 
 export async function findPeriodByName(name: string): Promise<SchedulingPeriod | null> {
   await ensureDb()
   const { rows } = await sql`
     SELECT id, name, start_date::TEXT AS start_date, end_date::TEXT AS end_date,
-           created_at, published_at, generated_at, updated_at, assignments, published_assignments
-    FROM scheduling_periods WHERE name = ${name} LIMIT 1
+           created_at, published_at, generated_at, updated_at, deleted_at
+    FROM scheduling_periods
+    WHERE name = ${name} AND deleted_at IS NULL
+    LIMIT 1
   `
-  return rows.length === 0 ? null : periodFromRow(rows[0])
+  if (rows.length === 0) return null
+  const id = rows[0].id as string
+  const { draft, published } = await loadAssignmentsForPeriods([id])
+  return {
+    ...periodMetaFromRow(rows[0]),
+    assignments: draft.get(id) ?? [],
+    publishedAssignments: published.get(id) ?? [],
+  }
+}
+
+export async function updateSchedulingPeriod(
+  id: string,
+  patch: Pick<SchedulingPeriod, 'startDate' | 'endDate'>
+): Promise<void> {
+  const client = await db.connect()
+  try {
+    await client.sql`BEGIN`
+    await client.sql`
+      UPDATE scheduling_periods
+      SET start_date = ${patch.startDate}, end_date = ${patch.endDate},
+          generated_at = NULL, updated_at = NULL, published_at = NULL
+      WHERE id = ${id}
+    `
+    // Clear all assignments for this period (schedule reset)
+    await client.sql`DELETE FROM shift_assignments WHERE period_id = ${id}`
+    // Clear all splits and swaps referencing this period's shifts
+    await client.sql`DELETE FROM shift_splits  WHERE period_id = ${id}`
+    await client.sql`DELETE FROM swap_requests WHERE period_id = ${id}`
+    await client.sql`COMMIT`
+  } catch (e) {
+    await client.sql`ROLLBACK`
+    throw e
+  } finally {
+    client.release()
+  }
 }
 
 export async function updatePeriodDraft(
@@ -383,27 +474,63 @@ export async function updatePeriodDraft(
   assignments: ShiftAssignment[],
   generatedAt: string | null
 ): Promise<void> {
-  const json = JSON.stringify(assignments)
-  await sql`
-    UPDATE scheduling_periods
-    SET assignments = ${json}::jsonb, generated_at = ${generatedAt}
-    WHERE id = ${id}
-  `
+  const client = await db.connect()
+  try {
+    await client.sql`BEGIN`
+    await client.sql`DELETE FROM shift_assignments WHERE period_id = ${id} AND is_draft = true`
+    for (const a of assignments) {
+      await client.sql`
+        INSERT INTO shift_assignments (shift_id, period_id, is_draft, user_id, resident_name)
+        VALUES (${a.shiftId}, ${id}, true, ${a.userId ?? null}, ${a.residentName ?? null})
+        ON CONFLICT (shift_id, is_draft) DO UPDATE SET
+          user_id       = EXCLUDED.user_id,
+          resident_name = EXCLUDED.resident_name
+      `
+    }
+    await client.sql`UPDATE scheduling_periods SET generated_at = ${generatedAt} WHERE id = ${id}`
+    await client.sql`COMMIT`
+  } catch (e) {
+    await client.sql`ROLLBACK`
+    throw e
+  } finally {
+    client.release()
+  }
 }
 
-export async function publishPeriod(id: string, assignments: ShiftAssignment[]): Promise<{ publishedAt: string; updatedAt: string | null }> {
-  const json = JSON.stringify(assignments)
-  const { rows } = await sql`
-    UPDATE scheduling_periods
-    SET published_assignments = ${json}::jsonb,
-        published_at = COALESCE(published_at, NOW()),
-        updated_at = CASE WHEN published_at IS NOT NULL THEN NOW() ELSE NULL END
-    WHERE id = ${id}
-    RETURNING published_at, updated_at
-  `
-  return {
-    publishedAt: rows[0].published_at as string,
-    updatedAt: (rows[0].updated_at as string | null) ?? null,
+export async function publishPeriod(
+  id: string,
+  assignments: ShiftAssignment[]
+): Promise<{ publishedAt: string; updatedAt: string | null }> {
+  const client = await db.connect()
+  try {
+    await client.sql`BEGIN`
+    await client.sql`DELETE FROM shift_assignments WHERE period_id = ${id} AND is_draft = false`
+    for (const a of assignments) {
+      await client.sql`
+        INSERT INTO shift_assignments (shift_id, period_id, is_draft, user_id, resident_name)
+        VALUES (${a.shiftId}, ${id}, false, ${a.userId ?? null}, ${a.residentName ?? null})
+        ON CONFLICT (shift_id, is_draft) DO UPDATE SET
+          user_id       = EXCLUDED.user_id,
+          resident_name = EXCLUDED.resident_name
+      `
+    }
+    const { rows } = await client.sql`
+      UPDATE scheduling_periods
+      SET published_at = COALESCE(published_at, NOW()),
+          updated_at   = CASE WHEN published_at IS NOT NULL THEN NOW() ELSE NULL END
+      WHERE id = ${id}
+      RETURNING published_at, updated_at
+    `
+    await client.sql`COMMIT`
+    return {
+      publishedAt: rows[0].published_at as string,
+      updatedAt: (rows[0].updated_at as string | null) ?? null,
+    }
+  } catch (e) {
+    await client.sql`ROLLBACK`
+    throw e
+  } finally {
+    client.release()
   }
 }
 
@@ -411,38 +538,57 @@ export async function updatePeriodPublishedAssignments(
   id: string,
   assignments: ShiftAssignment[]
 ): Promise<void> {
-  const json = JSON.stringify(assignments)
-  await sql`UPDATE scheduling_periods SET published_assignments = ${json}::jsonb WHERE id = ${id}`
+  const client = await db.connect()
+  try {
+    await client.sql`BEGIN`
+    await client.sql`DELETE FROM shift_assignments WHERE period_id = ${id} AND is_draft = false`
+    for (const a of assignments) {
+      await client.sql`
+        INSERT INTO shift_assignments (shift_id, period_id, is_draft, user_id, resident_name)
+        VALUES (${a.shiftId}, ${id}, false, ${a.userId ?? null}, ${a.residentName ?? null})
+        ON CONFLICT (shift_id, is_draft) DO UPDATE SET
+          user_id       = EXCLUDED.user_id,
+          resident_name = EXCLUDED.resident_name
+      `
+    }
+    await client.sql`COMMIT`
+  } catch (e) {
+    await client.sql`ROLLBACK`
+    throw e
+  } finally {
+    client.release()
+  }
 }
 
 export async function getAllPublishedAssignments(): Promise<ShiftAssignment[]> {
+  await ensureDb()
   const { rows } = await sql`
-    SELECT published_assignments FROM scheduling_periods WHERE published_at IS NOT NULL
+    SELECT sa.shift_id, sa.user_id, sa.resident_name
+    FROM shift_assignments sa
+    JOIN scheduling_periods p ON p.id = sa.period_id
+    WHERE sa.is_draft = false
+      AND p.published_at IS NOT NULL
+      AND p.deleted_at IS NULL
   `
-  return rows.flatMap((r) => parseJsonb(r.published_assignments))
-}
-
-export async function updateSchedulingPeriod(
-  id: string,
-  patch: Pick<SchedulingPeriod, 'startDate' | 'endDate'>
-): Promise<void> {
-  await sql`
-    UPDATE scheduling_periods
-    SET start_date = ${patch.startDate}, end_date = ${patch.endDate},
-        assignments = '[]'::jsonb, published_assignments = '[]'::jsonb,
-        generated_at = NULL, updated_at = NULL, published_at = NULL
-    WHERE id = ${id}
-  `
+  return rows.map((r) => ({
+    shiftId: r.shift_id as string,
+    residentName: (r.resident_name as string | null) ?? null,
+    userId: (r.user_id as string | null) ?? null,
+  }))
 }
 
 // ── Swap requests ─────────────────────────────────────────────────────────────
 
 export async function getSwapRequests(): Promise<SwapRequest[]> {
+  await ensureDb()
   const { rows } = await sql`
-    SELECT id, requested_at, status, requestor_user_id, requestor_name, requestor_shift_id,
-           acceptor_name, acceptor_user_id, acceptor_shift_id, accepted_at
-    FROM swap_requests
-    ORDER BY requested_at DESC
+    SELECT sr.id, sr.requested_at, sr.status, sr.requestor_user_id, sr.requestor_name,
+           sr.requestor_shift_id, sr.period_id, sr.acceptor_name, sr.acceptor_user_id,
+           sr.acceptor_shift_id, sr.accepted_at
+    FROM swap_requests sr
+    LEFT JOIN scheduling_periods p ON p.id = sr.period_id
+    WHERE sr.period_id IS NULL OR p.deleted_at IS NULL
+    ORDER BY sr.requested_at DESC
   `
   return rows.map((r) => ({
     id: r.id,
@@ -459,45 +605,45 @@ export async function getSwapRequests(): Promise<SwapRequest[]> {
 }
 
 export async function addSwapRequest(
-  req: SwapRequest & { requestorUserId: string }
+  req: SwapRequest & { requestorUserId: string; periodId?: string }
 ): Promise<void> {
+  await ensureDb()
   await sql`
-    INSERT INTO swap_requests (id, requested_at, status, requestor_user_id, requestor_name, requestor_shift_id)
-    VALUES (${req.id}, ${req.requestedAt}, ${req.status}, ${req.requestorUserId}, ${req.requestorName}, ${req.requestorShiftId})
+    INSERT INTO swap_requests (id, requested_at, status, requestor_user_id, requestor_name, requestor_shift_id, period_id)
+    VALUES (${req.id}, ${req.requestedAt}, ${req.status}, ${req.requestorUserId}, ${req.requestorName}, ${req.requestorShiftId}, ${req.periodId ?? null})
   `
 }
 
-// ── Shift history (permanent record, survives block deletion) ─────────────────
-
-export async function upsertShiftHistory(
-  records: Array<{ shiftId: string; userId?: string | null; residentName: string; date: string; clinic: string; startTime?: string | null; endTime?: string | null }>
-): Promise<void> {
-  await ensureDb()
-  for (const r of records) {
-    await sql`
-      INSERT INTO shift_history (shift_id, date, clinic, resident_name, user_id, start_time, end_time)
-      VALUES (${r.shiftId}, ${r.date}, ${r.clinic}, ${r.residentName}, ${r.userId ?? null}, ${r.startTime ?? null}, ${r.endTime ?? null})
-      ON CONFLICT (shift_id) DO UPDATE SET
-        resident_name = EXCLUDED.resident_name,
-        user_id = COALESCE(EXCLUDED.user_id, shift_history.user_id),
-        start_time = EXCLUDED.start_time,
-        end_time = EXCLUDED.end_time
-    `
+export async function updateSwapRequest(
+  id: string,
+  patch: Partial<SwapRequest>
+): Promise<SwapRequest | null> {
+  const { rows } = await sql`
+    UPDATE swap_requests SET
+      status            = COALESCE(${patch.status ?? null}, status),
+      acceptor_name     = COALESCE(${patch.acceptorName ?? null}, acceptor_name),
+      acceptor_user_id  = COALESCE(${patch.acceptorUserId ?? null}, acceptor_user_id),
+      acceptor_shift_id = COALESCE(${patch.acceptorShiftId ?? null}, acceptor_shift_id),
+      accepted_at       = COALESCE(${patch.acceptedAt ?? null}, accepted_at)
+    WHERE id = ${id}
+    RETURNING id, requested_at, status, requestor_user_id, requestor_name,
+              requestor_shift_id, period_id, acceptor_name, acceptor_user_id,
+              acceptor_shift_id, accepted_at
+  `
+  if (rows.length === 0) return null
+  const r = rows[0]
+  return {
+    id: r.id,
+    requestedAt: r.requested_at,
+    status: r.status as SwapRequest['status'],
+    requestorName: r.requestor_name,
+    requestorUserId: (r.requestor_user_id as string) ?? undefined,
+    requestorShiftId: r.requestor_shift_id,
+    acceptorName: r.acceptor_name ?? null,
+    acceptorUserId: (r.acceptor_user_id as string) ?? null,
+    acceptorShiftId: r.acceptor_shift_id ?? null,
+    acceptedAt: r.accepted_at ?? null,
   }
-}
-
-export async function getShiftHistory(): Promise<ShiftAssignment[]> {
-  await ensureDb()
-  const { rows } = await sql`SELECT shift_id, date, clinic, resident_name, user_id, start_time, end_time FROM shift_history ORDER BY date DESC`
-  return rows.map((r) => ({
-    shiftId: r.shift_id as string,
-    residentName: r.resident_name as string,
-    userId: (r.user_id as string) ?? null,
-    date: r.date as string,
-    clinic: r.clinic as string,
-    startTime: r.start_time as string | null ?? undefined,
-    endTime: r.end_time as string | null ?? undefined,
-  }))
 }
 
 // ── Shift splits ──────────────────────────────────────────────────────────────
@@ -521,20 +667,24 @@ function rowToSplit(r: Record<string, unknown>): ShiftSplit {
 export async function getShiftSplits(): Promise<ShiftSplit[]> {
   await ensureDb()
   const { rows } = await sql`
-    SELECT id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end,
-           status, acceptor_name, acceptor_user_id, offered_at, accepted_at
-    FROM shift_splits ORDER BY offered_at ASC
+    SELECT ss.id, ss.shift_id, ss.offeror_name, ss.offeror_user_id, ss.offered_start,
+           ss.offered_end, ss.status, ss.acceptor_name, ss.acceptor_user_id,
+           ss.offered_at, ss.accepted_at
+    FROM shift_splits ss
+    LEFT JOIN scheduling_periods p ON p.id = ss.period_id
+    WHERE ss.period_id IS NULL OR p.deleted_at IS NULL
+    ORDER BY ss.offered_at ASC
   `
   return rows.map(rowToSplit)
 }
 
 export async function addShiftSplit(
-  split: Omit<ShiftSplit, 'offeredAt' | 'acceptorName' | 'acceptedAt'> & { offerorUserId: string }
+  split: Omit<ShiftSplit, 'offeredAt' | 'acceptorName' | 'acceptedAt'> & { offerorUserId: string; periodId?: string }
 ): Promise<ShiftSplit> {
   await ensureDb()
   const { rows } = await sql`
-    INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status)
-    VALUES (${split.id}, ${split.shiftId}, ${split.offerorName}, ${split.offerorUserId}, ${split.offeredStart}, ${split.offeredEnd}, 'pending')
+    INSERT INTO shift_splits (id, shift_id, period_id, offeror_name, offeror_user_id, offered_start, offered_end, status)
+    VALUES (${split.id}, ${split.shiftId}, ${split.periodId ?? null}, ${split.offerorName}, ${split.offerorUserId}, ${split.offeredStart}, ${split.offeredEnd}, 'pending')
     RETURNING id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, offered_at, accepted_at
   `
   return rowToSplit(rows[0])
@@ -543,6 +693,7 @@ export async function addShiftSplit(
 export async function addAcceptedShiftSplit(split: {
   id: string
   shiftId: string
+  periodId?: string
   offerorName: string
   offerorUserId: string
   acceptorName: string
@@ -552,8 +703,8 @@ export async function addAcceptedShiftSplit(split: {
 }): Promise<ShiftSplit> {
   await ensureDb()
   const { rows } = await sql`
-    INSERT INTO shift_splits (id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, accepted_at)
-    VALUES (${split.id}, ${split.shiftId}, ${split.offerorName}, ${split.offerorUserId}, ${split.offeredStart}, ${split.offeredEnd}, 'accepted', ${split.acceptorName}, ${split.acceptorUserId}, NOW())
+    INSERT INTO shift_splits (id, shift_id, period_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, accepted_at)
+    VALUES (${split.id}, ${split.shiftId}, ${split.periodId ?? null}, ${split.offerorName}, ${split.offerorUserId}, ${split.offeredStart}, ${split.offeredEnd}, 'accepted', ${split.acceptorName}, ${split.acceptorUserId}, NOW())
     RETURNING id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, offered_at, accepted_at
   `
   return rowToSplit(rows[0])
@@ -723,50 +874,17 @@ export async function setBillingRate(key: string, value: number): Promise<void> 
   await sql`INSERT INTO billing_rates (key, value) VALUES (${key}, ${value}) ON CONFLICT (key) DO UPDATE SET value = ${value}`
 }
 
-// ── Swap requests ─────────────────────────────────────────────────────────────
-
-export async function updateSwapRequest(
-  id: string,
-  patch: Partial<SwapRequest>
-): Promise<SwapRequest | null> {
-  const { rows } = await sql`
-    UPDATE swap_requests SET
-      status            = COALESCE(${patch.status ?? null}, status),
-      acceptor_name     = COALESCE(${patch.acceptorName ?? null}, acceptor_name),
-      acceptor_user_id  = COALESCE(${patch.acceptorUserId ?? null}, acceptor_user_id),
-      acceptor_shift_id = COALESCE(${patch.acceptorShiftId ?? null}, acceptor_shift_id),
-      accepted_at       = COALESCE(${patch.acceptedAt ?? null}, accepted_at)
-    WHERE id = ${id}
-    RETURNING *
-  `
-  if (rows.length === 0) return null
-  const r = rows[0]
-  return {
-    id: r.id,
-    requestedAt: r.requested_at,
-    status: r.status as SwapRequest['status'],
-    requestorName: r.requestor_name,
-    requestorUserId: (r.requestor_user_id as string) ?? undefined,
-    requestorShiftId: r.requestor_shift_id,
-    acceptorName: r.acceptor_name ?? null,
-    acceptorUserId: (r.acceptor_user_id as string) ?? null,
-    acceptorShiftId: r.acceptor_shift_id ?? null,
-    acceptedAt: r.accepted_at ?? null,
-  }
-}
-
 // ── Resident preferences ──────────────────────────────────────────────────────
 
 export interface ResidentPreferences {
   shiftDefaults:  Record<string, { weekday: boolean; weekend: boolean }>
-  weekdayRanking: string[]   // ordered clinic names, most preferred first
+  weekdayRanking: string[]
   weekendRanking: string[]
 }
 
 function parsePrefs(shiftDefaultsRaw: unknown, clinicPrefsRaw: unknown): ResidentPreferences {
   const shiftDefaults = (shiftDefaultsRaw ?? {}) as ResidentPreferences['shiftDefaults']
   const raw = (clinicPrefsRaw ?? {}) as Record<string, unknown>
-  // Support both old format (Record<clinic, {weekday,weekend}>) and new format ({weekdayRanking, weekendRanking})
   const weekdayRanking = Array.isArray(raw.weekdayRanking) ? raw.weekdayRanking as string[] : []
   const weekendRanking = Array.isArray(raw.weekendRanking) ? raw.weekendRanking as string[] : []
   return { shiftDefaults, weekdayRanking, weekendRanking }
@@ -784,7 +902,6 @@ export async function setResidentPreferences(
   prefs: Partial<ResidentPreferences>
 ): Promise<void> {
   await ensureDb()
-  // Merge with existing so partial updates don't clobber unrelated fields
   const existing = await getResidentPreferences(userId)
   const merged: ResidentPreferences = {
     shiftDefaults:  prefs.shiftDefaults  ?? existing.shiftDefaults,

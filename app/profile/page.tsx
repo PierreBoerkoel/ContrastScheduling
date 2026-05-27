@@ -184,7 +184,6 @@ export default function ProfilePage() {
 
   const [shifts, setShifts] = useState<Shift[]>([])
   const [periods, setPeriods] = useState<SchedulingPeriod[]>([])
-  const [history, setHistory] = useState<ShiftAssignment[]>([])
   const [allSplits, setAllSplits] = useState<ShiftSplit[]>([])
   const [loading, setLoading] = useState(true)
   const [showGoogleLinks, setShowGoogleLinks] = useState(false)
@@ -235,13 +234,11 @@ export default function ProfilePage() {
   useEffect(() => {
     Promise.all([
       fetch('/api/shifts').then((r) => r.json()),
-      fetch('/api/schedule').then((r) => r.json()),
-      fetch('/api/history').then((r) => r.json()),
+      fetch('/api/periods?all=true').then((r) => r.json()),
       fetch('/api/splits').then((r) => r.json()),
-    ]).then(([shiftList, periodList, hist, splitList]) => {
+    ]).then(([shiftList, periodList, splitList]) => {
       setShifts(Array.isArray(shiftList) ? shiftList : [])
       setPeriods(Array.isArray(periodList) ? periodList : [])
-      setHistory(Array.isArray(hist) ? hist : [])
       setAllSplits(Array.isArray(splitList) ? splitList : [])
       setLoading(false)
     })
@@ -383,7 +380,7 @@ export default function ProfilePage() {
   )]
   for (const sid of acceptorShiftIds) {
     const shift = shiftById[sid]
-    if (!shift) continue  // block deleted; history records this coverage
+    if (!shift) continue  // shift from a deleted period not in shiftById
     const base = assignmentToShift({ shiftId: sid, residentName: myName })
     if (!shift.startTime || !shift.endTime) {
       mySplitCoverage.push(base)
@@ -407,29 +404,8 @@ export default function ProfilePage() {
     .filter((s) => !isShiftEnded(s))
     .sort((a, b) => a.date.localeCompare(b.date))
 
-  // Completed: ended from live schedule + permanent history (for deleted blocks)
-  const scheduleCoverageIds = new Set(myScheduleCoverage.map((s) => s.id))
+  // Completed: ended shifts from all periods (including soft-deleted) via allMyCoverage
   const completedMap = new Map<string, Shift>()
-  for (const a of history.filter((a) => a.userId === myUserId)) {
-    if (scheduleCoverageIds.has(a.shiftId)) continue
-    // If this base-shift history record has accepted splits, compute actual segments
-    // (splits survive block deletion, so we can derive the real coverage windows)
-    const acceptedSplits = (splitsByShift[a.shiftId] ?? []).filter(sp => sp.status === 'accepted')
-    if (acceptedSplits.length > 0 && a.startTime && a.endTime) {
-      const segs = computeCoverageSegments({ startTime: a.startTime, endTime: a.endTime }, a.residentName!, acceptedSplits, a.userId)
-      segs
-        .filter(seg => seg.userId === myUserId)
-        .forEach((seg, i) => {
-          completedMap.set(`${a.shiftId}::hseg::${i}`, {
-            ...assignmentToShift(a),
-            startTime: seg.start || undefined,
-            endTime: seg.end || undefined,
-          })
-        })
-    } else {
-      completedMap.set(a.shiftId, assignmentToShift(a))
-    }
-  }
   for (const s of allMyCoverage.filter(isShiftEnded)) {
     completedMap.set(`${s.id}::${s.startTime ?? ''}`, s)
   }
@@ -931,7 +907,7 @@ export default function ProfilePage() {
         </p>
       </div>
 
-      {publishedAssignments.length === 0 && history.filter((a) => a.userId === myUserId).length === 0 ? (
+      {publishedAssignments.length === 0 && completed.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm">
           No schedule has been published yet. Check back after the admin publishes the schedule.
         </div>

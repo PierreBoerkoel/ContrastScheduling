@@ -84,6 +84,7 @@ export async function POST(request: Request) {
   const split = await addAcceptedShiftSplit({
     id: crypto.randomUUID(),
     shiftId,
+    periodId: shift.periodId,
     offerorName: assignment.residentName,
     offerorUserId: assignment.userId,
     acceptorName,

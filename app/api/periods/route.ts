@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getSchedulingPeriods, addSchedulingPeriod } from '@/lib/db'
+import { getSchedulingPeriods, getAllSchedulingPeriods, addSchedulingPeriod } from '@/lib/db'
 
-export async function GET() {
+export async function GET(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return NextResponse.json(await getSchedulingPeriods())
+  const all = new URL(request.url).searchParams.get('all') === 'true'
+  return NextResponse.json(all ? await getAllSchedulingPeriods() : await getSchedulingPeriods())
 }
 
 export async function POST(request: Request) {
