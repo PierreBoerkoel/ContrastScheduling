@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getClinics, addClinic, updateClinic, deleteClinic } from '@/lib/db'
+import { getClinics, addClinic, updateClinic, deleteClinic, archiveClinic } from '@/lib/db'
 import type { Clinic } from '@/lib/types'
 
 async function requireAdmin() {
@@ -8,10 +8,13 @@ async function requireAdmin() {
   return (user?.publicMetadata as { role?: string })?.role === 'admin'
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return NextResponse.json(await getClinics())
+  const { searchParams } = new URL(request.url)
+  const archivedOnly = searchParams.get('archivedOnly') === 'true'
+  const includeArchived = searchParams.get('includeArchived') === 'true'
+  return NextResponse.json(await getClinics({ archivedOnly, includeArchived }))
 }
 
 export async function POST(request: Request) {
@@ -35,12 +38,30 @@ export async function PUT(request: Request) {
   return NextResponse.json({ ok: true })
 }
 
+export async function PATCH(request: Request) {
+  if (!await requireAdmin()) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  }
+  const { id, archived } = (await request.json()) as { id: string; archived: boolean }
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+  await archiveClinic(id, archived)
+  return NextResponse.json({ ok: true })
+}
+
 export async function DELETE(request: Request) {
   if (!await requireAdmin()) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   }
   const { id } = (await request.json()) as { id: string }
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
-  await deleteClinic(id)
-  return NextResponse.json({ ok: true })
+  try {
+    await deleteClinic(id)
+    return NextResponse.json({ ok: true })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes('violates foreign key') || msg.includes('restrict')) {
+      return NextResponse.json({ error: 'Cannot delete: clinic has scheduled shifts' }, { status: 409 })
+    }
+    throw e
+  }
 }

@@ -7,10 +7,12 @@ async function requireAdmin() {
   return (user?.publicMetadata as { role?: string })?.role === 'admin'
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return NextResponse.json(await getClinics())
+  const { searchParams } = new URL(request.url)
+  const includeArchived = searchParams.get('includeArchived') === 'true'
+  return NextResponse.json(await getClinics({ includeArchived }))
 }
 
 export async function PUT(request: Request) {

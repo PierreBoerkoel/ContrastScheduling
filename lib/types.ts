@@ -12,6 +12,7 @@ export interface Clinic {
   billingMode: string        // 'simple' | 'mrct_pet_combined'
   billingEntityCodes: string[] // e.g. ['MRCT', 'PET']
   sortOrder: number
+  archivedAt?: string | null
 }
 
 // Backward-compat alias

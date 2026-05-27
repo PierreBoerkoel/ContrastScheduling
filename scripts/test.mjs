@@ -365,6 +365,45 @@ const nkResult = generateSchedule(
 assert(nkResult[0]?.residentName === 'Legacy', 'name-keyed submission (no userId) assigns correctly')
 assert(nkResult[0]?.userId === null, 'assignment carries null userId for name-keyed submission')
 
+// ── Inline helpers mirroring lib/invoices.ts ──────────────────────────────────
+function formatInvoiceNumber(initials, entity, n) {
+  return `${initials}_${entity}${String(n).padStart(3, '0')}`
+}
+function deriveInitials(fullName) {
+  const parts = fullName.trim().split(/\s+/)
+  if (parts.length === 0) return ''
+  const first = parts[0][0] ?? ''
+  const last = parts[parts.length - 1][0] ?? ''
+  return (parts.length > 1 ? first + last : first).toUpperCase()
+}
+function clinicEntities(clinic) {
+  if (clinic === 'BC Cancer Agency CT')      return ['MRCT']
+  if (clinic === 'BC Cancer Agency MRI/PET') return ['MRCT', 'PET']
+  if (clinic === 'UBC Hospital')             return ['UBC']
+  if (clinic === "BC Women's Hospital")      return ['BCWH']
+  return []
+}
+
+section('1.23 formatInvoiceNumber — format pattern')
+assert(formatInvoiceNumber('AB', 'UBC', 1)    === 'AB_UBC001',  'simple clinic invoice number (UBC)')
+assert(formatInvoiceNumber('AB', 'BCWH', 5)   === 'AB_BCWH005', 'simple clinic invoice number (BCWH)')
+assert(formatInvoiceNumber('AB', 'MRCT', 12)  === 'AB_MRCT012', 'complex entity invoice number (MRCT)')
+assert(formatInvoiceNumber('AB', 'PET', 100)  === 'AB_PET100',  '3-digit sequence not zero-padded beyond 3')
+assert(formatInvoiceNumber('PB', 'INITIO', 3) === 'PB_INITIO003', 'INITIO invoice number')
+
+section('1.24 deriveInitials — standard and edge cases')
+assert(deriveInitials('Pierre Boerkoel') === 'PB', 'two-part name → first initials of first + last')
+assert(deriveInitials('Alice')           === 'A',  'single name → first letter only')
+assert(deriveInitials('Mary Jane Watson') === 'MW', 'three-part name → first + last initial')
+assert(deriveInitials('  Bob  Smith  ')  === 'BS', 'trims and collapses internal spaces')
+
+section('1.25 clinicEntities — entity codes reflect rename')
+assert(JSON.stringify(clinicEntities('UBC Hospital'))          === JSON.stringify(['UBC']),         "UBC Hospital → ['UBC'] (not UBCMR)")
+assert(JSON.stringify(clinicEntities("BC Women's Hospital"))   === JSON.stringify(['BCWH']),        "BC Women's Hospital → ['BCWH'] (not BCWHMR)")
+assert(JSON.stringify(clinicEntities('BC Cancer Agency CT'))   === JSON.stringify(['MRCT']),        'BC Cancer Agency CT → MRCT unchanged')
+assert(JSON.stringify(clinicEntities('BC Cancer Agency MRI/PET')) === JSON.stringify(['MRCT','PET']), 'BC Cancer Agency MRI/PET → [MRCT, PET] unchanged')
+assert(JSON.stringify(clinicEntities('Unknown Clinic'))        === JSON.stringify([]),              'unknown clinic → empty array')
+
 // ════════════════════════════════════════════════════════════════════════════
 // SECTION 2 — DB layer
 // ════════════════════════════════════════════════════════════════════════════
@@ -563,6 +602,54 @@ const [{ count: cascSplitAfter }] = await db`SELECT COUNT(*) FROM shift_splits W
 assert(cascSplitAfter === '0', 'split auto-removed by FK ON DELETE CASCADE when shift deleted')
 const [{ count: cascShiftAfter }] = await db`SELECT COUNT(*) FROM shifts WHERE id = ${TEST_SHIFTS[2].id}`
 assert(cascShiftAfter === '0', 'shift itself removed')
+
+section('2.10 Billing entities — renamed codes present, old codes absent')
+const entityRows = await db`SELECT code FROM billing_entities`
+const entityCodes = new Set(entityRows.map(r => r.code))
+assert(entityCodes.has('UBC'),    "billing_entities has 'UBC'")
+assert(entityCodes.has('BCWH'),   "billing_entities has 'BCWH'")
+assert(entityCodes.has('INITIO'), "billing_entities has 'INITIO'")
+assert(entityCodes.has('MRCT'),   "billing_entities has 'MRCT'")
+assert(entityCodes.has('PET'),    "billing_entities has 'PET'")
+assert(!entityCodes.has('UBCMR'),  "billing_entities does NOT have legacy 'UBCMR'")
+assert(!entityCodes.has('BCWHMR'), "billing_entities does NOT have legacy 'BCWHMR'")
+
+section('2.11 Billing rates — simple clinic rate rows present for renamed entities')
+const rateRows = await db`
+  SELECT be.code, br.rate_key, br.rate
+  FROM billing_rates br
+  JOIN billing_entities be ON be.id = br.entity_id
+  WHERE be.code IN ('UBC', 'BCWH', 'INITIO')
+`
+const rateMap = Object.fromEntries(rateRows.map(r => [`${r.code}_${r.rate_key}`, r.rate]))
+assert('UBC_rate'    in rateMap, "billing_rates has UBC rate_key='rate'")
+assert('BCWH_rate'   in rateMap, "billing_rates has BCWH rate_key='rate'")
+assert('INITIO_rate' in rateMap, "billing_rates has INITIO rate_key='rate'")
+const legacyRates = await db`
+  SELECT be.code FROM billing_rates br
+  JOIN billing_entities be ON be.id = br.entity_id
+  WHERE be.code IN ('UBCMR', 'BCWHMR')
+`
+assert(legacyRates.length === 0, 'no billing_rates rows reference legacy UBCMR/BCWHMR codes')
+
+section('2.12 Clinic-entity mappings — renamed and new entities linked correctly')
+const mappings = await db`
+  SELECT c.name AS clinic, be.code AS entity
+  FROM clinic_billing_entities cbe
+  JOIN clinics c ON c.id = cbe.clinic_id
+  JOIN billing_entities be ON be.id = cbe.entity_id
+  WHERE c.name IN ('UBC Hospital', 'BC Women''s Hospital', 'INITIO Medical Imaging')
+`
+const mapByClinic = {}
+for (const row of mappings) {
+  mapByClinic[row.clinic] = mapByClinic[row.clinic] ?? []
+  mapByClinic[row.clinic].push(row.entity)
+}
+assert(mapByClinic['UBC Hospital']?.includes('UBC'),         "UBC Hospital linked to 'UBC' entity")
+assert(!mapByClinic['UBC Hospital']?.includes('UBCMR'),      "UBC Hospital NOT linked to legacy 'UBCMR'")
+assert(mapByClinic["BC Women's Hospital"]?.includes('BCWH'), "BC Women's Hospital linked to 'BCWH' entity")
+assert(!mapByClinic["BC Women's Hospital"]?.includes('BCWHMR'), "BC Women's Hospital NOT linked to legacy 'BCWHMR'")
+assert(mapByClinic['INITIO Medical Imaging']?.includes('INITIO'), "INITIO Medical Imaging linked to 'INITIO' entity")
 
 // ════════════════════════════════════════════════════════════════════════════
 // SECTION 3 — HTTP API (end-to-end against live deployment)
@@ -1014,6 +1101,51 @@ assert(pastSplitAcc === 409, 'split accept blocked when shift has already starte
 const { body: splitsAfterStart } = await api(R1.id, 'GET', '/api/splits')
 const autoSplit = Array.isArray(splitsAfterStart) ? splitsAfterStart.find(s => s.id === pastSplitId) : null
 assert(autoSplit?.status === 'cancelled', 'GET /api/splits auto-cancels pending offer for started shift')
+
+// ── 3.22 Simple-clinic billing rates writable via API ─────────────────────────
+section('3.22 Billing rates — simple clinic rate keys (UBC_rate, BCWH_rate, INITIO_rate) writable')
+const simpleRateChecks = [
+  { key: 'UBC_rate',    label: 'UBC' },
+  { key: 'BCWH_rate',   label: 'BCWH' },
+  { key: 'INITIO_rate', label: 'INITIO' },
+]
+for (const { key, label } of simpleRateChecks) {
+  const { body: before } = await api(ADMIN, 'GET', '/api/admin/billing-rates')
+  const original = before?.[key]
+  const testValue = (original ?? 75) + 1
+  const { status: putStatus } = await api(ADMIN, 'PUT', '/api/admin/billing-rates', { key, value: testValue })
+  assert(putStatus === 200, `PUT billing rate ${key} returns 200`)
+  const { body: after } = await api(ADMIN, 'GET', '/api/admin/billing-rates')
+  assert(Number(after?.[key]) === testValue, `${label} rate update persisted (${key}=${testValue})`)
+  if (original !== undefined) await api(ADMIN, 'PUT', '/api/admin/billing-rates', { key, value: original })
+}
+
+// ── 3.23 Malformed billing rate key rejected ─────────────────────────────────
+section('3.23 Billing rates — malformed key (no underscore) rejected with 400')
+const { status: badKeyStatus } = await api(ADMIN, 'PUT', '/api/admin/billing-rates', { key: 'NOUNDERSCORE', value: 50 })
+assert(badKeyStatus === 400, 'key without underscore separator → 400')
+const { status: emptyKeyStatus } = await api(ADMIN, 'PUT', '/api/admin/billing-rates', { key: '', value: 50 })
+assert(emptyKeyStatus === 400, 'empty key → 400')
+
+// ── 3.24 Billing contacts — renamed and new entities accepted ────────────────
+section('3.24 Billing contacts — UBC, BCWH, INITIO entities accepted')
+const contactChecks = [
+  { entity: 'UBC',    org: 'Vancouver Imaging Test' },
+  { entity: 'BCWH',  org: 'BCW Diagnostic Test' },
+  { entity: 'INITIO', org: 'INITIO Test Org' },
+]
+for (const { entity, org } of contactChecks) {
+  const { status: putStatus } = await api(ADMIN, 'PUT', '/api/admin/billing-contacts', {
+    entity, contactName: 'Test Contact', org, address: '123 Test St', email: null,
+  })
+  assert(putStatus === 200, `PUT /api/admin/billing-contacts entity=${entity} returns 200`)
+}
+const { body: contactsAfter } = await api(ADMIN, 'GET', '/api/admin/billing-contacts')
+assert(Array.isArray(contactsAfter), 'GET billing contacts returns array after updates')
+for (const { entity, org } of contactChecks) {
+  const row = contactsAfter.find(c => c.entity === entity)
+  assert(row?.org === org, `billing contact for ${entity} persisted (org="${org}")`)
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // Cleanup + summary

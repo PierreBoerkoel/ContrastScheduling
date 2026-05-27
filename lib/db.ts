@@ -177,6 +177,7 @@ export async function initDb(): Promise<void> {
 
   // ── Migrations for existing DBs ───────────────────────────────────────────
   await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`
+  await sql`ALTER TABLE clinics ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`
 
   // Ensure period_id FKs have ON DELETE CASCADE
   await sql`
@@ -1007,15 +1008,19 @@ export async function updateBillingEntity(id: string, data: {
 
 // ── Clinics ───────────────────────────────────────────────────────────────────
 
-export async function getClinics(): Promise<Clinic[]> {
+export async function getClinics(opts: { includeArchived?: boolean; archivedOnly?: boolean } = {}): Promise<Clinic[]> {
   await ensureDb()
+  const archivedOnly = opts.archivedOnly ?? false
+  const includeArchived = opts.includeArchived ?? false
   const { rows } = await sql`
     SELECT c.id, c.name, c.abbreviation, c.active_days, c.weekday_start, c.weekday_end,
-           c.weekend_start, c.weekend_end, c.billing_mode, c.sort_order,
+           c.weekend_start, c.weekend_end, c.billing_mode, c.sort_order, c.archived_at,
            COALESCE(array_agg(be.code ORDER BY be.code) FILTER (WHERE be.code IS NOT NULL), '{}') AS entity_codes
     FROM clinics c
     LEFT JOIN clinic_billing_entities cbe ON cbe.clinic_id = c.id
     LEFT JOIN billing_entities be ON be.id = cbe.entity_id
+    WHERE (${archivedOnly}::boolean AND c.archived_at IS NOT NULL)
+       OR (NOT ${archivedOnly}::boolean AND (${includeArchived}::boolean OR c.archived_at IS NULL))
     GROUP BY c.id
     ORDER BY c.sort_order, c.name
   `
@@ -1031,7 +1036,17 @@ export async function getClinics(): Promise<Clinic[]> {
     billingMode: r.billing_mode as string,
     billingEntityCodes: r.entity_codes as string[],
     sortOrder: r.sort_order as number,
+    archivedAt: (r.archived_at as string | null) ?? null,
   }))
+}
+
+export async function archiveClinic(id: string, archive: boolean): Promise<void> {
+  await ensureDb()
+  if (archive) {
+    await sql`UPDATE clinics SET archived_at = now() WHERE id = ${id}`
+  } else {
+    await sql`UPDATE clinics SET archived_at = NULL WHERE id = ${id}`
+  }
 }
 
 export const getClinicDefaults = getClinics

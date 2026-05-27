@@ -238,7 +238,7 @@ export default function ProfilePage() {
       fetch('/api/shifts').then((r) => r.json()),
       fetch('/api/periods?all=true').then((r) => r.json()),
       fetch('/api/splits').then((r) => r.json()),
-      fetch('/api/admin/clinic-defaults').then((r) => r.json()),
+      fetch('/api/admin/clinic-defaults?includeArchived=true').then((r) => r.json()),
     ]).then(([shiftList, periodList, splitList, clinicList]) => {
       setShifts(Array.isArray(shiftList) ? shiftList : [])
       setPeriods(Array.isArray(periodList) ? periodList : [])

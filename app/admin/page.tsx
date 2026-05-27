@@ -268,6 +268,10 @@ export default function AdminPage() {
   }>({ name: '', abbreviation: '', activeDays: new Set(), weekdayStart: '', weekdayEnd: '', weekendStart: '', weekendEnd: '', rates: {}, contacts: {} })
   const [savingClinic, setSavingClinic] = useState(false)
   const [clinicEditError, setClinicEditError] = useState('')
+  const [archivedClinics, setArchivedClinics] = useState<Clinic[]>([])
+  const [archivedLoaded, setArchivedLoaded] = useState(false)
+  const [archivingClinic, setArchivingClinic] = useState<string | null>(null)
+  const [showArchivedSection, setShowArchivedSection] = useState(false)
 
   // Billing contacts
   const [billingContacts, setBillingContacts] = useState<BillingContactRecord[]>([])
@@ -948,7 +952,7 @@ export default function AdminPage() {
               </span>
             )}
           </button>
-          <button onClick={() => setTab('clinics')} className={tabClass('clinics')}>
+          <button onClick={() => { setTab('clinics'); if (!archivedLoaded) { fetch('/api/admin/clinics?archivedOnly=true').then((r) => r.json()).then((d) => { if (Array.isArray(d)) { setArchivedClinics(d); setArchivedLoaded(true) } }).catch(() => {}) } }} className={tabClass('clinics')}>
             <span className="sm:hidden">Clinics</span>
             <span className="hidden sm:inline">Clinic Mgmt</span>
           </button>
@@ -2278,7 +2282,7 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* Clinic cards */}
+          {/* Active clinic cards */}
           {clinicDefaults.map((def) => {
             const clinic = def.name
             const isExpanded = expandedClinics.has(clinic)
@@ -2486,7 +2490,31 @@ export default function AdminPage() {
                           >
                             {savingClinic ? 'Saving…' : 'Save'}
                           </button>
-                          <button onClick={() => { setEditingClinic(null); setClinicEditError('') }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+                          <button onClick={() => { setEditingClinic(null); setClinicEditError(''); setArchivingClinic(null) }} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+                          {archivingClinic === clinic ? (
+                            <span className="flex items-center gap-2 ml-auto">
+                              <span className="text-xs text-slate-500">Archive &ldquo;{def.name}&rdquo;?</span>
+                              <button
+                                onClick={async () => {
+                                  const res = await fetch('/api/admin/clinics', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: def.id, archived: true }) })
+                                  if (res.ok) {
+                                    setClinicDefaults((prev) => prev.filter((d) => d.id !== def.id))
+                                    setArchivedClinics((prev) => [...prev, { ...def, archivedAt: new Date().toISOString() }])
+                                    setEditingClinic(null); setArchivingClinic(null)
+                                    setExpandedClinics((prev) => { const next = new Set(prev); next.delete(clinic); return next })
+                                  } else {
+                                    setClinicEditError('Failed to archive')
+                                  }
+                                }}
+                                className="text-xs bg-amber-500 text-white px-2.5 py-1 rounded-lg hover:bg-amber-600 transition-colors"
+                              >
+                                Confirm archive
+                              </button>
+                              <button onClick={() => setArchivingClinic(null)} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">No</button>
+                            </span>
+                          ) : (
+                            <button onClick={() => setArchivingClinic(clinic)} className="text-xs text-amber-600 hover:text-amber-800 transition-colors ml-auto">Archive clinic</button>
+                          )}
                           {clinicEditError && <span className="text-xs text-red-500">{clinicEditError}</span>}
                         </div>
                       </div>
@@ -2584,6 +2612,40 @@ export default function AdminPage() {
               </div>
             )
           })}
+
+          {/* Archived clinics section */}
+          {archivedClinics.length > 0 && (
+            <div className="mt-4">
+              <button
+                onClick={() => setShowArchivedSection((v) => !v)}
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <span className={`transition-transform ${showArchivedSection ? 'rotate-90' : ''}`}>▶</span>
+                Archived clinics ({archivedClinics.length})
+              </button>
+              {showArchivedSection && (
+                <div className="mt-2 space-y-2">
+                  {archivedClinics.map((def) => (
+                    <div key={def.id} className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-3 flex items-center justify-between gap-3 opacity-60">
+                      <span className="text-sm font-medium text-slate-600">{def.name}</span>
+                      <button
+                        onClick={async () => {
+                          const res = await fetch('/api/admin/clinics', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: def.id, archived: false }) })
+                          if (res.ok) {
+                            setArchivedClinics((prev) => prev.filter((c) => c.id !== def.id))
+                            setClinicDefaults((prev) => [...prev, { ...def, archivedAt: null }].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)))
+                          }
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0"
+                      >
+                        Unarchive
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
