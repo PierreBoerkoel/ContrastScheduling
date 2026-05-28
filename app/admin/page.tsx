@@ -1645,7 +1645,9 @@ export default function AdminPage() {
                                             </div>
                                             {/* Edit / remove controls */}
                                             {(isEditing && adminSplitShiftId !== shift.id) || adminSplitShiftId === shift.id || removingShiftId === shift.id ? (
-                                              <div className={`absolute ${overlayPos} top-0 z-20 min-w-[220px] bg-white border border-slate-200 rounded-lg shadow-md p-2`}>
+                                              <>
+                                                <div className="fixed inset-0 z-40 sm:hidden" onClick={() => { setEditingShiftId(null); setAdminSplitShiftId(null); setRemovingShiftId(null); setTimesEditError('') }} />
+                                                <div className={`fixed inset-x-4 top-24 z-50 overflow-y-auto max-h-[70vh] sm:absolute sm:inset-x-auto sm:top-0 sm:z-20 sm:max-h-none sm:overflow-y-visible sm:min-w-[220px] ${overlayPos === 'right-0' ? 'sm:right-0 sm:left-auto' : 'sm:left-0 sm:right-auto'} bg-white border border-slate-200 rounded-lg shadow-md p-2`}>
                                                 {isEditing && adminSplitShiftId !== shift.id ? (
                                                   <div onClick={(e) => e.stopPropagation()} className="space-y-1">
                                                     {(splitsByShift[shift.id] ?? []).filter((sp) => sp.status === 'accepted').map((sp) => (
@@ -1719,6 +1721,7 @@ export default function AdminPage() {
                                                   </div>
                                                 )}
                                               </div>
+                                              </>
                                             ) : !isEditing && (
                                               <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1.5 text-xs text-slate-400 flex-wrap">
                                                 <span>{formatTimeRange(shift.startTime, shift.endTime) || 'No times'}</span>
