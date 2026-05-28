@@ -232,6 +232,10 @@ export default function AdminPage() {
   const [generating, setGenerating] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [confirmRegenerate, setConfirmRegenerate] = useState(false)
+  const [notifyingAvailability, setNotifyingAvailability] = useState(false)
+  const [availabilityNotifiedPeriod, setAvailabilityNotifiedPeriod] = useState<string | null>(null)
+  const [notifyingSchedule, setNotifyingSchedule] = useState(false)
+  const [scheduleNotifiedPeriod, setScheduleNotifiedPeriod] = useState<string | null>(null)
 
   // Shift time editing + removal
   const [timesEdit, setTimesEdit] = useState({ startTime: '', endTime: '' })
@@ -517,6 +521,32 @@ export default function AdminPage() {
     })
     await fetchData()
     setPublishing(false)
+  }
+
+  async function notifyAvailability() {
+    const period = periods.find((p) => p.name === selectedBlock)
+    if (!period) return
+    setNotifyingAvailability(true)
+    await fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'availability', periodId: period.id }),
+    })
+    setNotifyingAvailability(false)
+    setAvailabilityNotifiedPeriod(period.id)
+  }
+
+  async function notifySchedule() {
+    const period = periods.find((p) => p.name === selectedScheduleBlock)
+    if (!period) return
+    setNotifyingSchedule(true)
+    await fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'schedule', periodId: period.id }),
+    })
+    setNotifyingSchedule(false)
+    setScheduleNotifiedPeriod(period.id)
   }
 
   async function updateAssignment(shiftId: string, residentName: string | null) {
@@ -1114,6 +1144,22 @@ export default function AdminPage() {
                       Last saved at {savedAt.toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit', hour12: true })}
                     </span>
                   )}
+                  {!isLocked && !!periods.find((p) => p.name === selectedBlock) && (
+                    availabilityNotifiedPeriod === periods.find((p) => p.name === selectedBlock)?.id ? (
+                      <span className="text-xs text-green-600 flex items-center gap-1">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                        Residents notified
+                      </span>
+                    ) : (
+                      <button
+                        onClick={notifyAvailability}
+                        disabled={notifyingAvailability}
+                        className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 transition-colors text-left"
+                      >
+                        {notifyingAvailability ? 'Sending…' : 'Email residents — availability now open'}
+                      </button>
+                    )
+                  )}
                 </div>
               </>
               )
@@ -1392,6 +1438,20 @@ export default function AdminPage() {
                   <>
                     <p>Published {formatDateTime(schedPeriod.publishedAt)}</p>
                     {schedPeriod.updatedAt && <p>Updated {formatDateTime(schedPeriod.updatedAt)}</p>}
+                    {scheduleNotifiedPeriod === schedPeriod.id ? (
+                      <p className="text-green-600 flex items-center gap-1">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                        Residents notified
+                      </p>
+                    ) : (
+                      <button
+                        onClick={notifySchedule}
+                        disabled={notifyingSchedule}
+                        className="text-blue-600 hover:text-blue-800 disabled:opacity-40 transition-colors text-left"
+                      >
+                        {notifyingSchedule ? 'Sending…' : 'Email residents — schedule published'}
+                      </button>
+                    )}
                   </>
                 ) : (
                   <p className="text-amber-500">Not yet published</p>
