@@ -265,7 +265,8 @@ export default function AdminPage() {
     weekendEnd: string
     rates: Record<string, string>
     contacts: Record<string, { contactName: string; org: string; address: string; email: string }>
-  }>({ name: '', abbreviation: '', activeDays: new Set(), weekdayStart: '', weekdayEnd: '', weekendStart: '', weekendEnd: '', rates: {}, contacts: {} })
+    petEndTime: string
+  }>({ name: '', abbreviation: '', activeDays: new Set(), weekdayStart: '', weekdayEnd: '', weekendStart: '', weekendEnd: '', petEndTime: '', rates: {}, contacts: {} })
   const [savingClinic, setSavingClinic] = useState(false)
   const [clinicEditError, setClinicEditError] = useState('')
   const [archivedClinics, setArchivedClinics] = useState<Clinic[]>([])
@@ -2383,6 +2384,12 @@ export default function AdminPage() {
                             )}
                           </div>
                         )}
+                        {isComplex && (
+                          <div className="pt-2 border-t border-slate-100">
+                            <div className="text-xs text-slate-500 mb-1.5">PET end time</div>
+                            <TimeInput value={clinicEdit.petEndTime} onChange={(v) => setClinicEdit((p) => ({ ...p, petEndTime: v }))} className="w-24 px-2 py-1 text-sm" />
+                          </div>
+                        )}
                         {def.billingEntityCodes.map((entityCode) => {
                           const complexRows = COMPLEX_ENTITY_RATES[entityCode]
                           const displayName = ENTITY_DISPLAY[entityCode] ?? entityCode
@@ -2456,7 +2463,7 @@ export default function AdminPage() {
                               setClinicEditError('')
                               try {
                                 const saves: Promise<Response>[] = [
-                                  fetch('/api/admin/clinics', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...def, name: clinicEdit.name.trim(), abbreviation: clinicEdit.abbreviation.trim(), activeDays, weekdayStart, weekdayEnd, weekendStart, weekendEnd }) }),
+                                  fetch('/api/admin/clinics', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...def, name: clinicEdit.name.trim(), abbreviation: clinicEdit.abbreviation.trim(), activeDays, weekdayStart, weekdayEnd, weekendStart, weekendEnd, petEndTime: clinicEdit.petEndTime || null }) }),
                                 ]
                                 for (const [key, val] of Object.entries(clinicEdit.rates)) {
                                   const num = parseFloat(val)
@@ -2468,7 +2475,7 @@ export default function AdminPage() {
                                 const results = await Promise.all(saves)
                                 if (results.some((r) => !r.ok)) { setClinicEditError('Failed to save'); return }
                                 const newName = clinicEdit.name.trim()
-                                setClinicDefaults((prev) => prev.map((d) => d.id === def.id ? { ...d, name: newName, abbreviation: clinicEdit.abbreviation.trim(), activeDays, weekdayStart, weekdayEnd, weekendStart, weekendEnd } : d))
+                                setClinicDefaults((prev) => prev.map((d) => d.id === def.id ? { ...d, name: newName, abbreviation: clinicEdit.abbreviation.trim(), activeDays, weekdayStart, weekdayEnd, weekendStart, weekendEnd, petEndTime: clinicEdit.petEndTime || null } : d))
                                 const rateUpdates: Record<string, number> = {}
                                 for (const [key, val] of Object.entries(clinicEdit.rates)) { const n = parseFloat(val); if (!isNaN(n)) rateUpdates[key] = n }
                                 setBillingRates((prev) => ({ ...prev, ...rateUpdates }))
@@ -2577,6 +2584,7 @@ export default function AdminPage() {
                                 weekdayEnd: def.weekdayEnd ?? '',
                                 weekendStart: def.weekendStart ?? '',
                                 weekendEnd: def.weekendEnd ?? '',
+                                petEndTime: def.petEndTime ?? '',
                                 rates: Object.fromEntries(
                                   def.billingEntityCodes.flatMap((code) => {
                                     const rows = COMPLEX_ENTITY_RATES[code]

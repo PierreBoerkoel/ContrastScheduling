@@ -20,6 +20,8 @@ interface GenerateRequest {
   modes: Record<string, MriPetMode>       // shiftId → mode, for MRI/PET shifts
   ctEndTimes: Record<string, string>      // shiftId → CT shift endTime, for ct-pet and ct-also modes
   ctStartTimes: Record<string, string>    // shiftId → CT shift startTime, for ct-also mode
+  mriEndTimes: Record<string, string>     // shiftId → MRI end time, for mri-ends-early mode
+  petEndTime?: string                     // configurable PET end time (default 21:00)
   parkingAmounts: Record<string, number>  // shiftId → parking amount
   invoiceDate: string
   format?: 'pdf' | 'docx'
@@ -36,7 +38,7 @@ export async function POST(request: Request) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = (await request.json()) as GenerateRequest
-  const { entity, invoiceNumber, shifts, modes, ctEndTimes, ctStartTimes, parkingAmounts, invoiceDate, format = 'pdf', from } = body
+  const { entity, invoiceNumber, shifts, modes, ctEndTimes, ctStartTimes, mriEndTimes, petEndTime, parkingAmounts, invoiceDate, format = 'pdf', from } = body
 
   if (!entity || !invoiceNumber || !shifts?.length || !from?.name) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -54,7 +56,7 @@ export async function POST(request: Request) {
   const simpleEntityRates = simpleRate !== undefined ? { [entity]: simpleRate } : undefined
 
   const allLineItems: BillingLineItem[] = shifts.flatMap((shift) => {
-    const items = [...(calculateLineItems(shift, modes[shift.shiftId] ?? null, rates, ctEndTimes?.[shift.shiftId], ctStartTimes?.[shift.shiftId], simpleEntityRates)[entity] ?? [])]
+    const items = [...(calculateLineItems(shift, modes[shift.shiftId] ?? null, rates, ctEndTimes?.[shift.shiftId], ctStartTimes?.[shift.shiftId], simpleEntityRates, petEndTime, mriEndTimes?.[shift.shiftId])[entity] ?? [])]
     const parking = parkingAmounts?.[shift.shiftId] ?? 0
     if (parking > 0) {
       items.push({

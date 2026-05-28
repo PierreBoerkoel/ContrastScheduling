@@ -15,6 +15,7 @@ const MRI_PET_MODE_LABELS: Partial<Record<MriPetMode, string>> = {
   'ct-pet': 'CT + PET (MRI down)',
   'pet-down': 'MRI only (PET down)',
   'mri-down': 'PET only (MRI down)',
+  'mri-ends-early': 'MRI ended early',
 }
 
 // Modes hidden per entity tab because they produce no billable items for that entity
@@ -35,6 +36,7 @@ interface Props {
   onMissingProfile: () => void
   clinicEntityMap: Record<string, string[]>
   clinicAbbrMap: Record<string, string>
+  petEndTime?: string
 }
 
 function formatDateShort(d: string): string {
@@ -56,7 +58,7 @@ function currentYearMonth(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
-export default function InvoiceGenerator({ completed, allShifts, from, onMissingProfile, clinicEntityMap, clinicAbbrMap }: Props) {
+export default function InvoiceGenerator({ completed, allShifts, from, onMissingProfile, clinicEntityMap, clinicAbbrMap, petEndTime }: Props) {
   // date → start/end times of the companion BC Cancer Agency CT shift
   const ctShiftByDate = Object.fromEntries(
     allShifts
@@ -73,6 +75,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
   const [entities, setEntities] = useState<{ code: string; label: string }[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [modes, setModes] = useState<Record<string, MriPetMode>>({})
+  const [mriEndTimes, setMriEndTimes] = useState<Record<string, string>>({})
   const [parkingAmounts, setParkingAmounts] = useState<Record<string, string>>({})
   const [invoiceDate, setInvoiceDate] = useState(today)
   const [generating, setGenerating] = useState(false)
@@ -227,6 +230,12 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
           invoiceNumber,
           shifts,
           modes,
+          petEndTime: petEndTime ?? undefined,
+          mriEndTimes: Object.fromEntries(
+            shifts
+              .filter((s) => modes[s.shiftId] === 'mri-ends-early' && mriEndTimes[s.shiftId])
+              .map((s) => [s.shiftId, mriEndTimes[s.shiftId]])
+          ),
           ctEndTimes: Object.fromEntries(
             shifts
               .filter((s) => (modes[s.shiftId] === 'ct-pet' || modes[s.shiftId] === 'ct-also') && ctEndTimeByDate[s.date])
@@ -412,6 +421,18 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
                         <option key={k} value={k}>{v}</option>
                       ))}
                     </select>
+                    {currentMode === 'mri-ends-early' && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-slate-500 whitespace-nowrap">MRI ended at:</label>
+                        <input
+                          type="time"
+                          value={mriEndTimes[shift.shiftId] ?? ''}
+                          onChange={(e) => setMriEndTimes((prev) => ({ ...prev, [shift.shiftId]: e.target.value }))}
+                          className="border border-slate-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                        <span className="text-xs text-slate-400">PET continues to {petEndTime ?? '21:00'}</span>
+                      </div>
+                    )}
                     {(currentMode === 'ct-pet' || currentMode === 'ct-also') && (
                       <p className="text-xs text-slate-500">
                         {ctShiftByDate[shift.date]

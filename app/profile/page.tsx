@@ -1188,6 +1188,7 @@ export default function ProfilePage() {
                   }}
                   clinicEntityMap={clinicEntityMap}
                   clinicAbbrMap={clinicAbbrMap}
+                  petEndTime={clinics.find((c) => c.name === 'BC Cancer Agency MRI/PET')?.petEndTime ?? undefined}
                 />
               </div>
             )}

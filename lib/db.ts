@@ -178,6 +178,8 @@ export async function initDb(): Promise<void> {
   // ── Migrations for existing DBs ───────────────────────────────────────────
   await sql`ALTER TABLE scheduling_periods ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`
   await sql`ALTER TABLE clinics ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`
+  await sql`ALTER TABLE clinics ADD COLUMN IF NOT EXISTS pet_end_time TEXT`
+  await sql`UPDATE clinics SET pet_end_time = '21:00' WHERE name = 'BC Cancer Agency MRI/PET' AND pet_end_time IS NULL`
 
   // Ensure period_id FKs have ON DELETE CASCADE
   await sql`
@@ -1017,7 +1019,7 @@ export async function getClinics(opts: { includeArchived?: boolean; archivedOnly
   const includeArchived = opts.includeArchived ?? false
   const { rows } = await sql`
     SELECT c.id, c.name, c.abbreviation, c.active_days, c.weekday_start, c.weekday_end,
-           c.weekend_start, c.weekend_end, c.billing_mode, c.sort_order, c.archived_at,
+           c.weekend_start, c.weekend_end, c.billing_mode, c.sort_order, c.pet_end_time, c.archived_at,
            COALESCE(array_agg(be.code ORDER BY be.code) FILTER (WHERE be.code IS NOT NULL), '{}') AS entity_codes
     FROM clinics c
     LEFT JOIN clinic_billing_entities cbe ON cbe.clinic_id = c.id
@@ -1039,6 +1041,7 @@ export async function getClinics(opts: { includeArchived?: boolean; archivedOnly
     billingMode: r.billing_mode as string,
     billingEntityCodes: r.entity_codes as string[],
     sortOrder: r.sort_order as number,
+    petEndTime: (r.pet_end_time as string | null) ?? null,
     archivedAt: (r.archived_at as string | null) ?? null,
   }))
 }
@@ -1060,8 +1063,8 @@ export async function addClinic(data: Omit<Clinic, 'id'>): Promise<Clinic> {
   try {
     await client.sql`BEGIN`
     const { rows } = await client.sql`
-      INSERT INTO clinics (name, abbreviation, active_days, weekday_start, weekday_end, weekend_start, weekend_end, billing_mode, sort_order)
-      VALUES (${data.name}, ${data.abbreviation}, ${data.activeDays as unknown as string}, ${data.weekdayStart}, ${data.weekdayEnd}, ${data.weekendStart}, ${data.weekendEnd}, ${data.billingMode}, ${data.sortOrder})
+      INSERT INTO clinics (name, abbreviation, active_days, weekday_start, weekday_end, weekend_start, weekend_end, billing_mode, sort_order, pet_end_time)
+      VALUES (${data.name}, ${data.abbreviation}, ${data.activeDays as unknown as string}, ${data.weekdayStart}, ${data.weekdayEnd}, ${data.weekendStart}, ${data.weekendEnd}, ${data.billingMode}, ${data.sortOrder}, ${data.petEndTime ?? null})
       RETURNING id
     `
     const id = rows[0].id as string
@@ -1097,7 +1100,8 @@ export async function updateClinic(id: string, data: Omit<Clinic, 'id'>): Promis
         weekend_start = ${data.weekendStart},
         weekend_end   = ${data.weekendEnd},
         billing_mode  = ${data.billingMode},
-        sort_order    = ${data.sortOrder}
+        sort_order    = ${data.sortOrder},
+        pet_end_time  = ${data.petEndTime ?? null}
       WHERE id = ${id}
     `
     await client.sql`DELETE FROM clinic_billing_entities WHERE clinic_id = ${id}`
