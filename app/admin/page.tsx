@@ -228,6 +228,7 @@ export default function AdminPage() {
   // Schedule interaction
   const [selectedScheduleBlock, setSelectedScheduleBlock] = useState('')
   const [scheduleClinicFilter, setScheduleClinicFilter] = useState<ClinicName | ''>('')
+  const [swapsBlockFilter, setSwapsBlockFilter] = useState('')
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [publishing, setPublishing] = useState(false)
@@ -2089,23 +2090,42 @@ export default function AdminPage() {
       )}
 
       {/* ── SWAPS TAB ── */}
-      {tab === 'swaps' && (
+      {tab === 'swaps' && (() => {
+        const swapsBlockShiftIds = swapsBlockFilter
+          ? new Set(shifts.filter((s) => s.periodId === periods.find((p) => p.name === swapsBlockFilter)?.id).map((s) => s.id))
+          : null
+        const visibleSwaps = swapsBlockShiftIds
+          ? swapRequests.filter((r) => swapsBlockShiftIds.has(r.requestorShiftId))
+          : swapRequests
+        return (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           {swapRequests.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-sm">No swap requests yet.</div>
           ) : (
             <>
-              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-slate-700">All Swap Requests</h2>
-                <div className="flex gap-3 text-xs text-slate-400">
-                  <span>{swapRequests.filter((r) => r.status === 'pending').length} pending</span>
-                  <span>{swapRequests.filter((r) => r.status === 'accepted').length} accepted</span>
-                  <span>{swapRequests.filter((r) => r.status === 'cancelled').length} cancelled</span>
+              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center gap-3 justify-between">
+                <h2 className="text-sm font-semibold text-slate-700">Swap Requests</h2>
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    value={swapsBlockFilter}
+                    onChange={(e) => setSwapsBlockFilter(e.target.value)}
+                    className="border border-slate-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  >
+                    <option value="">All blocks</option>
+                    {periods.slice().sort((a, b) => b.startDate.localeCompare(a.startDate)).map((p) => (
+                      <option key={p.id} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                  <div className="flex gap-3 text-xs text-slate-400">
+                    <span>{visibleSwaps.filter((r) => r.status === 'pending').length} pending</span>
+                    <span>{visibleSwaps.filter((r) => r.status === 'accepted').length} accepted</span>
+                    <span>{visibleSwaps.filter((r) => r.status === 'cancelled').length} cancelled</span>
+                  </div>
                 </div>
               </div>
               {/* Mobile cards */}
               <div className="sm:hidden divide-y divide-slate-100">
-                {swapRequests
+                {visibleSwaps
                   .slice()
                   .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
                   .map((req) => {
@@ -2166,7 +2186,7 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {swapRequests
+                  {visibleSwaps
                     .slice()
                     .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
                     .map((req) => {
@@ -2226,7 +2246,8 @@ export default function AdminPage() {
             </>
           )}
         </div>
-      )}
+        )
+      })()}
       {/* ── CLINIC MANAGEMENT TAB ── */}
       {tab === 'clinics' && (
         <div className="space-y-3">

@@ -448,6 +448,13 @@ export default function SchedulePage() {
   const pendingSwaps = swapRequests.filter((r) => r.status === 'pending')
   const pendingSplits = splits.filter((s) => s.status === 'pending')
 
+  // Period-scoped versions for the offer display sections (grid badges use unscoped versions)
+  const periodShiftIds = new Set(shifts.filter((s) => s.periodId === selectedPeriod?.id).map((s) => s.id))
+  const periodPendingSwaps = pendingSwaps.filter((r) => periodShiftIds.has(r.requestorShiftId))
+  const periodPendingSplits = pendingSplits.filter((s) => periodShiftIds.has(s.shiftId))
+  const periodCompletedSwaps = swapRequests.filter((r) => r.status !== 'pending' && periodShiftIds.has(r.requestorShiftId))
+  const periodCompletedSplits = splits.filter((s) => s.status !== 'pending' && periodShiftIds.has(s.shiftId))
+
   // Renders the assignment content for a shift cell (used in both mobile cards and desktop table)
   const renderShiftContent = (shift: Shift) => {
     const resident = assignmentMap[shift.id]
@@ -975,14 +982,14 @@ export default function SchedulePage() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-700">Pending Shift Offers</h2>
-          <span className="text-xs text-slate-400">{pendingSwaps.length} pending</span>
+          <span className="text-xs text-slate-400">{periodPendingSwaps.length} pending</span>
         </div>
 
-        {pendingSwaps.length === 0 ? (
+        {periodPendingSwaps.length === 0 ? (
           <p className="p-5 text-sm text-slate-400">No shifts currently offered.</p>
         ) : (
           <div className="divide-y divide-slate-100">
-            {pendingSwaps.map((req) => {
+            {periodPendingSwaps.map((req) => {
               const isMyOffer = req.requestorUserId === myUserId
               const offerDate = shiftById[req.requestorShiftId]?.date ?? ''
               const myConflict = !isMyOffer ? filteredPublished.find(
@@ -1064,14 +1071,14 @@ export default function SchedulePage() {
       </div>
 
       {/* ── PENDING PORTION OFFERS (splits) ── */}
-      {pendingSplits.length > 0 && (
+      {periodPendingSplits.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-700">Pending Portion Offers</h2>
-            <span className="text-xs text-slate-400">{pendingSplits.length} pending</span>
+            <span className="text-xs text-slate-400">{periodPendingSplits.length} pending</span>
           </div>
           <div className="divide-y divide-slate-100">
-            {pendingSplits.map((split) => {
+            {periodPendingSplits.map((split) => {
               const isMyOffer = split.offerorUserId === myUserId
               const offerorDisplayName = currentNameFor(split.offerorUserId, split.offerorName)
               const splitShift = shiftById[split.shiftId]
@@ -1161,18 +1168,16 @@ export default function SchedulePage() {
       )}
 
       {/* Completed / cancelled offers */}
-      {(swapRequests.some((r) => r.status !== 'pending') || splits.some((s) => s.status !== 'pending')) && (
+      {(periodCompletedSwaps.length > 0 || periodCompletedSplits.length > 0) && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
             <h2 className="text-sm font-semibold text-slate-600">Completed & Cancelled Offers</h2>
           </div>
           <div className="divide-y divide-slate-100">
             {[
-              ...swapRequests
-                .filter((r) => r.status !== 'pending')
+              ...periodCompletedSwaps
                 .map((r) => ({ type: 'swap' as const, at: r.acceptedAt ?? r.requestedAt, item: r })),
-              ...splits
-                .filter((s) => s.status !== 'pending')
+              ...periodCompletedSplits
                 .map((s) => ({ type: 'split' as const, at: s.acceptedAt ?? s.offeredAt, item: s })),
             ]
               .sort((a, b) => b.at.localeCompare(a.at))
