@@ -987,7 +987,7 @@ export default function AdminPage() {
           </button>
           <button onClick={() => { setTab('clinics'); if (!archivedLoaded) { fetch('/api/admin/clinics?archivedOnly=true').then((r) => r.json()).then((d) => { if (Array.isArray(d)) { setArchivedClinics(d); setArchivedLoaded(true) } }).catch(() => {}) } }} className={tabClass('clinics')}>
             <span className="sm:hidden">Clinics</span>
-            <span className="hidden sm:inline">Clinic Mgmt</span>
+            <span className="hidden sm:inline">Clinic Management</span>
           </button>
         </div>
       </div>

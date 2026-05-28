@@ -15,7 +15,7 @@ export default function Home() {
             Contrast Coverage Scheduling
           </h1>
           <p className="text-slate-500 text-base max-w-md mx-auto leading-relaxed">
-            Resident call scheduling for contrast coverage at BC Cancer, INITIO, UBC, and BC Women&apos;s.
+            Resident call scheduling for contrast coverage.
           </p>
         </div>
 
