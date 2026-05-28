@@ -1660,8 +1660,16 @@ export default function AdminPage() {
                                             {/* Edit / remove controls */}
                                             {(isEditing && adminSplitShiftId !== shift.id) || adminSplitShiftId === shift.id || removingShiftId === shift.id ? (
                                               <>
-                                                <div className="fixed inset-0 z-40 sm:hidden" onClick={() => { setEditingShiftId(null); setAdminSplitShiftId(null); setRemovingShiftId(null); setTimesEditError('') }} />
-                                                <div className={`fixed inset-x-4 top-24 z-50 overflow-y-auto max-h-[70vh] sm:absolute sm:inset-x-auto sm:top-0 sm:z-20 sm:max-h-none sm:overflow-y-visible sm:min-w-[220px] ${overlayPos === 'right-0' ? 'sm:right-0 sm:left-auto' : 'sm:left-0 sm:right-auto'} bg-white border border-slate-200 rounded-lg shadow-md p-2`}>
+                                                <div className="fixed inset-0 z-40 sm:hidden bg-black/30" onClick={() => { setEditingShiftId(null); setAdminSplitShiftId(null); setRemovingShiftId(null); setTimesEditError('') }} />
+                                                <div className={`fixed inset-x-0 bottom-0 z-50 rounded-t-2xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:top-0 sm:z-20 sm:rounded-lg sm:min-w-[220px] ${overlayPos === 'right-0' ? 'sm:right-0 sm:left-auto' : 'sm:left-0 sm:right-auto'} bg-white border border-slate-200 shadow-md`}>
+                                                  <div className="sm:hidden px-4 pt-3 pb-3 border-b border-slate-100">
+                                                    <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-3" />
+                                                    <div className="text-sm font-semibold text-slate-800">
+                                                      {new Intl.DateTimeFormat('en-CA', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(dateStr + 'T00:00:00Z'))}
+                                                    </div>
+                                                    <div className="text-xs text-slate-500 mt-0.5">{clinicAbbr[clinic] ?? clinic}</div>
+                                                  </div>
+                                                  <div className="p-2 overflow-y-auto max-h-[55vh] sm:max-h-none sm:overflow-y-visible">
                                                 {isEditing && adminSplitShiftId !== shift.id ? (
                                                   <div onClick={(e) => e.stopPropagation()} className="space-y-1">
                                                     {(splitsByShift[shift.id] ?? []).filter((sp) => sp.status === 'accepted').map((sp) => (
@@ -1734,6 +1742,7 @@ export default function AdminPage() {
                                                     </div>
                                                   </div>
                                                 )}
+                                                </div>
                                               </div>
                                               </>
                                             ) : !isEditing && (
