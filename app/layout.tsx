@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <ClerkProvider>
       <html lang="en" className={`${geist.variable} h-dvh`}>
         <body className="min-h-dvh flex flex-col bg-slate-50 font-sans antialiased">
-          <header className="bg-white border-b border-slate-200 shadow-sm">
+          <header className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
             <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
               <Link href="/" className="font-semibold text-slate-800 hover:text-blue-600 transition-colors shrink-0 text-base sm:text-lg">
                 <span className="sm:hidden">Contrast Scheduling</span>
