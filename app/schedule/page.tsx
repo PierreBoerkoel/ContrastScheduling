@@ -769,7 +769,7 @@ export default function SchedulePage() {
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
           <h2 className="text-base font-semibold text-slate-700">Offer a Shift</h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Offer your full shift to others, or split a portion for someone else to cover.
+            Offer your full shift to others, or split your hours for someone else to cover.
           </p>
         </div>
         <div className="p-5">
@@ -832,7 +832,7 @@ export default function SchedulePage() {
                           <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full shrink-0">Offered</span>
                         ) : myPendingSplit ? (
                           <span className="text-xs text-violet-600 bg-violet-50 px-2 py-1 rounded-full shrink-0">
-                            Portion offered · {formatTimeRange(myPendingSplit.offeredStart, myPendingSplit.offeredEnd)}
+                            Split offered · {formatTimeRange(myPendingSplit.offeredStart, myPendingSplit.offeredEnd)}
                           </span>
                         ) : (
                           <div className="flex gap-2 shrink-0">
@@ -865,7 +865,7 @@ export default function SchedulePage() {
                                 }}
                                 className="text-sm text-violet-600 hover:text-violet-700 font-medium"
                               >
-                                Split a portion
+                                Split hours
                               </button>
                             )}
                           </div>
@@ -905,9 +905,9 @@ export default function SchedulePage() {
                         return (
                           <div className="mt-2 bg-violet-50 border border-violet-200 rounded-lg p-4">
                             <p className="text-sm text-violet-800 mb-3">
-                              Offer a portion of <strong>{label}</strong>
+                              Split hours for <strong>{label}</strong>
                               <span className="text-xs text-violet-500 ml-2">
-                                Your window: {formatTimeRange(ownedWindow.start, ownedWindow.end)}
+                                Your hours: {formatTimeRange(ownedWindow.start, ownedWindow.end)}
                               </span>
                             </p>
                             <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -955,7 +955,7 @@ export default function SchedulePage() {
                                 }
                                 className="bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-40 transition-colors"
                               >
-                                {submittingSplit ? 'Posting…' : 'Post portion offer'}
+                                {submittingSplit ? 'Posting…' : 'Post split offer'}
                               </button>
                               <button
                                 onClick={() => { setSplittingShiftId(null); setSplitError('') }}
@@ -1074,7 +1074,7 @@ export default function SchedulePage() {
       {periodPendingSplits.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-            <h2 className="text-base font-semibold text-slate-700">Pending Portion Offers</h2>
+            <h2 className="text-base font-semibold text-slate-700">Pending Split Offers</h2>
             <span className="text-xs text-slate-400">{periodPendingSplits.length} pending</span>
           </div>
           <div className="divide-y divide-slate-100">
@@ -1099,7 +1099,7 @@ export default function SchedulePage() {
               return (
                 <div key={split.id} className="p-5">
                   <p className="text-sm text-slate-700 mb-0.5">
-                    <strong>{offerorDisplayName}</strong> is offering a portion of{' '}
+                    <strong>{offerorDisplayName}</strong> is offering part of{' '}
                     <span className="font-medium text-slate-800">{shiftLabel(split.shiftId)}</span>
                   </p>
                   <p className="text-sm font-medium text-violet-700 mb-1">
@@ -1115,12 +1115,11 @@ export default function SchedulePage() {
                     <div className={`border rounded-lg p-4 space-y-3 ${myConflictClinic ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
                       {myConflictClinic ? (
                         <p className="text-sm text-amber-800">
-                          You&apos;re assigned to <strong>{myConflictClinic}</strong> on this day — accepting this portion will move you off that shift.
+                          You&apos;re assigned to <strong>{myConflictClinic}</strong> on this day — accepting this split will move you off that shift.
                         </p>
                       ) : (
                         <p className="text-sm text-green-800">
-                          Cover the <strong>{formatTimeRange(split.offeredStart, split.offeredEnd)}</strong> portion
-                          of <strong>{shiftLabel(split.shiftId)}</strong> for <strong>{offerorDisplayName}</strong>?
+                          Cover <strong>{formatTimeRange(split.offeredStart, split.offeredEnd)}</strong> of <strong>{shiftLabel(split.shiftId)}</strong> for <strong>{offerorDisplayName}</strong>?
                         </p>
                       )}
                       <div className="flex gap-2">
@@ -1147,7 +1146,7 @@ export default function SchedulePage() {
                           onClick={() => { setAcceptingSplitId(split.id); setSplitAcceptError('') }}
                           className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
                         >
-                          Take this portion
+                          Accept split
                         </button>
                       )}
                       {isMyOffer && (
