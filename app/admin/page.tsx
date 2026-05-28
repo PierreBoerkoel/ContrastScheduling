@@ -229,6 +229,7 @@ export default function AdminPage() {
   const [selectedScheduleBlock, setSelectedScheduleBlock] = useState('')
   const [scheduleClinicFilter, setScheduleClinicFilter] = useState<ClinicName | ''>('')
   const [swapsBlockFilter, setSwapsBlockFilter] = useState('')
+  const [availabilityBlockFilter, setAvailabilityBlockFilter] = useState('')
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [publishing, setPublishing] = useState(false)
@@ -1234,19 +1235,32 @@ export default function AdminPage() {
       {/* ── AVAILABILITY TAB ── */}
       {tab === 'availability' && (() => {
         const activePeriodIds = new Set(periods.map((p) => p.id))
-        const activeSubmissions = submissions.filter((s) => s.periodId && activePeriodIds.has(s.periodId))
+        const allActiveSubmissions = submissions.filter((s) => s.periodId && activePeriodIds.has(s.periodId))
+        const activeSubmissions = availabilityBlockFilter
+          ? allActiveSubmissions.filter((s) => s.periodId === periods.find((p) => p.name === availabilityBlockFilter)?.id)
+          : allActiveSubmissions
         return (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            {activeSubmissions.length === 0 ? (
+            {allActiveSubmissions.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-sm">
                 No availability submissions yet.
               </div>
             ) : (
               <>
-                <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center gap-3 justify-between">
                   <h2 className="text-sm font-semibold text-slate-700">
                     {activeSubmissions.length} submission{activeSubmissions.length !== 1 ? 's' : ''}
                   </h2>
+                  <select
+                    value={availabilityBlockFilter}
+                    onChange={(e) => setAvailabilityBlockFilter(e.target.value)}
+                    className="border border-slate-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  >
+                    <option value="">All blocks</option>
+                    {periods.slice().sort((a, b) => b.startDate.localeCompare(a.startDate)).map((p) => (
+                      <option key={p.id} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
                 </div>
                 {/* Mobile cards */}
                 <div className="sm:hidden divide-y divide-slate-100">
