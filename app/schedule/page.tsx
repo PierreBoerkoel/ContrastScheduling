@@ -869,7 +869,7 @@ export default function SchedulePage() {
                       {requestingShiftId === shiftId && (
                         <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-4">
                           <p className="text-sm text-amber-800 mb-3">
-                            Offer <strong>{label}</strong> to others? Anyone can claim it — no shift needed in return.
+                            Offer <strong>{label}</strong> to others? Anyone can claim it.
                           </p>
                           <div className="flex gap-2">
                             <button
