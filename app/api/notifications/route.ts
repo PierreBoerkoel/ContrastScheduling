@@ -15,12 +15,17 @@ export async function POST(request: Request) {
   const period = await getPeriod(periodId)
   if (!period) return NextResponse.json({ error: 'Period not found' }, { status: 404 })
 
-  if (type === 'availability') {
-    await sendAvailabilityNotification(period)
-  } else if (type === 'schedule') {
-    await sendScheduleNotification(period)
-  } else {
-    return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
+  try {
+    if (type === 'availability') {
+      await sendAvailabilityNotification(period)
+    } else if (type === 'schedule') {
+      await sendScheduleNotification(period)
+    } else {
+      return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return NextResponse.json({ error: `Failed to send emails: ${message}` }, { status: 502 })
   }
 
   return NextResponse.json({ ok: true })

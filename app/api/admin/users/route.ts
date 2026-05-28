@@ -32,6 +32,9 @@ export async function PATCH(request: Request) {
   }
 
   const { userId: targetId, role } = (await request.json()) as { userId: string; role: string }
+  if (!['admin', 'resident'].includes(role)) {
+    return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
+  }
   const client = await clerkClient()
   await client.users.updateUserMetadata(targetId, { publicMetadata: { role } })
   return NextResponse.json({ ok: true })

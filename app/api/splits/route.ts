@@ -11,7 +11,9 @@ function timeToMinutes(t: string): number {
 
 function isHalfHour(t: string): boolean {
   if (!/^\d{2}:\d{2}$/.test(t)) return false
-  return parseInt(t.split(':')[1]) % 30 === 0
+  const h = parseInt(t.split(':')[0])
+  const m = parseInt(t.split(':')[1])
+  return h >= 0 && h < 24 && m >= 0 && m < 60 && m % 30 === 0
 }
 
 export async function GET() {

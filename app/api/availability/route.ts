@@ -6,7 +6,10 @@ import type { AvailabilitySubmission } from '@/lib/types'
 export async function GET() {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return NextResponse.json(await getSubmissions())
+  const user = await currentUser()
+  const isAdmin = (user?.publicMetadata as { role?: string })?.role === 'admin'
+  const submissions = await getSubmissions()
+  return NextResponse.json(isAdmin ? submissions : submissions.filter((s) => s.userId === userId))
 }
 
 export async function POST(request: Request) {

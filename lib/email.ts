@@ -5,11 +5,10 @@ const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'Contrast Scheduling <onboarding@resend.dev>'
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://contrast-scheduling.vercel.app'
 
-async function getResidentEmails(): Promise<string[]> {
+async function getAllUserEmails(): Promise<string[]> {
   const client = await clerkClient()
   const { data: users } = await client.users.getUserList({ limit: 500 })
   return users
-    .filter((u) => (u.publicMetadata as { role?: string })?.role !== 'admin')
     .map((u) => u.emailAddresses[0]?.emailAddress)
     .filter((e): e is string => !!e)
 }
@@ -28,13 +27,13 @@ export async function sendAvailabilityNotification(period: {
   startDate: string
   endDate: string
 }): Promise<void> {
-  const emails = await getResidentEmails()
+  const emails = await getAllUserEmails()
   if (!emails.length) return
 
   const start = formatDate(period.startDate)
   const end = formatDate(period.endDate)
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: FROM,
     to: emails,
     subject: `Availability open: ${period.name} (${start} – ${end})`,
@@ -43,6 +42,7 @@ export async function sendAvailabilityNotification(period: {
 <p>Please log in and submit your preferences before the deadline.</p>
 <p><a href="${BASE_URL}/availability">Submit availability →</a></p>`,
   })
+  if (error) throw new Error(`Resend error: ${error.message}`)
 }
 
 export async function sendScheduleNotification(period: {
@@ -50,13 +50,13 @@ export async function sendScheduleNotification(period: {
   startDate: string
   endDate: string
 }): Promise<void> {
-  const emails = await getResidentEmails()
+  const emails = await getAllUserEmails()
   if (!emails.length) return
 
   const start = formatDate(period.startDate)
   const end = formatDate(period.endDate)
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: FROM,
     to: emails,
     subject: `Schedule published: ${period.name} (${start} – ${end})`,
@@ -65,4 +65,5 @@ export async function sendScheduleNotification(period: {
 <p>Please log in to view your assigned shifts.</p>
 <p><a href="${BASE_URL}/schedule">View schedule →</a></p>`,
   })
+  if (error) throw new Error(`Resend error: ${error.message}`)
 }
