@@ -323,7 +323,7 @@ export default function AvailabilityPage() {
                                 onClick={() => toggleAllOnDay(date)}
                                 className="text-xs font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap"
                               >
-                                {allSelected ? 'Deselect' : 'Select all'}
+                                {allSelected ? 'Deselect all' : 'Select all'}
                               </button>
                             </td>
                           )}

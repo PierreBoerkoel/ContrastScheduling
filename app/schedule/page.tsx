@@ -482,7 +482,7 @@ export default function SchedulePage() {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="font-medium text-slate-800">{displayMap[segName] ?? segName}</span>
                   {hasPendingSwap && i === 0 && segments.length === 1 && (
-                    <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">offered</span>
+                    <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Shift offered</span>
                   )}
                 </div>
                 {seg.start && seg.end && (
@@ -492,7 +492,7 @@ export default function SchedulePage() {
             )
           })}
           {hasPendingSplitOffer && (
-            <div className="text-xs text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full inline-block mt-0.5">portion offered</div>
+            <div className="text-xs text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full inline-block mt-0.5">Split offered</div>
           )}
         </div>
       )
@@ -515,7 +515,7 @@ export default function SchedulePage() {
             <button onClick={() => claimShift(shift.id, true)} disabled={claimingShiftId === shift.id}
               className="text-xs font-medium bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700 disabled:opacity-40 transition-colors"
             >
-              {claimingShiftId === shift.id ? 'Claiming…' : 'Confirm'}
+              {claimingShiftId === shift.id ? 'Claiming…' : 'Claim'}
             </button>
             <button onClick={() => setPendingClaimShiftId(null)} className="text-xs text-slate-500 hover:text-slate-700">Cancel</button>
           </div>
@@ -546,7 +546,7 @@ export default function SchedulePage() {
           <button onClick={() => claimShift(shift.id)} disabled={isClaiming}
             className="text-xs font-medium bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700 disabled:opacity-40 transition-colors"
           >
-            {isClaiming ? 'Claiming…' : 'Confirm'}
+            {isClaiming ? 'Claiming…' : 'Claim'}
           </button>
           <button onClick={() => setPendingClaimShiftId(null)} className="text-xs text-slate-500 hover:text-slate-700">Cancel</button>
         </div>
@@ -817,7 +817,7 @@ export default function SchedulePage() {
                           <span className="text-sm text-slate-700">{label}</span>
                           {ownedWindow && (ownedWindow.start !== shiftById[shiftId]?.startTime || ownedWindow.end !== shiftById[shiftId]?.endTime) && (
                             <span className="ml-2 text-xs text-slate-400">
-                              your window: {formatTimeRange(ownedWindow.start, ownedWindow.end)}
+                              your hours: {formatTimeRange(ownedWindow.start, ownedWindow.end)}
                             </span>
                           )}
                         </div>
@@ -1025,7 +1025,7 @@ export default function SchedulePage() {
                           disabled={submittingAccept}
                           className={`text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition-colors ${myConflictClinic ? 'bg-amber-500 hover:bg-amber-600' : 'bg-green-600 hover:bg-green-700'}`}
                         >
-                          {submittingAccept ? 'Claiming…' : 'Confirm'}
+                          {submittingAccept ? 'Accepting…' : 'Accept'}
                         </button>
                         <button
                           onClick={() => { setAcceptingId(null); setAcceptError('') }}
@@ -1122,7 +1122,7 @@ export default function SchedulePage() {
                           disabled={submittingSplitAccept}
                           className={`text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition-colors ${myConflictClinic ? 'bg-amber-500 hover:bg-amber-600' : 'bg-green-600 hover:bg-green-700'}`}
                         >
-                          {submittingSplitAccept ? 'Claiming…' : 'Confirm'}
+                          {submittingSplitAccept ? 'Accepting…' : 'Accept'}
                         </button>
                         <button
                           onClick={() => { setAcceptingSplitId(null); setSplitAcceptError('') }}
