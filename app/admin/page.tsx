@@ -2241,7 +2241,7 @@ export default function AdminPage() {
                 {addClinicBillingType === 'existing' ? (
                   <select value={addClinicEntityCode} onChange={(e) => setAddClinicEntityCode(e.target.value)} className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 w-full max-w-xs">
                     <option value="">Select entity…</option>
-                    {billingEntities.map((e) => <option key={e.code} value={e.code}>{e.label}</option>)}
+                    {billingEntities.map((e) => <option key={e.code} value={e.code}>{ENTITY_DISPLAY[e.code] ?? e.code}</option>)}
                   </select>
                 ) : (
                   <div className="space-y-3">
