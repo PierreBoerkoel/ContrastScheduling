@@ -21,9 +21,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider>
-      <html lang="en" className={`${geist.variable} h-dvh`}>
-        <body className="min-h-dvh flex flex-col bg-slate-50 font-sans antialiased">
-          <header className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
+      <html lang="en" className={`${geist.variable} h-dvh overflow-hidden`}>
+        <body className="h-full flex flex-col bg-slate-50 font-sans antialiased overflow-hidden">
+          <header className="shrink-0 bg-white border-b border-slate-200 shadow-sm">
             <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
               <Link href="/" className="font-semibold text-slate-800 hover:text-blue-600 transition-colors shrink-0 text-base sm:text-lg">
                 <span className="sm:hidden">Contrast Scheduling</span>
@@ -64,12 +64,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </div>
             </Show>
           </header>
-          <main className="flex-1">
+          <main className="flex-1 overflow-y-auto">
             <OnboardingGuard>{children}</OnboardingGuard>
+            <footer className="border-t border-slate-200 bg-white py-4 px-4 text-center text-xs text-slate-400">
+              UBC Radiology Residency · Shift Scheduling
+            </footer>
           </main>
-          <footer className="border-t border-slate-200 bg-white py-4 px-4 text-center text-xs text-slate-400">
-            UBC Radiology Residency · Shift Scheduling
-          </footer>
         </body>
       </html>
     </ClerkProvider>
