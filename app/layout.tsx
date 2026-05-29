@@ -64,8 +64,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </div>
             </Show>
           </header>
-          <main className="flex-1 overflow-y-auto">
-            <OnboardingGuard>{children}</OnboardingGuard>
+          <main className="flex-1 overflow-y-auto flex flex-col">
+            <div className="flex-1">
+              <OnboardingGuard>{children}</OnboardingGuard>
+            </div>
             <footer className="border-t border-slate-200 bg-white py-4 px-4 text-center text-xs text-slate-400">
               UBC Radiology Residency · Shift Scheduling
             </footer>
