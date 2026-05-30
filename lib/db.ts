@@ -121,12 +121,12 @@ export async function initDb(): Promise<void> {
   `
   await sql`
     CREATE TABLE IF NOT EXISTS availability_submissions (
-      id                  TEXT PRIMARY KEY,
+      id                  UUID PRIMARY KEY,
       user_id             TEXT,
       resident_name       TEXT NOT NULL,
       submitted_at        TIMESTAMPTZ NOT NULL,
       available_shift_ids TEXT[] NOT NULL DEFAULT '{}',
-      period_id           TEXT,
+      period_id           UUID REFERENCES scheduling_periods(id) ON DELETE CASCADE,
       max_shifts          INTEGER
     )
   `
@@ -137,7 +137,7 @@ export async function initDb(): Promise<void> {
   `
   await sql`
     CREATE TABLE IF NOT EXISTS swap_requests (
-      id                  TEXT PRIMARY KEY,
+      id                  UUID PRIMARY KEY,
       requested_at        TIMESTAMPTZ NOT NULL,
       status              TEXT NOT NULL DEFAULT 'pending',
       requestor_user_id   TEXT,
@@ -152,7 +152,7 @@ export async function initDb(): Promise<void> {
   `
   await sql`
     CREATE TABLE IF NOT EXISTS shift_splits (
-      id               TEXT PRIMARY KEY,
+      id               UUID PRIMARY KEY,
       shift_id         UUID NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
       period_id        UUID REFERENCES scheduling_periods(id) ON DELETE CASCADE,
       offeror_name     TEXT NOT NULL,
@@ -364,6 +364,48 @@ export async function initDb(): Promise<void> {
 
   // ── Drop legacy clinic_defaults ───────────────────────────────────────────
   await sql`DROP TABLE IF EXISTS clinic_defaults`
+
+  // ── Migrate TEXT PKs to UUID on availability_submissions, swap_requests, shift_splits ──
+  await sql`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'availability_submissions' AND column_name = 'id' AND data_type = 'text'
+      ) THEN
+        ALTER TABLE availability_submissions ALTER COLUMN id TYPE UUID USING id::uuid;
+      END IF;
+    END $$
+  `
+  await sql`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'availability_submissions' AND column_name = 'period_id' AND data_type = 'text'
+      ) THEN
+        ALTER TABLE availability_submissions ALTER COLUMN period_id TYPE UUID USING period_id::uuid;
+      END IF;
+    END $$
+  `
+  await sql`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'swap_requests' AND column_name = 'id' AND data_type = 'text'
+      ) THEN
+        ALTER TABLE swap_requests ALTER COLUMN id TYPE UUID USING id::uuid;
+      END IF;
+    END $$
+  `
+  await sql`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'shift_splits' AND column_name = 'id' AND data_type = 'text'
+      ) THEN
+        ALTER TABLE shift_splits ALTER COLUMN id TYPE UUID USING id::uuid;
+      END IF;
+    END $$
+  `
 }
 
 // ── Shifts ────────────────────────────────────────────────────────────────────
