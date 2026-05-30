@@ -332,6 +332,36 @@ export async function initDb(): Promise<void> {
     )
   `
 
+  // ── Resident contacts ─────────────────────────────────────────────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS resident_contacts (
+      user_id TEXT PRIMARY KEY,
+      address TEXT NOT NULL DEFAULT '',
+      phone   TEXT NOT NULL DEFAULT '',
+      email   TEXT NOT NULL DEFAULT ''
+    )
+  `
+
+  // ── Invoice sequences (migrate from resident_name PK to user_id PK) ───────
+  await sql`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'invoice_sequences' AND column_name = 'resident_name'
+      ) THEN
+        DROP TABLE invoice_sequences;
+      END IF;
+    END $$
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS invoice_sequences (
+      user_id     TEXT NOT NULL,
+      series      TEXT NOT NULL,
+      next_number INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (user_id, series)
+    )
+  `
+
   // ── Drop legacy clinic_defaults ───────────────────────────────────────────
   await sql`DROP TABLE IF EXISTS clinic_defaults`
 }
@@ -922,17 +952,11 @@ export async function peekInvoiceNumber(userId: string, series: string): Promise
 
 export async function setInvoiceSequence(userId: string, series: string, nextNumber: number): Promise<void> {
   await ensureDb()
-  const { rowCount } = await sql`
-    UPDATE invoice_sequences SET next_number = ${nextNumber}
-    WHERE user_id = ${userId} AND series = ${series}
+  await sql`
+    INSERT INTO invoice_sequences (user_id, series, next_number)
+    VALUES (${userId}, ${series}, ${nextNumber})
+    ON CONFLICT (user_id, series) DO UPDATE SET next_number = EXCLUDED.next_number
   `
-  if ((rowCount ?? 0) === 0) {
-    await sql`
-      INSERT INTO invoice_sequences (resident_name, user_id, series, next_number)
-      VALUES (${userId}, ${userId}, ${series}, ${nextNumber})
-      ON CONFLICT (resident_name, series) DO NOTHING
-    `
-  }
 }
 
 // ── Billing entities ─────────────────────────────────────────────────────────
@@ -1248,4 +1272,33 @@ export async function getAllResidentPreferences(): Promise<Record<string, Reside
     r.user_id as string,
     parsePrefs(r.shift_defaults, r.clinic_prefs),
   ]))
+}
+
+// ── Resident contacts ─────────────────────────────────────────────────────────
+
+export interface ResidentContact {
+  address: string
+  phone: string
+  email: string
+}
+
+export async function getResidentContact(userId: string): Promise<ResidentContact | null> {
+  await ensureDb()
+  const { rows } = await sql`
+    SELECT address, phone, email FROM resident_contacts WHERE user_id = ${userId}
+  `
+  if (rows.length === 0) return null
+  return { address: rows[0].address as string, phone: rows[0].phone as string, email: rows[0].email as string }
+}
+
+export async function upsertResidentContact(userId: string, contact: ResidentContact): Promise<void> {
+  await ensureDb()
+  await sql`
+    INSERT INTO resident_contacts (user_id, address, phone, email)
+    VALUES (${userId}, ${contact.address}, ${contact.phone}, ${contact.email})
+    ON CONFLICT (user_id) DO UPDATE SET
+      address = EXCLUDED.address,
+      phone   = EXCLUDED.phone,
+      email   = EXCLUDED.email
+  `
 }

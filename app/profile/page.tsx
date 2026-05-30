@@ -193,6 +193,7 @@ export default function ProfilePage() {
   const [contactEmail, setContactEmail] = useState('')
   const [contactSaving, setContactSaving] = useState(false)
   const [contactError, setContactError] = useState('')
+  const [savedContact, setSavedContact] = useState({ address: '', phone: '', email: '' })
 
   const [showInvoiceGenerator, setShowInvoiceGenerator] = useState(false)
   const [showEarningsCsv, setShowEarningsCsv] = useState(false)
@@ -239,11 +240,13 @@ export default function ProfilePage() {
       fetch('/api/periods?all=true').then((r) => r.json()),
       fetch('/api/splits').then((r) => r.json()),
       fetch('/api/admin/clinic-defaults?includeArchived=true').then((r) => r.json()),
-    ]).then(([shiftList, periodList, splitList, clinicList]) => {
+      fetch('/api/profile/contact').then((r) => r.json()),
+    ]).then(([shiftList, periodList, splitList, clinicList, contactData]) => {
       setShifts(Array.isArray(shiftList) ? shiftList : [])
       setPeriods(Array.isArray(periodList) ? periodList : [])
       setAllSplits(Array.isArray(splitList) ? splitList : [])
       if (Array.isArray(clinicList)) setClinics(clinicList)
+      if (contactData && !contactData.error) setSavedContact(contactData)
       setLoading(false)
     })
   }, [])
@@ -277,16 +280,35 @@ export default function ProfilePage() {
     setContactSaving(true)
     setContactError('')
     try {
-      await user.update({
-        firstName: contactFirstName.trim(),
-        lastName: contactLastName.trim(),
-        unsafeMetadata: {
-          ...(user.unsafeMetadata ?? {}),
-          address: contactAddress.trim(),
-          phone: contactPhone.trim(),
-          email: contactEmail.trim(),
-        },
-      })
+      const newFirst = contactFirstName.trim()
+      const newLast = contactLastName.trim()
+      const nameChanged = newFirst !== (user.firstName ?? '') || newLast !== (user.lastName ?? '')
+      if (nameChanged) {
+        const res = await fetch('/api/check-name', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ firstName: newFirst, lastName: newLast }),
+        })
+        const { collision } = await res.json()
+        if (collision) {
+          setContactError('Another resident already has this name. Please use a different name.')
+          return
+        }
+      }
+      const newContact = {
+        address: contactAddress.trim(),
+        phone: contactPhone.trim(),
+        email: contactEmail.trim(),
+      }
+      await Promise.all([
+        fetch('/api/profile/contact', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newContact),
+        }),
+        user.update({ firstName: newFirst, lastName: newLast }),
+      ])
+      setSavedContact(newContact)
       setEditingContact(false)
     } catch (e) {
       setContactError(e instanceof Error ? e.message : 'Failed to update contact info')
@@ -296,12 +318,11 @@ export default function ProfilePage() {
   }
 
   function startEditContact() {
-    const meta = user?.unsafeMetadata as { address?: string; phone?: string; email?: string } | undefined
     setContactFirstName(user?.firstName ?? '')
     setContactLastName(user?.lastName ?? '')
-    setContactAddress(meta?.address ?? '')
-    setContactPhone(meta?.phone ?? '')
-    setContactEmail(meta?.email ?? user?.primaryEmailAddress?.emailAddress ?? '')
+    setContactAddress(savedContact.address)
+    setContactPhone(savedContact.phone)
+    setContactEmail(savedContact.email || (user?.primaryEmailAddress?.emailAddress ?? ''))
     setContactError('')
     setEditingContact(true)
   }
@@ -444,13 +465,11 @@ export default function ProfilePage() {
     return key === mostRecentMonthKey ? !toggled : toggled
   }
 
-  // Contact info for invoice generation (stored in Clerk unsafeMetadata)
-  const meta = user?.unsafeMetadata as { address?: string; phone?: string; email?: string } | undefined
   const invoiceFrom = {
     name: myName,
-    address: meta?.address ?? '',
-    phone: meta?.phone ?? '',
-    email: meta?.email ?? user?.primaryEmailAddress?.emailAddress ?? '',
+    address: savedContact.address,
+    phone: savedContact.phone,
+    email: savedContact.email || (user?.primaryEmailAddress?.emailAddress ?? ''),
   }
   const hasContactInfo = !!(invoiceFrom.address && invoiceFrom.phone && invoiceFrom.email)
 

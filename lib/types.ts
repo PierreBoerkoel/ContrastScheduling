@@ -151,7 +151,9 @@ export function computeCoverageSegments(
   for (const seg of raw) {
     const prev = merged[merged.length - 1]
     const sameOwner = prev
-      ? (prev.userId && seg.userId ? prev.userId === seg.userId : prev.residentName.toLowerCase() === seg.residentName.toLowerCase())
+      ? (prev.userId && seg.userId
+          ? prev.userId === seg.userId
+          : !prev.userId && !seg.userId && prev.residentName.toLowerCase() === seg.residentName.toLowerCase())
       : false
     if (sameOwner && prev!.end === seg.start) {
       prev!.end = seg.end
