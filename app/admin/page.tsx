@@ -2515,7 +2515,12 @@ export default function AdminPage() {
                   className="w-full px-5 py-4 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors"
                 >
                   <div className="flex-1 min-w-0">
-                    <span className="text-sm font-semibold text-slate-800">{clinic}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-800">{clinic}</span>
+                      {def.abbreviation && (
+                        <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded font-mono shrink-0">{def.abbreviation}</span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                       <div className="flex gap-1">
                         {DAY_ORDER.map((day) => {
@@ -2765,25 +2770,7 @@ export default function AdminPage() {
                     ) : (
                       /* ── Read-only view ── */
                       <div className="px-5 py-4 space-y-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                            <div className="flex gap-0.5">
-                              {DAY_ORDER.map((day) => {
-                                const active = (def.activeDays ?? []).includes(day)
-                                return (
-                                  <span key={day} className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium ${active ? 'bg-blue-100 text-blue-700' : 'text-slate-200'}`}>
-                                    {DAY_LABELS[day]}
-                                  </span>
-                                )
-                              })}
-                            </div>
-                            {hasWeekdays && def.weekdayStart && def.weekdayEnd && (
-                              <span>Weekday: {formatTimeValue(def.weekdayStart)} – {formatTimeValue(def.weekdayEnd)}</span>
-                            )}
-                            {hasWeekends && def.weekendStart && def.weekendEnd && (
-                              <span>Weekend: {formatTimeValue(def.weekendStart)} – {formatTimeValue(def.weekendEnd)}</span>
-                            )}
-                          </div>
+                        <div className="flex justify-end">
                           <button
                             onClick={() => {
                               setClinicEditError('')
@@ -2812,7 +2799,7 @@ export default function AdminPage() {
                               })
                               setEditingClinic(clinic)
                             }}
-                            className="text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0"
+                            className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-0.5 transition-colors"
                           >
                             Edit
                           </button>
@@ -2865,7 +2852,9 @@ export default function AdminPage() {
                 onClick={() => setShowArchivedSection((v) => !v)}
                 className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
               >
-                <span className={`transition-transform ${showArchivedSection ? 'rotate-90' : ''}`}>▶</span>
+                <svg className={`w-3.5 h-3.5 transition-transform ${showArchivedSection ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
                 Archived clinics ({archivedClinics.length})
               </button>
               {showArchivedSection && (
