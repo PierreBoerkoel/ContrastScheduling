@@ -41,6 +41,7 @@ interface ClerkUser {
   fullName: string
   email: string
   role: string
+  isCoordinator: boolean
   createdAt: string
   phone?: string
 }
@@ -226,6 +227,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<ClerkUser[]>([])
   const [removingUserId, setRemovingUserId] = useState<string | null>(null)
   const [promotingUserId, setPromotingUserId] = useState<string | null>(null)
+  const [coordinatingUserId, setCoordinatingUserId] = useState<string | null>(null)
 
   // Schedule interaction
   const [selectedScheduleBlock, setSelectedScheduleBlock] = useState('')
@@ -783,6 +785,20 @@ export default function AdminPage() {
       await fetchData()
     } finally {
       setPromotingUserId(null)
+    }
+  }
+
+  async function setCoordinator(userId: string, value: boolean) {
+    setCoordinatingUserId(userId)
+    try {
+      await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, coordinator: value }),
+      })
+      await fetchData()
+    } finally {
+      setCoordinatingUserId(null)
     }
   }
 
@@ -2043,6 +2059,9 @@ export default function AdminPage() {
                           <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${u.role === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
                             {u.role}
                           </span>
+                          {u.isCoordinator && (
+                            <span className="shrink-0 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">coordinator</span>
+                          )}
                         </div>
                         {u.id !== user?.id && (
                           <div className="flex items-center gap-3 shrink-0">
@@ -2053,6 +2072,15 @@ export default function AdminPage() {
                             >
                               {promotingUserId === u.id ? '…' : u.role === 'admin' ? 'Demote' : 'Make admin'}
                             </button>
+                            {u.role === 'admin' && (
+                              <button
+                                onClick={() => setCoordinator(u.id, !u.isCoordinator)}
+                                disabled={coordinatingUserId === u.id}
+                                className="text-xs text-amber-600 hover:text-amber-800 transition-colors disabled:opacity-40"
+                              >
+                                {coordinatingUserId === u.id ? '…' : u.isCoordinator ? 'Remove coordinator' : 'Make coordinator'}
+                              </button>
+                            )}
                             <button
                               onClick={() => removeUser(u.id)}
                               disabled={removingUserId === u.id}
@@ -2094,15 +2122,20 @@ export default function AdminPage() {
                         <td className="px-4 py-3 text-slate-500">{u.email}</td>
                         <td className="px-4 py-3 text-slate-500">{u.phone ? formatPhone(u.phone) : <span className="text-slate-300">—</span>}</td>
                         <td className="px-4 py-3">
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                              u.role === 'admin'
-                                ? 'bg-blue-100 text-blue-700'
-                                : 'bg-slate-100 text-slate-500'
-                            }`}
-                          >
-                            {u.role}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                u.role === 'admin'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-slate-100 text-slate-500'
+                              }`}
+                            >
+                              {u.role}
+                            </span>
+                            {u.isCoordinator && (
+                              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">coordinator</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-slate-400 text-xs">
                           {new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium' }).format(
@@ -2123,6 +2156,15 @@ export default function AdminPage() {
                                   ? 'Demote'
                                   : 'Make admin'}
                               </button>
+                              {u.role === 'admin' && (
+                                <button
+                                  onClick={() => setCoordinator(u.id, !u.isCoordinator)}
+                                  disabled={coordinatingUserId === u.id}
+                                  className="text-xs text-amber-600 hover:text-amber-800 transition-colors disabled:opacity-40"
+                                >
+                                  {coordinatingUserId === u.id ? '…' : u.isCoordinator ? 'Remove coordinator' : 'Make coordinator'}
+                                </button>
+                              )}
                               <button
                                 onClick={() => removeUser(u.id)}
                                 disabled={removingUserId === u.id}
@@ -2140,6 +2182,9 @@ export default function AdminPage() {
               </div>
             </>
           )}
+          <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
+            The <span className="font-medium text-amber-700">coordinator</span> badge designates the admin whose email appears as the contact on the public home page. Only one coordinator can be set at a time. Assign it to an admin user above.
+          </div>
         </div>
       )}
 
