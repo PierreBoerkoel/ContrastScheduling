@@ -430,6 +430,8 @@ export default function SchedulePage() {
     counts[acceptorKey] = (counts[acceptorKey] ?? 0) + frac
   }
 
+  const periodShiftIds = new Set(shifts.filter((s) => s.periodId === selectedPeriod?.id).map((s) => s.id))
+
   const allNamesInView = new Set<string>()
   for (const a of filteredPublished) {
     const n = currentNameFor(a.userId, a.residentName)
@@ -443,13 +445,34 @@ export default function SchedulePage() {
       if (acceptorN) allNamesInView.add(acceptorN)
     }
   }
+  for (const req of swapRequests) {
+    if (!periodShiftIds.has(req.requestorShiftId)) continue
+    const n = currentNameFor(req.requestorUserId, req.requestorName)
+    if (n) allNamesInView.add(n)
+    if (req.acceptorUserId || req.acceptorName) {
+      const n2 = currentNameFor(req.acceptorUserId, req.acceptorName)
+      if (n2) allNamesInView.add(n2)
+    }
+  }
+  for (const sp of splits) {
+    if (!periodShiftIds.has(sp.shiftId)) continue
+    const n = currentNameFor(sp.offerorUserId, sp.offerorName)
+    if (n) allNamesInView.add(n)
+    if (sp.acceptorUserId || sp.acceptorName) {
+      const n2 = currentNameFor(sp.acceptorUserId, sp.acceptorName)
+      if (n2) allNamesInView.add(n2)
+    }
+  }
   const displayMap = buildDisplayNames([...allNamesInView])
+  const dn = (userId: string | null | undefined, fallback: string | null | undefined) => {
+    const full = currentNameFor(userId, fallback)
+    return displayMap[full] ?? full
+  }
 
   const pendingSwaps = swapRequests.filter((r) => r.status === 'pending')
   const pendingSplits = splits.filter((s) => s.status === 'pending')
 
   // Period-scoped versions for the offer display sections (grid badges use unscoped versions)
-  const periodShiftIds = new Set(shifts.filter((s) => s.periodId === selectedPeriod?.id).map((s) => s.id))
   const periodPendingSwaps = pendingSwaps.filter((r) => periodShiftIds.has(r.requestorShiftId))
   const periodPendingSplits = pendingSplits.filter((s) => periodShiftIds.has(s.shiftId))
   const periodCompletedSwaps = swapRequests.filter((r) => r.status !== 'pending' && periodShiftIds.has(r.requestorShiftId))
@@ -1008,7 +1031,7 @@ export default function SchedulePage() {
               const myConflictClinic = myConflict
                 ? (clinicAbbr[shiftById[myConflict.shiftId]?.clinic ?? ''] ?? shiftById[myConflict.shiftId]?.clinic ?? '')
                 : null
-              const requestorDisplayName = currentNameFor(req.requestorUserId, req.requestorName)
+              const requestorDisplayName = dn(req.requestorUserId, req.requestorName)
               const requestorShift = shiftById[req.requestorShiftId]
               const offerStarted = requestorShift ? isShiftStarted(requestorShift) : false
               return (
@@ -1088,7 +1111,7 @@ export default function SchedulePage() {
           <div className="divide-y divide-slate-100">
             {periodPendingSplits.map((split) => {
               const isMyOffer = split.offerorUserId === myUserId
-              const offerorDisplayName = currentNameFor(split.offerorUserId, split.offerorName)
+              const offerorDisplayName = dn(split.offerorUserId, split.offerorName)
               const splitShift = shiftById[split.shiftId]
               const splitStarted = splitShift ? isShiftStarted(splitShift) : false
               const splitDate = shiftById[split.shiftId]?.date ?? ''
@@ -1202,9 +1225,9 @@ export default function SchedulePage() {
                     </span>
                     <div className="min-w-0">
                       <div className="text-sm text-slate-700">
-                        {currentNameFor(item.requestorUserId, item.requestorName)}
+                        {dn(item.requestorUserId, item.requestorName)}
                         {item.status === 'accepted' && (
-                          <> → {currentNameFor(item.acceptorUserId, item.acceptorName)}</>
+                          <> → {dn(item.acceptorUserId, item.acceptorName)}</>
                         )}
                       </div>
                       <div className="text-xs text-slate-400 mt-0.5">{shiftLabel(item.requestorShiftId)}</div>
@@ -1223,9 +1246,9 @@ export default function SchedulePage() {
                     </span>
                     <div className="min-w-0">
                       <div className="text-sm text-slate-700">
-                        {currentNameFor(item.offerorUserId, item.offerorName)}
+                        {dn(item.offerorUserId, item.offerorName)}
                         {item.status === 'accepted' && (
-                          <> → {currentNameFor(item.acceptorUserId, item.acceptorName)}</>
+                          <> → {dn(item.acceptorUserId, item.acceptorName)}</>
                         )}
                       </div>
                       <div className="text-xs text-slate-400 mt-0.5">
