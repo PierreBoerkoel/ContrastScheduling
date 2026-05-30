@@ -27,7 +27,6 @@ export default function AvailabilityPage() {
   useEffect(() => { setMounted(true) }, [])
 
   const { user, isLoaded } = useUser()
-  const myName = (user?.fullName ?? '').toLowerCase()
   const myUserId = user?.id ?? ''
 
   const [shifts, setShifts] = useState<Shift[]>([])
@@ -186,10 +185,6 @@ export default function AvailabilityPage() {
       <h1 className="text-2xl font-bold text-slate-800 mb-1">Submit Availability</h1>
       <p className="text-slate-500 mb-6 text-sm">
         Select a block, then mark the shifts you are available to cover.
-      </p>
-
-      <p className="text-xs text-slate-400 mb-6">
-        Submitting as <span className="font-medium text-slate-500">{user?.fullName ?? user?.firstName ?? user?.emailAddresses[0]?.emailAddress}</span>
       </p>
 
       {loading ? (
