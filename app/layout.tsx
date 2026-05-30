@@ -14,8 +14,8 @@ import './globals.css'
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
 
 export const metadata: Metadata = {
-  title: 'Contrast Call Scheduling',
-  description: 'Resident contrast coverage scheduling for BC Cancer Agency, INITIO Medical Imaging, UBC Hospital, and BC Women\'s Hospital',
+  title: 'Contrast Coverage',
+  description: 'Resident contrast reaction monitoring coverage scheduling for BC Cancer Agency, INITIO Medical Imaging, UBC Hospital, and BC Women\'s Hospital',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -26,8 +26,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <header className="shrink-0 bg-white border-b border-slate-200 shadow-sm">
             <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
               <Link href="/" className="font-semibold text-slate-800 hover:text-blue-600 transition-colors shrink-0 text-base sm:text-lg">
-                <span className="sm:hidden">Contrast Scheduling</span>
-                <span className="hidden sm:inline">Contrast Call Scheduling</span>
+                <span className="sm:hidden">Contrast Coverage</span>
+                <span className="hidden sm:inline">Contrast Coverage</span>
               </Link>
               <nav className="flex items-center gap-3 sm:gap-6 text-sm font-medium">
                 <Show when="signed-in">
@@ -69,7 +69,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <OnboardingGuard>{children}</OnboardingGuard>
             </div>
             <footer className="border-t border-slate-200 bg-white py-4 px-4 text-center text-xs text-slate-400">
-              UBC Radiology Residency · CA Shift Scheduling
+              UBC Radiology Residency · Contrast Coverage
             </footer>
           </main>
         </body>

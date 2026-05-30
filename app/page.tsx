@@ -64,7 +64,7 @@ function LoggedOutLanding() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
         </div>
-        <h1 className="text-3xl font-bold text-slate-800 mb-3 tracking-tight">CA Shift Scheduling</h1>
+        <h1 className="text-3xl font-bold text-slate-800 mb-3 tracking-tight">Contrast Coverage</h1>
         <p className="text-slate-500 text-base max-w-md mx-auto leading-relaxed">
           Coordinating after-hours contrast reaction monitoring coverage for UBC Radiology Clinical Associates.
         </p>
@@ -77,7 +77,7 @@ function LoggedOutLanding() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
           </div>
-          <h2 className="text-base font-semibold text-slate-800 mb-1.5">Clinical Associates</h2>
+          <h2 className="text-base font-semibold text-slate-800 mb-1.5">Residents</h2>
           <p className="text-sm text-slate-500 leading-relaxed flex-1">
             Submit your availability, view your assigned shifts, and manage splits and swaps — all in one place.
           </p>
