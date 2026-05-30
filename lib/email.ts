@@ -13,6 +13,12 @@ async function getAllUserEmails(): Promise<string[]> {
     .filter((e): e is string => !!e)
 }
 
+async function getUserEmail(userId: string): Promise<string | null> {
+  const client = await clerkClient()
+  const user = await client.users.getUser(userId)
+  return user.emailAddresses[0]?.emailAddress ?? null
+}
+
 function formatDate(d: string): string {
   return new Date(d + 'T00:00:00Z').toLocaleDateString('en-CA', {
     timeZone: 'UTC',
@@ -63,6 +69,51 @@ export async function sendScheduleNotification(period: {
     html: `<p>Hi,</p>
 <p>The schedule for <strong>${period.name}</strong> (${start} – ${end}) has been published.</p>
 <p>Please log in to view your assigned shifts.</p>
+<p><a href="${BASE_URL}/schedule">View schedule →</a></p>`,
+  })
+  if (error) throw new Error(`Resend error: ${error.message}`)
+}
+
+export async function sendSwapAcceptedNotification(params: {
+  requestorUserId: string
+  date: string
+  clinic: string
+  acceptorName: string
+}): Promise<void> {
+  const email = await getUserEmail(params.requestorUserId)
+  if (!email) return
+
+  const date = formatDate(params.date)
+  const { error } = await resend.emails.send({
+    from: FROM,
+    to: email,
+    subject: `Your shift offer has been accepted`,
+    html: `<p>Hi,</p>
+<p>Your shift offer for <strong>${params.clinic}</strong> on <strong>${date}</strong> has been accepted by <strong>${params.acceptorName}</strong>.</p>
+<p>This shift has been transferred — you are no longer assigned to it.</p>
+<p><a href="${BASE_URL}/schedule">View schedule →</a></p>`,
+  })
+  if (error) throw new Error(`Resend error: ${error.message}`)
+}
+
+export async function sendSplitAcceptedNotification(params: {
+  offerorUserId: string
+  date: string
+  clinic: string
+  offeredStart: string
+  offeredEnd: string
+  acceptorName: string
+}): Promise<void> {
+  const email = await getUserEmail(params.offerorUserId)
+  if (!email) return
+
+  const date = formatDate(params.date)
+  const { error } = await resend.emails.send({
+    from: FROM,
+    to: email,
+    subject: `Your shift split has been accepted`,
+    html: `<p>Hi,</p>
+<p>Your split offer for <strong>${params.clinic}</strong> on <strong>${date}</strong> (${params.offeredStart}–${params.offeredEnd}) has been accepted by <strong>${params.acceptorName}</strong>.</p>
 <p><a href="${BASE_URL}/schedule">View schedule →</a></p>`,
   })
   if (error) throw new Error(`Resend error: ${error.message}`)

@@ -5,6 +5,7 @@ import {
   getPeriod, updatePeriodPublishedAssignments, getSwapRequests,
 } from '@/lib/db'
 import { shiftStarted, overlaps } from '@/lib/time'
+import { sendSplitAcceptedNotification } from '@/lib/email'
 
 export async function PATCH(
   request: Request,
@@ -135,6 +136,18 @@ export async function PATCH(
     if (!claimed) {
       return NextResponse.json({ error: 'This offer was just accepted by someone else' }, { status: 409 })
     }
+
+    if (split.offerorUserId && offeredShift) {
+      void sendSplitAcceptedNotification({
+        offerorUserId: split.offerorUserId,
+        date: offeredShift.date,
+        clinic: offeredShift.clinic,
+        offeredStart: split.offeredStart,
+        offeredEnd: split.offeredEnd,
+        acceptorName,
+      }).catch(console.error)
+    }
+
     return NextResponse.json(claimed)
   }
 

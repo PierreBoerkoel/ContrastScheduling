@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { getSwapRequests, updateSwapRequest, claimSwapRequest, getShifts, getShiftSplits, getPeriod, updatePeriodPublishedAssignments, updatePeriodDraft } from '@/lib/db'
 import { shiftStarted, overlaps } from '@/lib/time'
+import { sendSwapAcceptedNotification } from '@/lib/email'
 
 export async function PATCH(
   request: Request,
@@ -103,6 +104,15 @@ export async function PATCH(
     // Keep draft in sync
     const newDraft = period.assignments.map(transfer)
     await updatePeriodDraft(requestorShift.periodId, newDraft, period.generatedAt ?? null)
+
+    if (swapReq.requestorUserId) {
+      void sendSwapAcceptedNotification({
+        requestorUserId: swapReq.requestorUserId,
+        date: requestorShift.date,
+        clinic: requestorShift.clinic,
+        acceptorName,
+      }).catch(console.error)
+    }
 
     return NextResponse.json(claimed)
   }
