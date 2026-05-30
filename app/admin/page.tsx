@@ -833,6 +833,23 @@ export default function AdminPage() {
     }
   }
 
+  function downloadResidentsCsv() {
+    const header = ['Name', 'Phone', 'Email']
+    const rows = users
+      .slice()
+      .sort((a, b) => a.fullName.localeCompare(b.fullName))
+      .map((u) => [u.fullName, u.phone ? formatPhone(u.phone) : '', u.email])
+    const csv = [header, ...rows]
+      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'residents.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   function downloadBlockCsv() {
     if (!schedPeriod) return
     const pubMap: Record<string, string | null> = {}
@@ -2041,10 +2058,16 @@ export default function AdminPage() {
             <div className="p-8 text-center text-slate-400 text-sm">No users found.</div>
           ) : (
             <>
-              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
                 <h2 className="text-sm font-semibold text-slate-700">
                   {users.length} resident{users.length !== 1 ? 's' : ''}
                 </h2>
+                <button
+                  onClick={downloadResidentsCsv}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
+                >
+                  Download CSV
+                </button>
               </div>
               {/* Mobile cards */}
               <div className="sm:hidden divide-y divide-slate-100">
