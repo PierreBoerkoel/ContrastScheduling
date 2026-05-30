@@ -5,18 +5,24 @@ const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'Contrast Scheduling <onboarding@resend.dev>'
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://contrast-scheduling.vercel.app'
 
+function primaryEmail(u: { primaryEmailAddressId: string | null; emailAddresses: { id: string; emailAddress: string }[] }): string | null {
+  return (
+    u.emailAddresses.find((e) => e.id === u.primaryEmailAddressId)?.emailAddress ??
+    u.emailAddresses[0]?.emailAddress ??
+    null
+  )
+}
+
 async function getAllUserEmails(): Promise<string[]> {
   const client = await clerkClient()
   const { data: users } = await client.users.getUserList({ limit: 500 })
-  return users
-    .map((u) => u.emailAddresses[0]?.emailAddress)
-    .filter((e): e is string => !!e)
+  return users.map(primaryEmail).filter((e): e is string => !!e)
 }
 
 async function getUserEmail(userId: string): Promise<string | null> {
   const client = await clerkClient()
   const user = await client.users.getUser(userId)
-  return user.emailAddresses[0]?.emailAddress ?? null
+  return primaryEmail(user)
 }
 
 function formatDate(d: string): string {
@@ -113,7 +119,7 @@ export async function sendSwapOfferNotification(params: {
   const { data: users } = await client.users.getUserList({ limit: 500 })
   const emails = users
     .filter((u) => u.id !== params.requestorUserId)
-    .map((u) => u.emailAddresses[0]?.emailAddress)
+    .map(primaryEmail)
     .filter((e): e is string => !!e)
   if (!emails.length) return
 
@@ -141,7 +147,7 @@ export async function sendSplitOfferNotification(params: {
   const { data: users } = await client.users.getUserList({ limit: 500 })
   const emails = users
     .filter((u) => u.id !== params.offerorUserId)
-    .map((u) => u.emailAddresses[0]?.emailAddress)
+    .map(primaryEmail)
     .filter((e): e is string => !!e)
   if (!emails.length) return
 
