@@ -503,7 +503,9 @@ export default function ProfilePage() {
       for (const shift of inRange) {
         const entities = clinicEntityMap[shift.clinic] ?? []
         for (const entity of entities) {
-          const items = calculateLineItems(shift, null, rates)[entity]
+          const simpleRate = rawRates[`${entity}_rate`]
+          const simpleEntityRates = simpleRate !== undefined ? { [entity]: simpleRate } : undefined
+          const items = calculateLineItems(shift, null, rates, undefined, undefined, simpleEntityRates)[entity] ?? []
           for (const item of items) {
             rows.push({
               date: shift.date,
