@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
 import type { Shift, SchedulingPeriod, ShiftAssignment, ShiftSplit, ClinicName, Clinic } from '@/lib/types'
 import { formatTimeRange, computeCoverageSegments } from '@/lib/types'
-import { calculateLineItems, ratesToBillingRates } from '@/lib/invoices'
+import { calculateLineItems, ratesToBillingRates, defaultMriPetMode } from '@/lib/invoices'
 import type { CompletedShiftForInvoice } from '@/lib/invoices'
 import InvoiceGenerator from '@/app/components/InvoiceGenerator'
 
@@ -524,7 +524,8 @@ export default function ProfilePage() {
         for (const entity of entities) {
           const simpleRate = rawRates[`${entity}_rate`]
           const simpleEntityRates = simpleRate !== undefined ? { [entity]: simpleRate } : undefined
-          const items = calculateLineItems(shift, null, rates, undefined, undefined, simpleEntityRates)[entity] ?? []
+          const mode = defaultMriPetMode(shift)
+          const items = calculateLineItems(shift, mode, rates, undefined, undefined, simpleEntityRates)[entity] ?? []
           for (const item of items) {
             rows.push({
               date: shift.date,
@@ -549,7 +550,7 @@ export default function ProfilePage() {
       ).join('\n')
       const footer = `\n,,,,,,${fmt(total)}`
       const note = rows.some((r) => r.clinic === 'BC Cancer Agency MRI/PET')
-        ? '\n"Note: BC Cancer Agency MRI/PET amounts assume standard MRI + PET mode."'
+        ? '\n"Note: BC Cancer Agency MRI/PET amounts use MRI-only mode for Sundays and MRI + PET mode otherwise. Use the Invoice Generator to adjust for shifts with a different billing mode."'
         : ''
 
       const csv = header + body + footer + note

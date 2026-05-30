@@ -36,6 +36,13 @@ export type MriPetMode =
   | 'ct-pet'           // MRI down, CT + PET running: $50/hr CT + $25/hr PET concurrent, then $75/hr for whichever continues alone
   | 'mri-ends-early'   // MRI ends before PET: concurrent until MRI end, then PET standalone until PET end
 
+export function defaultMriPetMode(shift: { clinic: string; date: string }): MriPetMode {
+  if (shift.clinic !== 'BC Cancer Agency MRI/PET') return 'normal'
+  const isSunday = new Intl.DateTimeFormat('en-CA', { weekday: 'long', timeZone: 'America/Vancouver' })
+    .format(new Date(shift.date + 'T12:00:00Z')) === 'Sunday'
+  return isSunday ? 'pet-down' : 'normal'
+}
+
 export interface CompletedShiftForInvoice {
   shiftId: string
   date: string           // YYYY-MM-DD
@@ -171,7 +178,7 @@ export function calculateLineItems(
   const PET_CUTOFF = petEndTime ?? PET_END
 
   if (clinic === 'BC Cancer Agency CT') {
-    result.MRCT.push(item(date, sS, sE, 'CT coverage', rates.MRCT_ct))
+    result.MRCT.push(item(date, sS, sE, 'CT contrast coverage', rates.MRCT_ct))
     return result
   }
 
@@ -186,18 +193,18 @@ export function calculateLineItems(
       case 'normal': {
         const inPet = overlapInterval(sS, sE, sS, petEnd)
         const afterPet = overlapInterval(sS, sE, PET_CUTOFF, sE)
-        if (inPet) result.MRCT.push(item(date, inPet.start, inPet.end, 'MRI coverage', rates.MRCT_base))
-        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI standalone coverage', rates.MRCT_standalone))
-        if (inPet) result.PET.push(item(date, inPet.start, inPet.end, 'PET coverage', rates.PET_base))
+        if (inPet) result.MRCT.push(item(date, inPet.start, inPet.end, 'MRI contrast coverage', rates.MRCT_base))
+        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI contrast coverage', rates.MRCT_standalone))
+        if (inPet) result.PET.push(item(date, inPet.start, inPet.end, 'PET contrast coverage', rates.PET_base))
         break
       }
 
       case 'two-residents': {
         const inPet = overlapInterval(sS, sE, sS, petEnd)
         const afterPet = overlapInterval(sS, sE, PET_CUTOFF, sE)
-        if (inPet) result.MRCT.push(item(date, inPet.start, inPet.end, 'MRI coverage', rates.MRCT_standalone))
-        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI standalone coverage', rates.MRCT_standalone))
-        if (inPet) result.PET.push(item(date, inPet.start, inPet.end, 'PET coverage', rates.PET_base))
+        if (inPet) result.MRCT.push(item(date, inPet.start, inPet.end, 'MRI contrast coverage', rates.MRCT_standalone))
+        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI contrast coverage', rates.MRCT_standalone))
+        if (inPet) result.PET.push(item(date, inPet.start, inPet.end, 'PET contrast coverage', rates.PET_base))
         break
       }
 
@@ -205,17 +212,17 @@ export function calculateLineItems(
         const ctSeg = overlapInterval(sS, sE, ct.start, ct.end)
         const postCt = overlapInterval(sS, sE, ct.end, petEnd)
         const afterPet = overlapInterval(sS, sE, PET_CUTOFF, sE)
-        if (ctSeg) result.MRCT.push(item(date, ctSeg.start, ctSeg.end, 'MRI and CT coverage', rates.MRCT_standalone))
-        if (postCt) result.MRCT.push(item(date, postCt.start, postCt.end, 'MRI coverage', rates.MRCT_base))
-        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI standalone coverage', rates.MRCT_standalone))
+        if (ctSeg) result.MRCT.push(item(date, ctSeg.start, ctSeg.end, 'MRI + CT contrast coverage', rates.MRCT_standalone))
+        if (postCt) result.MRCT.push(item(date, postCt.start, postCt.end, 'MRI contrast coverage', rates.MRCT_base))
+        if (afterPet) result.MRCT.push(item(date, afterPet.start, afterPet.end, 'MRI contrast coverage', rates.MRCT_standalone))
         const petSeg = overlapInterval(sS, sE, sS, petEnd)
-        if (petSeg) result.PET.push(item(date, petSeg.start, petSeg.end, 'PET coverage', rates.PET_base))
+        if (petSeg) result.PET.push(item(date, petSeg.start, petSeg.end, 'PET contrast coverage', rates.PET_base))
         break
       }
 
       case 'mri-down': {
         const petSeg = overlapInterval(sS, sE, sS, petEnd)
-        if (petSeg) result.PET.push(item(date, petSeg.start, petSeg.end, 'PET standalone coverage', rates.PET_standalone))
+        if (petSeg) result.PET.push(item(date, petSeg.start, petSeg.end, 'PET contrast coverage', rates.PET_standalone))
         break
       }
 
@@ -225,15 +232,15 @@ export function calculateLineItems(
         const concurrent = overlapInterval(sS, sE, sS, mriEnd)
         const petStandalone = overlapInterval(sS, sE, mriEnd, petEnd)
         if (concurrent) {
-          result.MRCT.push(item(date, concurrent.start, concurrent.end, 'MRI coverage', rates.MRCT_base))
-          result.PET.push(item(date, concurrent.start, concurrent.end, 'PET coverage', rates.PET_base))
+          result.MRCT.push(item(date, concurrent.start, concurrent.end, 'MRI contrast coverage', rates.MRCT_base))
+          result.PET.push(item(date, concurrent.start, concurrent.end, 'PET contrast coverage', rates.PET_base))
         }
-        if (petStandalone) result.PET.push(item(date, petStandalone.start, petStandalone.end, 'PET standalone coverage', rates.PET_standalone))
+        if (petStandalone) result.PET.push(item(date, petStandalone.start, petStandalone.end, 'PET contrast coverage', rates.PET_standalone))
         break
       }
 
       case 'pet-down': {
-        result.MRCT.push(item(date, sS, sE, 'MRI standalone coverage', rates.MRCT_standalone))
+        result.MRCT.push(item(date, sS, sE, 'MRI contrast coverage', rates.MRCT_standalone))
         break
       }
 
@@ -245,11 +252,11 @@ export function calculateLineItems(
         const ctAfterPet = ctWindow ? overlapInterval(ctWindow.start, ctWindow.end, PET_CUTOFF, sE) : null
         const petAlone = overlapInterval(sS, sE, ctEndTime, petEnd)
         if (bothActive) {
-          result.MRCT.push(item(date, bothActive.start, bothActive.end, 'CT coverage', rates.MRCT_base))
-          result.PET.push(item(date, bothActive.start, bothActive.end, 'PET coverage', rates.PET_base))
+          result.MRCT.push(item(date, bothActive.start, bothActive.end, 'CT contrast coverage', rates.MRCT_base))
+          result.PET.push(item(date, bothActive.start, bothActive.end, 'PET contrast coverage', rates.PET_base))
         }
-        if (ctAfterPet) result.MRCT.push(item(date, ctAfterPet.start, ctAfterPet.end, 'CT standalone coverage', rates.MRCT_ct))
-        if (petAlone) result.PET.push(item(date, petAlone.start, petAlone.end, 'PET standalone coverage', rates.PET_standalone))
+        if (ctAfterPet) result.MRCT.push(item(date, ctAfterPet.start, ctAfterPet.end, 'CT contrast coverage', rates.MRCT_ct))
+        if (petAlone) result.PET.push(item(date, petAlone.start, petAlone.end, 'PET contrast coverage', rates.PET_standalone))
         break
       }
     }
