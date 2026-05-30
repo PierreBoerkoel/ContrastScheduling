@@ -219,6 +219,8 @@ export default function AdminPage() {
 
   // Period management
   const [deletingPeriodId, setDeletingPeriodId] = useState<string | null>(null)
+  const [confirmDeletePeriodId, setConfirmDeletePeriodId] = useState<string | null>(null)
+  const [confirmSaveShifts, setConfirmSaveShifts] = useState(false)
 
   // Users
   const [users, setUsers] = useState<ClerkUser[]>([])
@@ -432,6 +434,7 @@ export default function AdminPage() {
     setSelectedBlock(blockName)
     setShiftsSaved(false)
     setSaveError('')
+    setConfirmSaveShifts(false)
     const existingPeriod = periods.find((p) => p.name === blockName)
     if (existingPeriod) {
       const blockShifts = shifts.filter((s) => s.periodId === existingPeriod.id)
@@ -462,6 +465,12 @@ export default function AdminPage() {
 
   async function saveShifts() {
     if (!selectedBlock) return
+    const isExisting = !!periods.find((p) => p.name === selectedBlock)
+    if (isExisting && !confirmSaveShifts) {
+      setConfirmSaveShifts(true)
+      return
+    }
+    setConfirmSaveShifts(false)
     for (const [date, clinicMap] of Object.entries(shiftTimes)) {
       for (const [clinic, times] of Object.entries(clinicMap)) {
         if (times && endBeforeStart(times.startTime, times.endTime)) {
@@ -1125,6 +1134,16 @@ export default function AdminPage() {
                         </svg>
                         Published — delete this block to reconfigure it
                       </span>
+                    ) : confirmSaveShifts ? (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-sm text-amber-700">This will clear all availability submissions and the generated schedule for this block.</span>
+                        <div className="flex items-center gap-2">
+                          <button onClick={saveShifts} disabled={savingShifts} className="text-sm font-medium text-red-600 hover:text-red-800 disabled:opacity-40">
+                            {savingShifts ? 'Saving…' : 'Confirm'}
+                          </button>
+                          <button onClick={() => setConfirmSaveShifts(false)} className="text-sm text-slate-400 hover:text-slate-600">Cancel</button>
+                        </div>
+                      </div>
                     ) : (
                       <button
                         onClick={saveShifts}
@@ -1209,13 +1228,27 @@ export default function AdminPage() {
                               Edit
                             </button>
                           )}
-                          <button
-                            onClick={() => deletePeriod(p.id)}
-                            disabled={deletingPeriodId === p.id}
-                            className="text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
-                          >
-                            {deletingPeriodId === p.id ? '…' : 'Delete'}
-                          </button>
+                          {confirmDeletePeriodId === p.id ? (
+                            <>
+                              <span className="text-xs text-slate-500">Delete all data for this block?</span>
+                              <button
+                                onClick={() => { deletePeriod(p.id); setConfirmDeletePeriodId(null) }}
+                                disabled={deletingPeriodId === p.id}
+                                className="text-xs font-medium text-red-600 hover:text-red-800 disabled:opacity-40"
+                              >
+                                {deletingPeriodId === p.id ? '…' : 'Confirm'}
+                              </button>
+                              <button onClick={() => setConfirmDeletePeriodId(null)} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeletePeriodId(p.id)}
+                              disabled={deletingPeriodId === p.id}
+                              className="text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                            >
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </div>
                     )

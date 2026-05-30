@@ -583,11 +583,21 @@ export async function addSchedulingPeriod(
 }
 
 export async function deleteSchedulingPeriod(id: string): Promise<void> {
-  await ensureDb()
-  // Hard-delete future shifts so they don't persist as orphaned upcoming shifts.
-  // Past shifts are kept for invoice history. CASCADE handles assignments/splits/swaps.
-  await sql`DELETE FROM shifts WHERE period_id = ${id} AND date::date >= CURRENT_DATE`
-  await sql`UPDATE scheduling_periods SET deleted_at = NOW() WHERE id = ${id}`
+  const client = await db.connect()
+  try {
+    await client.sql`BEGIN`
+    // Hard-delete future shifts so they don't persist as orphaned upcoming shifts.
+    // Past shifts are kept for invoice history. CASCADE handles assignments/splits/swaps.
+    await client.sql`DELETE FROM shifts WHERE period_id = ${id} AND date::date >= CURRENT_DATE`
+    await client.sql`DELETE FROM availability_submissions WHERE period_id = ${id}`
+    await client.sql`UPDATE scheduling_periods SET deleted_at = NOW() WHERE id = ${id}`
+    await client.sql`COMMIT`
+  } catch (e) {
+    await client.sql`ROLLBACK`
+    throw e
+  } finally {
+    client.release()
+  }
 }
 
 export async function findPeriodByName(name: string): Promise<SchedulingPeriod | null> {
@@ -622,11 +632,11 @@ export async function updateSchedulingPeriod(
           generated_at = NULL, updated_at = NULL, published_at = NULL
       WHERE id = ${id}
     `
-    // Clear all assignments for this period (schedule reset)
-    await client.sql`DELETE FROM shift_assignments WHERE period_id = ${id}`
-    // Clear all splits and swaps referencing this period's shifts
-    await client.sql`DELETE FROM shift_splits  WHERE period_id = ${id}`
-    await client.sql`DELETE FROM swap_requests WHERE period_id = ${id}`
+    // Clear all assignments, splits, swaps, and availability submissions for this period
+    await client.sql`DELETE FROM shift_assignments      WHERE period_id = ${id}`
+    await client.sql`DELETE FROM shift_splits           WHERE period_id = ${id}`
+    await client.sql`DELETE FROM swap_requests          WHERE period_id = ${id}`
+    await client.sql`DELETE FROM availability_submissions WHERE period_id = ${id}`
     await client.sql`COMMIT`
   } catch (e) {
     await client.sql`ROLLBACK`
