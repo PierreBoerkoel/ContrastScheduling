@@ -11,6 +11,14 @@ interface DashboardData {
   pendingCounts: { swaps: number; splits: number }
 }
 
+function formatTime(t?: string): string {
+  if (!t) return ''
+  const [h, m] = t.split(':').map(Number)
+  const ampm = h < 12 ? 'AM' : 'PM'
+  const hour = h % 12 || 12
+  return m === 0 ? `${hour} ${ampm}` : `${hour}:${m.toString().padStart(2, '0')} ${ampm}`
+}
+
 function formatShiftDate(d: string) {
   return new Intl.DateTimeFormat('en-CA', {
     weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC',
@@ -186,7 +194,7 @@ function Dashboard({ firstName }: { firstName: string }) {
                       <div className="text-sm text-slate-500 mt-0.5">{s.clinic}</div>
                     </div>
                     {s.startTime && (
-                      <div className="text-sm text-slate-500 shrink-0 tabular-nums">{s.startTime}–{s.endTime}</div>
+                      <div className="text-sm text-slate-500 shrink-0">{formatTime(s.startTime)}–{formatTime(s.endTime)}</div>
                     )}
                   </li>
                 ))}

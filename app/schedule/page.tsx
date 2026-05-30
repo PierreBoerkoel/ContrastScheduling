@@ -796,7 +796,7 @@ export default function SchedulePage() {
       </div>
 
       {/* ── OFFER A SHIFT ── */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      {(myShifts().length > 0 || mySplitAcceptances().length > 0) && <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
           <h2 className="text-base font-semibold text-slate-700">Offer a Shift</h2>
           <p className="text-xs text-slate-400 mt-0.5">
@@ -1007,7 +1007,7 @@ export default function SchedulePage() {
           })()}
 
         </div>
-      </div>
+      </div>}
 
       {/* ── PENDING SHIFT OFFERS (whole-shift) ── */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
