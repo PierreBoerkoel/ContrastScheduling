@@ -413,11 +413,11 @@ let testPeriodId = null
 // Cleanup any stale test data from a previous failed run
 const stale = await db`SELECT id FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME}`
 for (const p of stale) {
-  await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}::text`
+  await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}`
   await db`DELETE FROM scheduling_periods WHERE id = ${p.id}`
   // FK CASCADE handles: shifts → shift_splits, swap_requests, shift_assignments
 }
-await db`DELETE FROM invoice_sequences WHERE resident_name = '__test_user__'`
+await db`DELETE FROM invoice_sequences WHERE user_id = '__test_user__'`
 
 section('2.1  Schema — required tables exist')
 const TABLES = [
@@ -511,20 +511,20 @@ const subId1 = crypto.randomUUID()
 const subUserId = 'test_user_db_' + Date.now()
 await db`
   INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids, period_id)
-  VALUES (${subId1}, ${subUserId}, 'Test User', NOW(), ${[TEST_SHIFTS[0].id]}, ${pid}::text)
+  VALUES (${subId1}, ${subUserId}, 'Test User', NOW(), ${[TEST_SHIFTS[0].id]}, ${pid})
 `
 const subId2 = crypto.randomUUID()
 await db`
   INSERT INTO availability_submissions (id, user_id, resident_name, submitted_at, available_shift_ids, period_id)
-  VALUES (${subId2}, ${subUserId}, 'Test User', NOW(), ${[TEST_SHIFTS[2].id]}, ${pid}::text)
+  VALUES (${subId2}, ${subUserId}, 'Test User', NOW(), ${[TEST_SHIFTS[2].id]}, ${pid})
   ON CONFLICT (user_id, period_id) WHERE user_id IS NOT NULL AND period_id IS NOT NULL
   DO UPDATE SET
     id                  = EXCLUDED.id,
     available_shift_ids = EXCLUDED.available_shift_ids
 `
-const [updated] = await db`SELECT available_shift_ids FROM availability_submissions WHERE user_id = ${subUserId} AND period_id = ${pid}::text`
+const [updated] = await db`SELECT available_shift_ids FROM availability_submissions WHERE user_id = ${subUserId} AND period_id = ${pid}`
 assert(JSON.stringify(updated.available_shift_ids) === JSON.stringify([TEST_SHIFTS[2].id]), 'upsert overwrites prior submission')
-const [{ count: subCount }] = await db`SELECT COUNT(*) FROM availability_submissions WHERE user_id = ${subUserId} AND period_id = ${pid}::text`
+const [{ count: subCount }] = await db`SELECT COUNT(*) FROM availability_submissions WHERE user_id = ${subUserId} AND period_id = ${pid}`
 assert(subCount === '1', 'exactly one row per user per period')
 
 section('2.6  Shift splits — pending, accept, unique index, cancel-then-repend')
@@ -568,9 +568,9 @@ try {
 
 section('2.7  Invoice sequences — user_id keyed')
 await db`
-  INSERT INTO invoice_sequences (resident_name, series, next_number, user_id)
-  VALUES ('__test_user__', 'MRCT', 1, '__test_user__')
-  ON CONFLICT (resident_name, series) DO NOTHING
+  INSERT INTO invoice_sequences (user_id, series, next_number)
+  VALUES ('__test_user__', 'MRCT', 1)
+  ON CONFLICT (user_id, series) DO NOTHING
 `
 await db`UPDATE invoice_sequences SET next_number = next_number + 1 WHERE user_id = '__test_user__' AND series = 'MRCT'`
 const [seq] = await db`SELECT next_number FROM invoice_sequences WHERE user_id = '__test_user__' AND series = 'MRCT'`
@@ -659,11 +659,11 @@ assert(mapByClinic['INITIO Medical Imaging']?.includes('INITIO'), "INITIO Medica
 {
   const staleRows = await db`SELECT id FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME}`
   for (const p of staleRows) {
-    await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}::text`
+    await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}`
     await db`DELETE FROM scheduling_periods WHERE id = ${p.id}`
     // FK CASCADE: shifts → shift_splits, swap_requests, shift_assignments
   }
-  await db`DELETE FROM invoice_sequences WHERE resident_name = '__test_user__'`
+  await db`DELETE FROM invoice_sequences WHERE user_id = '__test_user__'`
 }
 
 const clerkReq = async (method, path, body) => {
