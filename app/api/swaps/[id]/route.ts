@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { getSwapRequests, updateSwapRequest, getShifts, getShiftSplits, getPeriod, updatePeriodPublishedAssignments, updatePeriodDraft } from '@/lib/db'
+import { getSwapRequests, updateSwapRequest, claimSwapRequest, getShifts, getShiftSplits, getPeriod, updatePeriodPublishedAssignments, updatePeriodDraft } from '@/lib/db'
 import { shiftStarted, overlaps } from '@/lib/time'
 
 export async function PATCH(
@@ -86,6 +86,17 @@ export async function PATCH(
       return a
     }
 
+    // Atomically claim the swap before mutating assignments — prevents double-accept race
+    const claimed = await claimSwapRequest(id, {
+      status: 'accepted',
+      acceptorName,
+      acceptorUserId: userId,
+      acceptedAt: new Date().toISOString(),
+    })
+    if (!claimed) {
+      return NextResponse.json({ error: 'This offer was just accepted by someone else' }, { status: 409 })
+    }
+
     const newPublished = published.map(transfer)
     await updatePeriodPublishedAssignments(requestorShift.periodId, newPublished)
 
@@ -93,14 +104,7 @@ export async function PATCH(
     const newDraft = period.assignments.map(transfer)
     await updatePeriodDraft(requestorShift.periodId, newDraft, period.generatedAt ?? null)
 
-    return NextResponse.json(
-      await updateSwapRequest(id, {
-        status: 'accepted',
-        acceptorName,
-        acceptorUserId: userId,
-        acceptedAt: new Date().toISOString(),
-      })
-    )
+    return NextResponse.json(claimed)
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })

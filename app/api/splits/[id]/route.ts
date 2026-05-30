@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import {
-  getShiftSplits, updateShiftSplit, getShifts, getAllPublishedAssignments,
+  getShiftSplits, updateShiftSplit, claimShiftSplit, getShifts, getAllPublishedAssignments,
   getPeriod, updatePeriodPublishedAssignments, getSwapRequests,
 } from '@/lib/db'
 import { shiftStarted, overlaps } from '@/lib/time'
@@ -125,14 +125,17 @@ export async function PATCH(
       }
     }
 
-    return NextResponse.json(
-      await updateShiftSplit(id, {
-        status: 'accepted',
-        acceptorName,
-        acceptorUserId: userId,
-        acceptedAt: new Date().toISOString(),
-      })
-    )
+    // Atomically claim the split — prevents double-accept race
+    const claimed = await claimShiftSplit(id, {
+      status: 'accepted',
+      acceptorName,
+      acceptorUserId: userId,
+      acceptedAt: new Date().toISOString(),
+    })
+    if (!claimed) {
+      return NextResponse.json({ error: 'This offer was just accepted by someone else' }, { status: 409 })
+    }
+    return NextResponse.json(claimed)
   }
 
   return NextResponse.json({ error: 'Invalid action' }, { status: 400 })

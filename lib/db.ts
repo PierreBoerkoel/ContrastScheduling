@@ -823,6 +823,38 @@ export async function updateSwapRequest(
   }
 }
 
+export async function claimSwapRequest(
+  id: string,
+  patch: { status: 'accepted'; acceptorName: string; acceptorUserId: string; acceptedAt: string }
+): Promise<SwapRequest | null> {
+  await ensureDb()
+  const { rows } = await sql`
+    UPDATE swap_requests SET
+      status           = ${patch.status},
+      acceptor_name    = ${patch.acceptorName},
+      acceptor_user_id = ${patch.acceptorUserId},
+      accepted_at      = ${patch.acceptedAt}
+    WHERE id = ${id} AND status = 'pending'
+    RETURNING id, requested_at, status, requestor_user_id, requestor_name,
+              requestor_shift_id, period_id, acceptor_name, acceptor_user_id,
+              acceptor_shift_id, accepted_at
+  `
+  if (rows.length === 0) return null
+  const r = rows[0]
+  return {
+    id: r.id,
+    requestedAt: r.requested_at,
+    status: r.status as SwapRequest['status'],
+    requestorName: r.requestor_name,
+    requestorUserId: (r.requestor_user_id as string) ?? undefined,
+    requestorShiftId: r.requestor_shift_id,
+    acceptorName: r.acceptor_name ?? null,
+    acceptorUserId: (r.acceptor_user_id as string) ?? null,
+    acceptorShiftId: r.acceptor_shift_id ?? null,
+    acceptedAt: r.accepted_at ?? null,
+  }
+}
+
 // ── Shift splits ──────────────────────────────────────────────────────────────
 
 function rowToSplit(r: Record<string, unknown>): ShiftSplit {
@@ -898,6 +930,24 @@ export async function updateShiftSplit(
       acceptor_user_id = COALESCE(${patch.acceptorUserId ?? null}, acceptor_user_id),
       accepted_at      = COALESCE(${patch.acceptedAt ?? null}, accepted_at)
     WHERE id = ${id}
+    RETURNING id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, offered_at, accepted_at
+  `
+  if (rows.length === 0) return null
+  return rowToSplit(rows[0])
+}
+
+export async function claimShiftSplit(
+  id: string,
+  patch: { status: 'accepted'; acceptorName: string; acceptorUserId: string; acceptedAt: string }
+): Promise<ShiftSplit | null> {
+  await ensureDb()
+  const { rows } = await sql`
+    UPDATE shift_splits SET
+      status           = ${patch.status},
+      acceptor_name    = ${patch.acceptorName},
+      acceptor_user_id = ${patch.acceptorUserId},
+      accepted_at      = ${patch.acceptedAt}
+    WHERE id = ${id} AND status = 'pending'
     RETURNING id, shift_id, offeror_name, offeror_user_id, offered_start, offered_end, status, acceptor_name, acceptor_user_id, offered_at, accepted_at
   `
   if (rows.length === 0) return null
