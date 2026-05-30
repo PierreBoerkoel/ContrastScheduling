@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { getShiftSplits, addShiftSplit, updateShiftSplit, getShifts, getAllPublishedAssignments, getSwapRequests, addSwapRequest } from '@/lib/db'
 import { shiftStarted } from '@/lib/time'
+import { sendSwapOfferNotification, sendSplitOfferNotification } from '@/lib/email'
 import type { SwapRequest } from '@/lib/types'
 
 function timeToMinutes(t: string): number {
@@ -145,6 +146,7 @@ export async function POST(request: Request) {
       acceptedAt: null,
     }
     await addSwapRequest({ ...swapReq, requestorUserId: userId, periodId: shift.periodId })
+    sendSwapOfferNotification({ requestorUserId: userId, requestorName: offerorName, date: shift.date, clinic: shift.clinic }).catch(() => {})
     return NextResponse.json(swapReq, { status: 201 })
   }
 
@@ -169,6 +171,7 @@ export async function POST(request: Request) {
     status: 'pending',
     periodId: shift.periodId,
   })
+  sendSplitOfferNotification({ offerorUserId: userId, offerorName, date: shift.date, clinic: shift.clinic, offeredStart, offeredEnd }).catch(() => {})
 
   return NextResponse.json(newSplit, { status: 201 })
 }

@@ -28,6 +28,13 @@ function formatDate(d: string): string {
   })
 }
 
+function formatTime(t: string): string {
+  const [h, m] = t.split(':').map(Number)
+  const ampm = h < 12 ? 'AM' : 'PM'
+  const hour = h % 12 || 12
+  return m === 0 ? `${hour} ${ampm}` : `${hour}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
 export async function sendAvailabilityNotification(period: {
   name: string
   startDate: string
@@ -91,6 +98,61 @@ export async function sendSwapAcceptedNotification(params: {
     html: `<p>Hi,</p>
 <p>Your shift offer for <strong>${params.clinic}</strong> on <strong>${date}</strong> has been accepted by <strong>${params.acceptorName}</strong>.</p>
 <p>This shift has been transferred — you are no longer assigned to it.</p>
+<p><a href="${BASE_URL}/schedule">View schedule →</a></p>`,
+  })
+  if (error) throw new Error(`Resend error: ${error.message}`)
+}
+
+export async function sendSwapOfferNotification(params: {
+  requestorUserId: string
+  requestorName: string
+  date: string
+  clinic: string
+}): Promise<void> {
+  const client = await clerkClient()
+  const { data: users } = await client.users.getUserList({ limit: 500 })
+  const emails = users
+    .filter((u) => u.id !== params.requestorUserId)
+    .map((u) => u.emailAddresses[0]?.emailAddress)
+    .filter((e): e is string => !!e)
+  if (!emails.length) return
+
+  const date = formatDate(params.date)
+  const { error } = await resend.emails.send({
+    from: FROM,
+    to: emails,
+    subject: `Shift available: ${params.clinic} on ${date}`,
+    html: `<p>Hi,</p>
+<p><strong>${params.requestorName}</strong> has offered their shift at <strong>${params.clinic}</strong> on <strong>${date}</strong>.</p>
+<p><a href="${BASE_URL}/schedule">View schedule →</a></p>`,
+  })
+  if (error) throw new Error(`Resend error: ${error.message}`)
+}
+
+export async function sendSplitOfferNotification(params: {
+  offerorUserId: string
+  offerorName: string
+  date: string
+  clinic: string
+  offeredStart: string
+  offeredEnd: string
+}): Promise<void> {
+  const client = await clerkClient()
+  const { data: users } = await client.users.getUserList({ limit: 500 })
+  const emails = users
+    .filter((u) => u.id !== params.offerorUserId)
+    .map((u) => u.emailAddresses[0]?.emailAddress)
+    .filter((e): e is string => !!e)
+  if (!emails.length) return
+
+  const date = formatDate(params.date)
+  const { error } = await resend.emails.send({
+    from: FROM,
+    to: emails,
+    subject: `Split available: ${params.clinic} on ${date} (${formatTime(params.offeredStart)}–${formatTime(params.offeredEnd)})`,
+    html: `<p>Hi,</p>
+<p><strong>${params.offerorName}</strong> is offering part of their shift at <strong>${params.clinic}</strong> on <strong>${date}</strong>.</p>
+<p>Hours available: <strong>${formatTime(params.offeredStart)}–${formatTime(params.offeredEnd)}</strong></p>
 <p><a href="${BASE_URL}/schedule">View schedule →</a></p>`,
   })
   if (error) throw new Error(`Resend error: ${error.message}`)

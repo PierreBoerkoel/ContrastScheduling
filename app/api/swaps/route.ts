@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { getSwapRequests, addSwapRequest, getAllPublishedAssignments, getShifts, updateSwapRequest } from '@/lib/db'
 import { shiftStarted } from '@/lib/time'
+import { sendSwapOfferNotification } from '@/lib/email'
 import type { SwapRequest } from '@/lib/types'
 
 export async function GET() {
@@ -72,5 +73,8 @@ export async function POST(request: Request) {
   }
 
   await addSwapRequest({ ...req, requestorUserId: userId, periodId: shift?.periodId })
+  if (shift) {
+    sendSwapOfferNotification({ requestorUserId: userId, requestorName, date: shift.date, clinic: shift.clinic }).catch(() => {})
+  }
   return NextResponse.json(req, { status: 201 })
 }
