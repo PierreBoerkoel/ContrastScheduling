@@ -827,30 +827,25 @@ export default function AdminPage() {
     const dayName = (d: string) =>
       new Intl.DateTimeFormat('en-CA', { weekday: 'long', timeZone: 'UTC' }).format(new Date(d + 'T00:00:00Z'))
 
-    const header = ['Block', 'Date', 'Day', 'Clinic', 'Assigned Resident', 'Start Time', 'End Time', 'Split Coverage']
+    const header = ['Date', 'Day', ...visibleClinics.map((c) => clinicAbbr[c] ?? c)]
     const rows: string[][] = [header]
 
     for (const date of sortedDates) {
-      for (const shift of (byDate[date] ?? []).filter((s) => visibleClinics.includes(s.clinic)).sort((a, b) => a.clinic.localeCompare(b.clinic))) {
+      const row: string[] = [date, dayName(date)]
+      for (const clinic of visibleClinics) {
+        const shift = (byDate[date] ?? []).find((s) => s.clinic === clinic)
+        if (!shift) { row.push(''); continue }
         const assignedStored = pubMap[shift.id] ?? null
         const assignedUid = pubUserIdMap[shift.id]
-        const assigned = (assignedUid && userCurrentName[assignedUid]) ? userCurrentName[assignedUid] : assignedStored
         const segs = computeCoverageSegments(shift, assignedStored, splitsByShift[shift.id] ?? [], assignedUid)
-        const splitCoverage = segs
-          .filter((sg) => currentNameForSeg(sg) !== (assigned ?? ''))
-          .map((sg) => `${fmt(sg.start)}-${fmt(sg.end)} -> ${currentNameForSeg(sg)}`)
-          .join('; ')
-        rows.push([
-          selectedScheduleBlock,
-          date,
-          dayName(date),
-          shift.clinic,
-          assigned ?? 'Unassigned',
-          shift.startTime ? fmt(shift.startTime) : '',
-          shift.endTime ? fmt(shift.endTime) : '',
-          splitCoverage,
-        ])
+        if (segs.length === 0) {
+          const times = shift.startTime && shift.endTime ? ` ${fmt(shift.startTime)}–${fmt(shift.endTime)}` : ''
+          row.push(`Unassigned${times}`)
+        } else {
+          row.push(segs.map((sg) => `${currentNameForSeg(sg)} ${fmt(sg.start)}–${fmt(sg.end)}`).join('; '))
+        }
       }
+      rows.push(row)
     }
 
     const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n')
