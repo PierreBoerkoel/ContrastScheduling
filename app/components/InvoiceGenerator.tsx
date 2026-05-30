@@ -12,9 +12,9 @@ const ENTITY_TAB_LABELS: Record<string, string> = {
 const MRI_PET_MODE_LABELS: Partial<Record<MriPetMode, string>> = {
   'normal': 'MRI + PET',
   'ct-also': 'MRI + PET + CT',
-  'ct-pet': 'CT + PET (MRI down)',
-  'pet-down': 'MRI only (PET down)',
-  'mri-down': 'PET only (MRI down)',
+  'ct-pet': 'CT + PET',
+  'pet-down': 'MRI only',
+  'mri-down': 'PET only',
   'mri-ends-early': 'MRI ended early',
 }
 
@@ -25,8 +25,8 @@ const EXCLUDED_MODES: Partial<Record<string, MriPetMode>> = {
 }
 
 const EXCLUDED_REASON: Partial<Record<MriPetMode, string>> = {
-  'mri-down': 'PET only (MRI down) — no MRI/CT billing',
-  'pet-down': 'MRI only (PET down) — no PET billing',
+  'mri-down': 'PET only — no MRI/CT billing',
+  'pet-down': 'MRI only — no PET billing',
 }
 
 interface Props {
