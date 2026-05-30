@@ -94,7 +94,7 @@ function LoggedOutLanding() {
           </div>
           <h2 className="text-base font-semibold text-slate-800 mb-1.5">Imaging Clinics</h2>
           <p className="text-sm text-slate-500 leading-relaxed mb-4">
-            Interested in on-site contrast reaction monitoring coverage from UBC Radiology Clinical Associates? Send us a message.
+            Interested in on-site contrast reaction monitoring coverage by UBC Radiology Residents? Send us a message.
           </p>
 
           {!hasCoordinator ? (
