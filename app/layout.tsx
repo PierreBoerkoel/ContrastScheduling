@@ -15,7 +15,7 @@ const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
 
 export const metadata: Metadata = {
   title: 'Contrast Coverage',
-  description: 'Resident contrast reaction monitoring coverage scheduling for BC Cancer Agency, INITIO Medical Imaging, UBC Hospital, and BC Women\'s Hospital',
+  description: 'UBC Radiology contrast reaction scheduling',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

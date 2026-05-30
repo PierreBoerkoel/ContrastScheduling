@@ -66,7 +66,7 @@ function LoggedOutLanding() {
         </div>
         <h1 className="text-3xl font-bold text-slate-800 mb-3 tracking-tight">Contrast Coverage</h1>
         <p className="text-slate-500 text-base max-w-md mx-auto leading-relaxed">
-          Coordinating after-hours contrast reaction monitoring coverage for UBC Radiology Clinical Associates.
+          Coordinating after-hours contrast reaction coverage for UBC Radiology Residents.
         </p>
       </div>
 
