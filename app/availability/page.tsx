@@ -177,9 +177,9 @@ export default function AvailabilityPage() {
         Select a block, then mark the shifts you are available to cover.
       </p>
 
-      <div className="flex items-center gap-2 mb-6 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 text-sm text-blue-800">
-        Submitting as <strong>{user?.fullName ?? user?.firstName ?? user?.emailAddresses[0]?.emailAddress}</strong>
-      </div>
+      <p className="text-xs text-slate-400 mb-6">
+        Submitting as <span className="font-medium text-slate-500">{user?.fullName ?? user?.firstName ?? user?.emailAddresses[0]?.emailAddress}</span>
+      </p>
 
       {loading ? (
         <p className="text-slate-400 text-sm">Loading…</p>
@@ -220,8 +220,7 @@ export default function AvailabilityPage() {
           </div>
 
           {selectedBlockPublished && hasExistingSubmission && (
-            <div className="mb-4 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm text-slate-600">
-              <span>🗓</span>
+            <div className="mb-4 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm text-slate-600">
               This block has been scheduled. Your past availability submission is shown below.
             </div>
           )}
@@ -330,7 +329,7 @@ export default function AvailabilityPage() {
                           {clinicNames.map((clinic: ClinicName) => {
                             const shift = shiftsOnDay.find((s) => s.clinic === clinic)
                             if (!shift) {
-                              return <td key={clinic} className="text-center px-3 py-3 text-slate-200">—</td>
+                              return <td key={clinic} className="text-center px-3 py-3 text-slate-300">—</td>
                             }
                             return (
                               <td key={clinic} className="text-center px-3 py-3">

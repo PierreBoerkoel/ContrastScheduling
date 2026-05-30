@@ -576,7 +576,11 @@ export default function SchedulePage() {
   if (upcomingPeriods.length === 0) {
     return (
       <div className="max-w-xl mx-auto px-4 py-16 text-center">
-        <div className="text-5xl mb-4">📋</div>
+        <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-4 mx-auto">
+          <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </div>
         <h2 className="text-xl font-bold text-slate-700 mb-2">No schedule published yet</h2>
         <p className="text-slate-400 text-sm">
           The admin will publish the schedule once all availability has been collected. Check back
@@ -613,7 +617,11 @@ export default function SchedulePage() {
           )}
         </div>
         <div className="max-w-xl text-center mx-auto py-8">
-          <div className="text-5xl mb-4">📋</div>
+          <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-4 mx-auto">
+            <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </div>
           <h2 className="text-xl font-bold text-slate-700 mb-2">No schedule for this period yet</h2>
           <p className="text-slate-400 text-sm">The admin hasn&apos;t published a schedule for this period. Check back soon.</p>
         </div>
@@ -1182,9 +1190,9 @@ export default function SchedulePage() {
               .sort((a, b) => b.at.localeCompare(a.at))
               .map(({ type, item }) =>
                 type === 'swap' ? (
-                  <div key={item.id} className="px-5 py-3 flex items-center gap-3 text-sm text-slate-600">
+                  <div key={item.id} className="px-5 py-3 flex items-start gap-3">
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      className={`mt-0.5 shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
                         item.status === 'accepted'
                           ? 'bg-green-100 text-green-700'
                           : 'bg-slate-100 text-slate-500'
@@ -1192,16 +1200,20 @@ export default function SchedulePage() {
                     >
                       {item.status}
                     </span>
-                    <span>
-                      {currentNameFor(item.requestorUserId, item.requestorName)} offered → {item.status === 'accepted' ? currentNameFor(item.acceptorUserId, item.acceptorName) : '–'}
-                      {' · '}
-                      {shiftLabel(item.requestorShiftId)}
-                    </span>
+                    <div className="min-w-0">
+                      <div className="text-sm text-slate-700">
+                        {currentNameFor(item.requestorUserId, item.requestorName)}
+                        {item.status === 'accepted' && (
+                          <> → {currentNameFor(item.acceptorUserId, item.acceptorName)}</>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5">{shiftLabel(item.requestorShiftId)}</div>
+                    </div>
                   </div>
                 ) : (
-                  <div key={item.id} className="px-5 py-3 flex items-center gap-3 text-sm text-slate-600">
+                  <div key={item.id} className="px-5 py-3 flex items-start gap-3">
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      className={`mt-0.5 shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
                         item.status === 'accepted'
                           ? 'bg-violet-100 text-violet-700'
                           : 'bg-slate-100 text-slate-500'
@@ -1209,13 +1221,17 @@ export default function SchedulePage() {
                     >
                       {item.status === 'accepted' ? 'split' : item.status}
                     </span>
-                    <span>
-                      {currentNameFor(item.offerorUserId, item.offerorName)} offered portion → {item.status === 'accepted' ? currentNameFor(item.acceptorUserId, item.acceptorName) : '–'}
-                      {' · '}
-                      {shiftLabel(item.shiftId)}
-                      {' · '}
-                      {formatTimeRange(item.offeredStart, item.offeredEnd)}
-                    </span>
+                    <div className="min-w-0">
+                      <div className="text-sm text-slate-700">
+                        {currentNameFor(item.offerorUserId, item.offerorName)}
+                        {item.status === 'accepted' && (
+                          <> → {currentNameFor(item.acceptorUserId, item.acceptorName)}</>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5">
+                        {shiftLabel(item.shiftId)} · {formatTimeRange(item.offeredStart, item.offeredEnd)}
+                      </div>
+                    </div>
                   </div>
                 )
               )}
