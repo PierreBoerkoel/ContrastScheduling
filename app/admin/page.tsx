@@ -238,6 +238,7 @@ export default function AdminPage() {
   const [generating, setGenerating] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [confirmRegenerate, setConfirmRegenerate] = useState(false)
+  const [justRegeneratedPeriodId, setJustRegeneratedPeriodId] = useState<string | null>(null)
   const [notifyingAvailability, setNotifyingAvailability] = useState(false)
   const [availabilityNotifiedPeriod, setAvailabilityNotifiedPeriod] = useState<string | null>(null)
   const [notifyingSchedule, setNotifyingSchedule] = useState(false)
@@ -514,6 +515,7 @@ export default function AdminPage() {
 
   async function generateSchedule() {
     const period = periods.find((p) => p.name === selectedScheduleBlock)
+    const wasPublished = !!period?.publishedAt
     setGenerating(true)
     await fetch('/api/schedule', {
       method: 'POST',
@@ -522,18 +524,21 @@ export default function AdminPage() {
     })
     await fetchData()
     setGenerating(false)
+    if (wasPublished && period?.id) setJustRegeneratedPeriodId(period.id)
   }
 
   async function publishSchedule() {
     const period = periods.find((p) => p.name === selectedScheduleBlock)
+    const clearOffers = justRegeneratedPeriodId === period?.id
     setPublishing(true)
     await fetch('/api/schedule', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'publish', periodId: period?.id }),
+      body: JSON.stringify({ action: 'publish', periodId: period?.id, clearOffers }),
     })
     await fetchData()
     setPublishing(false)
+    setJustRegeneratedPeriodId(null)
   }
 
   async function notifyAvailability() {
@@ -1441,7 +1446,7 @@ export default function AdminPage() {
                 Block
                 <select
                   value={selectedScheduleBlock}
-                  onChange={(e) => { setSelectedScheduleBlock(e.target.value); setEditingShiftId(null); setConfirmRegenerate(false); setRemovingShiftId(null); setAddingShiftCell(null) }}
+                  onChange={(e) => { setSelectedScheduleBlock(e.target.value); setEditingShiftId(null); setConfirmRegenerate(false); setRemovingShiftId(null); setAddingShiftCell(null); setJustRegeneratedPeriodId(null) }}
                   className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select block…</option>
@@ -1508,6 +1513,9 @@ export default function AdminPage() {
                 </>
               )}
             </div>
+            {blockAssignments.length > 0 && !confirmRegenerate && justRegeneratedPeriodId === schedPeriod?.id && (
+              <p className="mt-1 text-xs text-amber-600">Heads up: publishing will cancel all pending and accepted swap/split offers for this period.</p>
+            )}
             {blockAssignments.length > 0 && !confirmRegenerate && (
               <div className="mt-2 text-xs text-slate-400 space-y-0.5">
                 {schedPeriod?.publishedAt ? (

@@ -753,6 +753,11 @@ export async function publishPeriod(
   }
 }
 
+export async function cancelOffersForPeriod(periodId: string): Promise<void> {
+  await sql`UPDATE swap_requests SET status = 'cancelled' WHERE period_id = ${periodId} AND status IN ('pending', 'accepted')`
+  await sql`UPDATE shift_splits   SET status = 'cancelled' WHERE period_id = ${periodId} AND status IN ('pending', 'accepted')`
+}
+
 export async function updatePeriodPublishedAssignments(
   id: string,
   assignments: ShiftAssignment[]

@@ -4,7 +4,7 @@ import {
   getShifts, getSubmissions, getPeriod, getSchedulingPeriods,
   updatePeriodDraft, publishPeriod, updatePeriodPublishedAssignments,
   getAllPublishedAssignments, getShiftSplits, getSwapRequests,
-  updateShiftSplit, getAllResidentPreferences,
+  updateShiftSplit, getAllResidentPreferences, cancelOffersForPeriod,
 } from '@/lib/db'
 import { generateSchedule } from '@/lib/scheduler'
 import { computeCoverageSegments } from '@/lib/types'
@@ -28,8 +28,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   }
 
-  const body = await request.json() as { action: 'generate' | 'publish'; periodId?: string }
-  const { action, periodId } = body
+  const body = await request.json() as { action: 'generate' | 'publish'; periodId?: string; clearOffers?: boolean }
+  const { action, periodId, clearOffers } = body
 
   if (!periodId) return NextResponse.json({ error: 'periodId required' }, { status: 400 })
 
@@ -49,6 +49,7 @@ export async function POST(request: Request) {
   }
 
   if (action === 'publish') {
+    if (clearOffers) await cancelOffersForPeriod(periodId)
     const { publishedAt, updatedAt } = await publishPeriod(periodId, period.assignments)
     return NextResponse.json({ ...period, publishedAssignments: period.assignments, publishedAt, updatedAt })
   }
