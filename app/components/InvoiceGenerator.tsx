@@ -13,7 +13,7 @@ const MRI_PET_MODE_LABELS: Partial<Record<MriPetMode, string>> = {
   'normal': 'MRI + PET',
   'ct-also': 'MRI + PET + CT',
   'ct-pet': 'CT + PET',
-  'pet-down': 'MRI only',
+  'pet-down': 'MRI',
   'mri-down': 'PET only',
   'mri-ends-early': 'MRI ended early',
 }
@@ -37,6 +37,18 @@ interface Props {
   clinicEntityMap: Record<string, string[]>
   clinicAbbrMap: Record<string, string>
   petEndTime?: string
+}
+
+function isSundayInVancouver(dateStr: string): boolean {
+  // Append noon UTC so the date never rolls back a day for Vancouver (UTC-7/8)
+  return new Intl.DateTimeFormat('en-CA', { weekday: 'long', timeZone: 'America/Vancouver' })
+    .format(new Date(dateStr + 'T12:00:00Z')) === 'Sunday'
+}
+
+function defaultModeFor(shift: { clinic: string; date: string }): MriPetMode {
+  return shift.clinic === 'BC Cancer Agency MRI/PET' && isSundayInVancouver(shift.date)
+    ? 'pet-down'
+    : 'normal'
 }
 
 function formatDateShort(d: string): string {
@@ -211,7 +223,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
     const excludedMode = EXCLUDED_MODES[activeEntity]
     const shifts = eligibleShifts.filter((s) =>
       selected.has(s.shiftId) &&
-      !(s.clinic === 'BC Cancer Agency MRI/PET' && excludedMode && modes[s.shiftId] === excludedMode)
+      !(s.clinic === 'BC Cancer Agency MRI/PET' && excludedMode && (modes[s.shiftId] ?? defaultModeFor(s)) === excludedMode)
     )
     if (shifts.length === 0) {
       setError('Select at least one shift.')
@@ -221,6 +233,9 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
     setError('')
     setGenerating(true)
     const invoiceNumber = invoicePrefix + invoiceSeq
+    const effectiveModes = Object.fromEntries(
+      shifts.map((s) => [s.shiftId, modes[s.shiftId] ?? defaultModeFor(s)])
+    ) as Record<string, MriPetMode>
     try {
       const res = await fetch('/api/invoices/generate', {
         method: 'POST',
@@ -229,21 +244,21 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
           entity: activeEntity,
           invoiceNumber,
           shifts,
-          modes,
+          modes: effectiveModes,
           petEndTime: petEndTime ?? undefined,
           mriEndTimes: Object.fromEntries(
             shifts
-              .filter((s) => modes[s.shiftId] === 'mri-ends-early' && mriEndTimes[s.shiftId])
+              .filter((s) => effectiveModes[s.shiftId] === 'mri-ends-early' && mriEndTimes[s.shiftId])
               .map((s) => [s.shiftId, mriEndTimes[s.shiftId]])
           ),
           ctEndTimes: Object.fromEntries(
             shifts
-              .filter((s) => (modes[s.shiftId] === 'ct-pet' || modes[s.shiftId] === 'ct-also') && ctEndTimeByDate[s.date])
+              .filter((s) => (effectiveModes[s.shiftId] === 'ct-pet' || effectiveModes[s.shiftId] === 'ct-also') && ctEndTimeByDate[s.date])
               .map((s) => [s.shiftId, ctEndTimeByDate[s.date]])
           ),
           ctStartTimes: Object.fromEntries(
             shifts
-              .filter((s) => modes[s.shiftId] === 'ct-also' && ctStartTimeByDate[s.date])
+              .filter((s) => effectiveModes[s.shiftId] === 'ct-also' && ctStartTimeByDate[s.date])
               .map((s) => [s.shiftId, ctStartTimeByDate[s.date]])
           ),
           format,
@@ -291,7 +306,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
   const tabExcludedMode = EXCLUDED_MODES[activeEntity]
   const selectedCount = eligibleShifts.filter((s) =>
     selected.has(s.shiftId) &&
-    !(s.clinic === 'BC Cancer Agency MRI/PET' && tabExcludedMode && modes[s.shiftId] === tabExcludedMode)
+    !(s.clinic === 'BC Cancer Agency MRI/PET' && tabExcludedMode && (modes[s.shiftId] ?? defaultModeFor(s)) === tabExcludedMode)
   ).length
 
   if (eligibleEntityTabs.length === 0 && entities.length > 0) {
@@ -352,7 +367,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
         <div className="space-y-2">
           {eligibleShifts.map((shift) => {
             const isMriPet = shift.clinic === 'BC Cancer Agency MRI/PET'
-            const currentMode = modes[shift.shiftId] as MriPetMode | undefined
+            const currentMode: MriPetMode = modes[shift.shiftId] ?? defaultModeFor(shift)
             const excludedMode = EXCLUDED_MODES[activeEntity]
             const isExcluded = isMriPet && !!excludedMode && currentMode === excludedMode
             const isSelected = selected.has(shift.shiftId)
@@ -376,7 +391,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
                         {formatDateShort(shift.date)}{timeLabel}
                       </span>
                       <span className="text-xs text-slate-400 italic">
-                        {EXCLUDED_REASON[currentMode!]}
+                        {EXCLUDED_REASON[currentMode]}
                       </span>
                     </div>
                   </div>
