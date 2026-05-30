@@ -677,13 +677,12 @@ export default function SchedulePage() {
             ))}
           </div>
         )}
-        <div className="text-xs text-slate-400 space-y-0.5">
-          {selectedPeriod?.publishedAt && (
-            <p>Published {formatDateTime(selectedPeriod.publishedAt)}</p>
-          )}
-          {selectedPeriod?.updatedAt && (
-            <p>Updated {formatDateTime(selectedPeriod.updatedAt)}</p>
-          )}
+        <div className="text-xs text-slate-400">
+          {selectedPeriod?.updatedAt
+            ? <p>Updated {formatDateTime(selectedPeriod.updatedAt)}</p>
+            : selectedPeriod?.publishedAt
+              ? <p>Published {formatDateTime(selectedPeriod.publishedAt)}</p>
+              : null}
         </div>
       </div>
 
