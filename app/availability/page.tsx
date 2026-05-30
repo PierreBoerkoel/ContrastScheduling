@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
 import type { Shift, ClinicName, AvailabilitySubmission, SchedulingPeriod, Clinic } from '@/lib/types'
 import { formatTimeRange } from '@/lib/types'
@@ -23,6 +23,9 @@ function formatShortDate(dateStr: string) {
 }
 
 export default function AvailabilityPage() {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
   const { user, isLoaded } = useUser()
   const myName = (user?.fullName ?? '').toLowerCase()
   const myUserId = user?.id ?? ''
@@ -81,7 +84,17 @@ export default function AvailabilityPage() {
     (s) => s.periodId === effectivePeriodId && s.userId === myUserId
   )
 
-  // When the selected block changes, restore existing submission or auto-populate from defaults
+  // Reset banner state only when the user switches periods
+  const prevPeriodRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (prevPeriodRef.current !== null && prevPeriodRef.current !== effectivePeriodId) {
+      setSubmitted(false)
+      setError('')
+    }
+    prevPeriodRef.current = effectivePeriodId
+  }, [effectivePeriodId])
+
+  // Restore existing submission or auto-populate from defaults when period or data changes
   useEffect(() => {
     if (!effectivePeriodId || !myUserId) return
     const existing = submissions.find(
@@ -109,8 +122,6 @@ export default function AvailabilityPage() {
       }
       setMaxShifts('')
     }
-    setSubmitted(false)
-    setError('')
   }, [effectivePeriodId, submissions, myUserId, shifts, shiftDefaults, periods])
 
   function toggleShift(id: string) {
@@ -168,7 +179,7 @@ export default function AvailabilityPage() {
     }
   }
 
-  if (!isLoaded) return null
+  if (!mounted || !isLoaded) return null
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-10">
