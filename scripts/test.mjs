@@ -404,18 +404,37 @@ assert(JSON.stringify(clinicEntities('BC Cancer Agency CT'))   === JSON.stringif
 assert(JSON.stringify(clinicEntities('BC Cancer Agency MRI/PET')) === JSON.stringify(['MRCT','PET']), 'BC Cancer Agency MRI/PET → [MRCT, PET] unchanged')
 assert(JSON.stringify(clinicEntities('Unknown Clinic'))        === JSON.stringify([]),              'unknown clinic → empty array')
 
+section('1.26 generateSchedule — no submissions → all assignments null')
+const noSubResult = generateSchedule(
+  [{ id: 'NS1', date: '2026-09-01', clinic: 'A' }, { id: 'NS2', date: '2026-09-02', clinic: 'B' }],
+  []
+)
+assert(noSubResult.length === 2, 'result length matches shift count with no submissions')
+assert(noSubResult.every(a => a.residentName === null && a.userId === null), 'all assignments null with no submissions')
+
+section('1.27 validateSplit — offered window exactly equals owned window is valid')
+assert(
+  validateSplit({ offeredStart: '08:00', offeredEnd: '21:00', ownedStart: '08:00', ownedEnd: '21:00' }) === null,
+  'offer spanning full owned window passes validation'
+)
+
 // ════════════════════════════════════════════════════════════════════════════
 // SECTION 2 — DB layer
 // ════════════════════════════════════════════════════════════════════════════
 const TEST_PERIOD_NAME = '__TEST_SUITE__'
+const MAX_SHIFTS_PERIOD_NAME = '__TEST_MAXSHIFTS__'
+const DELETE_PERIOD_NAME = '__TEST_DELETE__'
 let testPeriodId = null
+let MS_PERIOD_ID = null
 
 // Cleanup any stale test data from a previous failed run
-const stale = await db`SELECT id FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME}`
-for (const p of stale) {
-  await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}`
-  await db`DELETE FROM scheduling_periods WHERE id = ${p.id}`
-  // FK CASCADE handles: shifts → shift_splits, swap_requests, shift_assignments
+for (const name of [TEST_PERIOD_NAME, MAX_SHIFTS_PERIOD_NAME, DELETE_PERIOD_NAME]) {
+  const rows = await db`SELECT id FROM scheduling_periods WHERE name = ${name}`
+  for (const p of rows) {
+    await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}`
+    await db`DELETE FROM scheduling_periods WHERE id = ${p.id}`
+    // FK CASCADE handles: shifts → shift_splits, swap_requests, shift_assignments
+  }
 }
 await db`DELETE FROM invoice_sequences WHERE user_id = '__test_user__'`
 
@@ -657,11 +676,13 @@ assert(mapByClinic['INITIO Medical Imaging']?.includes('INITIO'), "INITIO Medica
 
 // Clean up DB-layer test data so section 3 starts fresh
 {
-  const staleRows = await db`SELECT id FROM scheduling_periods WHERE name = ${TEST_PERIOD_NAME}`
-  for (const p of staleRows) {
-    await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}`
-    await db`DELETE FROM scheduling_periods WHERE id = ${p.id}`
-    // FK CASCADE: shifts → shift_splits, swap_requests, shift_assignments
+  for (const name of [TEST_PERIOD_NAME, MAX_SHIFTS_PERIOD_NAME, DELETE_PERIOD_NAME]) {
+    const rows = await db`SELECT id FROM scheduling_periods WHERE name = ${name}`
+    for (const p of rows) {
+      await db`DELETE FROM availability_submissions WHERE period_id = ${p.id}`
+      await db`DELETE FROM scheduling_periods WHERE id = ${p.id}`
+      // FK CASCADE: shifts → shift_splits, swap_requests, shift_assignments
+    }
   }
   await db`DELETE FROM invoice_sequences WHERE user_id = '__test_user__'`
 }
@@ -1147,6 +1168,138 @@ for (const { entity, org } of contactChecks) {
   assert(row?.org === org, `billing contact for ${entity} persisted (org="${org}")`)
 }
 
+// ── 3.25 maxShifts respected end-to-end ──────────────────────────────────────
+section('3.25 maxShifts respected end-to-end (HTTP)')
+{
+  const msActiveClinics = {
+    '2099-11-01': ['BC Cancer Agency MRI/PET'],
+    '2099-11-02': ['BC Cancer Agency MRI/PET'],
+    '2099-11-03': ['BC Cancer Agency MRI/PET'],
+  }
+  const msShiftTimes = {
+    '2099-11-01': { 'BC Cancer Agency MRI/PET': { startTime: '08:00', endTime: '17:00' } },
+    '2099-11-02': { 'BC Cancer Agency MRI/PET': { startTime: '08:00', endTime: '17:00' } },
+    '2099-11-03': { 'BC Cancer Agency MRI/PET': { startTime: '08:00', endTime: '17:00' } },
+  }
+  const { status: msPStatus, body: msPBody } = await api(ADMIN, 'POST', '/api/periods', {
+    name: MAX_SHIFTS_PERIOD_NAME, startDate: '2099-11-01', endDate: '2099-11-03',
+  })
+  assert(msPStatus === 201, 'admin creates maxShifts test period', `status=${msPStatus}`)
+  MS_PERIOD_ID = msPBody?.id
+  await api(ADMIN, 'POST', '/api/shifts', {
+    blockName: MAX_SHIFTS_PERIOD_NAME, startDate: '2099-11-01', endDate: '2099-11-03',
+    activeClinics: msActiveClinics, shiftTimes: msShiftTimes,
+  })
+  const { body: msAllShifts } = await api(ADMIN, 'GET', '/api/shifts')
+  const msShifts = Array.isArray(msAllShifts) ? msAllShifts.filter(s => s.periodId === MS_PERIOD_ID) : []
+  const msIds = msShifts.map(s => s.id)
+  assert(msIds.length === 3, `3 shifts created for maxShifts period (got ${msIds.length})`)
+
+  const { body: msSubBody } = await api(R1.id, 'POST', '/api/availability', {
+    availableShiftIds: msIds, periodId: MS_PERIOD_ID, maxShifts: 1,
+  })
+  assert(msSubBody.maxShifts === 1, 'maxShifts field preserved in availability response')
+  await api(R2.id, 'POST', '/api/availability', { availableShiftIds: msIds, periodId: MS_PERIOD_ID })
+  await api(R3.id, 'POST', '/api/availability', { availableShiftIds: msIds, periodId: MS_PERIOD_ID })
+
+  const { status: msGenStatus, body: msGenBody } = await api(ADMIN, 'POST', '/api/schedule', {
+    action: 'generate', periodId: MS_PERIOD_ID,
+  })
+  assert(msGenStatus === 200, 'schedule generated for maxShifts period')
+  const msAssignments = msGenBody.assignments ?? []
+  const r1Assigned = msAssignments.filter(a => a.userId === R1.id).length
+  assert(r1Assigned <= 1, `R1 assigned at most 1 shift when maxShifts=1 (got ${r1Assigned})`)
+  assert(msAssignments.filter(a => a.residentName !== null).length === 3, 'all 3 shifts assigned across R1/R2/R3')
+}
+
+// ── 3.26 GET /api/availability data isolation ─────────────────────────────────
+section('3.26 GET /api/availability — resident sees only own submissions')
+const { status: isoStatus, body: isoBody } = await api(R1.id, 'GET', '/api/availability')
+assert(isoStatus === 200 && Array.isArray(isoBody), 'GET /api/availability returns 200 array for resident')
+const foreignSubs = isoBody.filter(s => s.userId !== R1.id)
+assert(foreignSubs.length === 0, 'resident response contains no submissions from other users')
+
+const { body: adminSubs } = await api(ADMIN, 'GET', '/api/availability')
+const adminPeriodSubs = Array.isArray(adminSubs) ? adminSubs.filter(s => s.periodId === HTTP_PERIOD_ID) : []
+assert(adminPeriodSubs.length >= 3, `admin sees all ${adminPeriodSubs.length} submissions for test period`)
+const adminSubUserIds = new Set(adminPeriodSubs.map(s => s.userId))
+assert(adminSubUserIds.has(R2.id) && adminSubUserIds.has(R3.id), 'admin response includes R2 and R3 submissions')
+
+// ── 3.27 Claim an already-assigned shift → 409 ───────────────────────────────
+section('3.27 Claim already-assigned shift → 409')
+// S.r1Mri01 is assigned to R1; R2 trying to claim it should hit the "already assigned" guard
+const { status: claimAssignedStatus } = await api(R2.id, 'PUT', '/api/schedule', { shiftId: S.r1Mri01 })
+assert(claimAssignedStatus === 409, 'claiming an already-assigned shift returns 409')
+
+// ── 3.28 Split cancel — owner succeeds, non-owner blocked ────────────────────
+section('3.28 Split cancel — owner cancels; non-owner blocked (403)')
+// R1 still owns 08:00–12:00 of r1Mri01 (R2 covers 12:00–17:00 from 3.13)
+const { status: cSplitStatus, body: cSplitBody } = await api(R1.id, 'POST', '/api/splits', {
+  shiftId: S.r1Mri01, offeredStart: '08:00', offeredEnd: '10:00',
+})
+assert(cSplitStatus === 201 && cSplitBody.id, 'R1 creates a pending split offer for cancel test')
+const cancelSplitId = cSplitBody.id
+
+const { status: nonOwnerCancelSplit } = await api(R2.id, 'PATCH', `/api/splits/${cancelSplitId}`, { action: 'cancel' })
+assert(nonOwnerCancelSplit === 403, 'non-owner cannot cancel a split offer (403)')
+
+const { status: ownerCancelSplit } = await api(R1.id, 'PATCH', `/api/splits/${cancelSplitId}`, { action: 'cancel' })
+assert(ownerCancelSplit === 200, 'owner successfully cancels their own pending split offer')
+const { body: splitsAfterCancel } = await api(R1.id, 'GET', '/api/splits')
+const cancelledSplit = Array.isArray(splitsAfterCancel) ? splitsAfterCancel.find(s => s.id === cancelSplitId) : null
+assert(cancelledSplit?.status === 'cancelled', 'cancelled split status persisted in DB')
+
+// ── 3.29 Swap cancel — non-owner blocked ─────────────────────────────────────
+section('3.29 Swap cancel — non-owner blocked (403)')
+// R1 creates a fresh swap offer; R2 should not be able to cancel it
+const { status: ncSwapStatus, body: ncSwapBody } = await api(R1.id, 'POST', '/api/swaps', { requestorShiftId: S.r1Mri01 })
+assert(ncSwapStatus === 201, 'R1 creates a swap offer for non-owner cancel test')
+const ncSwapId = ncSwapBody.id
+
+const { status: nonOwnerCancelSwap } = await api(R2.id, 'PATCH', `/api/swaps/${ncSwapId}`, { action: 'cancel' })
+assert(nonOwnerCancelSwap === 403, 'non-owner cannot cancel another user swap offer (403)')
+
+// Clean up: R1 cancels their own offer
+await api(R1.id, 'PATCH', `/api/swaps/${ncSwapId}`, { action: 'cancel' })
+
+// ── 3.30 Admin manually edits draft assignment ────────────────────────────────
+section('3.30 Admin PATCH /api/schedule — manual draft assignment edit')
+// Assign R1 to the unassigned CT shift in the draft
+const { status: patchDraftStatus } = await api(ADMIN, 'PATCH', '/api/schedule', {
+  shiftId: S.ct01, residentName: R1.name, userId: R1.id,
+})
+assert(patchDraftStatus === 200, 'admin PATCH draft assignment returns 200')
+
+const { body: afterPatchBody } = await api(ADMIN, 'GET', '/api/schedule')
+const afterPatchPeriod = Array.isArray(afterPatchBody) ? afterPatchBody.find(p => p.id === HTTP_PERIOD_ID) : null
+const patchedAssignment = afterPatchPeriod?.assignments?.find(a => a.shiftId === S.ct01)
+assert(patchedAssignment?.userId === R1.id, 'patched draft assignment persisted in GET /api/schedule')
+
+const { status: patchNonAdmin } = await api(R1.id, 'PATCH', '/api/schedule', {
+  shiftId: S.ct01, residentName: null, userId: null,
+})
+assert(patchNonAdmin === 403, 'non-admin cannot PATCH draft assignment (403)')
+
+// ── 3.31 Admin DELETE /api/periods/:id — auth + cascade ──────────────────────
+section('3.31 Admin DELETE /api/periods/:id — auth guard and cascade')
+const { status: delPStatus, body: delPBody } = await api(ADMIN, 'POST', '/api/periods', {
+  name: DELETE_PERIOD_NAME, startDate: '2099-10-01', endDate: '2099-10-01',
+})
+assert(delPStatus === 201, 'admin creates period for deletion test')
+const DEL_PERIOD_ID = delPBody?.id
+
+const { status: nonAdminDel } = await api(R1.id, 'DELETE', `/api/periods/${DEL_PERIOD_ID}`)
+assert(nonAdminDel === 403, 'non-admin cannot delete a period (403)')
+
+const { body: periodsBeforeDel } = await api(R1.id, 'GET', '/api/periods')
+assert(Array.isArray(periodsBeforeDel) && periodsBeforeDel.some(p => p.id === DEL_PERIOD_ID), 'period exists before deletion')
+
+const { status: adminDelStatus } = await api(ADMIN, 'DELETE', `/api/periods/${DEL_PERIOD_ID}`)
+assert(adminDelStatus === 200, 'admin successfully deletes period')
+
+const { body: periodsAfterDel } = await api(R1.id, 'GET', '/api/periods')
+assert(Array.isArray(periodsAfterDel) && !periodsAfterDel.some(p => p.id === DEL_PERIOD_ID), 'deleted period no longer visible in GET /api/periods')
+
 // ════════════════════════════════════════════════════════════════════════════
 // Cleanup + summary
 // ════════════════════════════════════════════════════════════════════════════
@@ -1157,6 +1310,10 @@ async function cleanup() {
       await db`DELETE FROM availability_submissions WHERE period_id = ${HTTP_PERIOD_ID}`
       await db`DELETE FROM scheduling_periods WHERE id = ${HTTP_PERIOD_ID}::uuid`
       // FK CASCADE removes: shifts → shift_splits, swap_requests, shift_assignments
+    }
+    if (MS_PERIOD_ID) {
+      await db`DELETE FROM availability_submissions WHERE period_id = ${MS_PERIOD_ID}`
+      await db`DELETE FROM scheduling_periods WHERE id = ${MS_PERIOD_ID}::uuid`
     }
     await db`DELETE FROM invoice_sequences WHERE user_id = '__test_user__'`
     for (const u of TEST_USERS) await db`DELETE FROM resident_preferences WHERE user_id = ${u.id}`
