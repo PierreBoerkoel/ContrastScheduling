@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth, currentUser, clerkClient } from '@clerk/nextjs/server'
+import { getAllResidentContacts } from '@/lib/db'
 
 async function requireAdmin() {
   const user = await currentUser()
@@ -12,7 +13,10 @@ export async function GET() {
   }
 
   const client = await clerkClient()
-  const { data: users } = await client.users.getUserList({ limit: 500 })
+  const [{ data: users }, contacts] = await Promise.all([
+    client.users.getUserList({ limit: 500 }),
+    getAllResidentContacts(),
+  ])
 
   return NextResponse.json(
     users.map((u) => ({
@@ -21,7 +25,7 @@ export async function GET() {
       email: u.emailAddresses[0]?.emailAddress ?? '—',
       role: (u.publicMetadata as { role?: string })?.role ?? 'resident',
       createdAt: new Date(u.createdAt).toISOString(),
-      phone: (u.unsafeMetadata as { phone?: string })?.phone ?? '',
+      phone: contacts[u.id]?.phone ?? '',
     }))
   )
 }

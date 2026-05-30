@@ -1302,3 +1302,11 @@ export async function upsertResidentContact(userId: string, contact: ResidentCon
       email   = EXCLUDED.email
   `
 }
+
+export async function getAllResidentContacts(): Promise<Record<string, ResidentContact>> {
+  await ensureDb()
+  const { rows } = await sql`SELECT user_id, address, phone, email FROM resident_contacts`
+  return Object.fromEntries(
+    rows.map((r) => [r.user_id as string, { address: r.address as string, phone: r.phone as string, email: r.email as string }])
+  )
+}
