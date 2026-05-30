@@ -1692,9 +1692,9 @@ export default function AdminPage() {
                                                       })}
                                                     </select>
                                                     <div className="flex gap-2 sm:gap-1">
-                                                      <TimeInput value={timesEdit.startTime} onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))} className="flex-1 text-sm sm:text-xs px-3 py-2 sm:px-1 sm:py-0.5" />
+                                                      <TimeInput value={timesEdit.startTime} onChange={(v) => setTimesEdit((p) => ({ ...p, startTime: v }))} className="flex-1 min-w-0 text-sm sm:text-xs px-3 py-2 sm:px-1 sm:py-0.5" />
                                                       <span className="text-slate-300 self-center text-sm sm:text-xs">–</span>
-                                                      <TimeInput value={timesEdit.endTime} onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))} className="flex-1 text-sm sm:text-xs px-3 py-2 sm:px-1 sm:py-0.5" />
+                                                      <TimeInput value={timesEdit.endTime} onChange={(v) => setTimesEdit((p) => ({ ...p, endTime: v }))} className="flex-1 min-w-0 text-sm sm:text-xs px-3 py-2 sm:px-1 sm:py-0.5" />
                                                     </div>
                                                     {timesEditError && <p className="text-sm sm:text-xs text-red-500">{timesEditError}</p>}
                                                     <div className="flex items-center gap-3 sm:gap-1.5 pt-1 sm:pt-0.5 flex-wrap">
@@ -1708,9 +1708,9 @@ export default function AdminPage() {
                                                 ) : adminSplitShiftId === shift.id ? (
                                                   <div onClick={(e) => e.stopPropagation()} className="space-y-2 sm:space-y-1">
                                                     <div className="flex gap-2 sm:gap-1">
-                                                      <TimeInput value={adminSplitStart} onChange={setAdminSplitStart} className="flex-1 text-sm sm:text-xs px-3 py-2 sm:px-1 sm:py-0.5" />
+                                                      <TimeInput value={adminSplitStart} onChange={setAdminSplitStart} className="flex-1 min-w-0 text-sm sm:text-xs px-3 py-2 sm:px-1 sm:py-0.5" />
                                                       <span className="text-slate-300 self-center text-sm sm:text-xs">–</span>
-                                                      <TimeInput value={adminSplitEnd} onChange={setAdminSplitEnd} className="flex-1 text-sm sm:text-xs px-3 py-2 sm:px-1 sm:py-0.5" />
+                                                      <TimeInput value={adminSplitEnd} onChange={setAdminSplitEnd} className="flex-1 min-w-0 text-sm sm:text-xs px-3 py-2 sm:px-1 sm:py-0.5" />
                                                     </div>
                                                     <select
                                                       value={adminSplitAcceptorId}
