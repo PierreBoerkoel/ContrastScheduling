@@ -2086,15 +2086,17 @@ export default function AdminPage() {
                             <span className="shrink-0 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">coordinator</span>
                           )}
                         </div>
-                        {u.id !== user?.id && (
+                        {(u.id !== user?.id || u.role === 'admin') && (
                           <div className="flex items-center gap-3 shrink-0">
-                            <button
-                              onClick={() => setRole(u.id, u.role === 'admin' ? 'resident' : 'admin')}
-                              disabled={promotingUserId === u.id}
-                              className="text-xs text-blue-500 hover:text-blue-700 transition-colors disabled:opacity-40"
-                            >
-                              {promotingUserId === u.id ? '…' : u.role === 'admin' ? 'Demote' : 'Make admin'}
-                            </button>
+                            {u.id !== user?.id && (
+                              <button
+                                onClick={() => setRole(u.id, u.role === 'admin' ? 'resident' : 'admin')}
+                                disabled={promotingUserId === u.id}
+                                className="text-xs text-blue-500 hover:text-blue-700 transition-colors disabled:opacity-40"
+                              >
+                                {promotingUserId === u.id ? '…' : u.role === 'admin' ? 'Demote' : 'Make admin'}
+                              </button>
+                            )}
                             {u.role === 'admin' && (
                               <button
                                 onClick={() => setCoordinator(u.id, !u.isCoordinator)}
@@ -2104,13 +2106,15 @@ export default function AdminPage() {
                                 {coordinatingUserId === u.id ? '…' : u.isCoordinator ? 'Remove coordinator' : 'Make coordinator'}
                               </button>
                             )}
-                            <button
-                              onClick={() => removeUser(u.id)}
-                              disabled={removingUserId === u.id}
-                              className="text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
-                            >
-                              {removingUserId === u.id ? 'Removing…' : 'Remove'}
-                            </button>
+                            {u.id !== user?.id && (
+                              <button
+                                onClick={() => removeUser(u.id)}
+                                disabled={removingUserId === u.id}
+                                className="text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                              >
+                                {removingUserId === u.id ? 'Removing…' : 'Remove'}
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -2166,19 +2170,21 @@ export default function AdminPage() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {u.id !== user?.id && (
+                          {(u.id !== user?.id || u.role === 'admin') && (
                             <div className="flex items-center justify-end gap-3">
-                              <button
-                                onClick={() => setRole(u.id, u.role === 'admin' ? 'resident' : 'admin')}
-                                disabled={promotingUserId === u.id}
-                                className="text-xs text-blue-500 hover:text-blue-700 transition-colors disabled:opacity-40"
-                              >
-                                {promotingUserId === u.id
-                                  ? '…'
-                                  : u.role === 'admin'
-                                  ? 'Demote'
-                                  : 'Make admin'}
-                              </button>
+                              {u.id !== user?.id && (
+                                <button
+                                  onClick={() => setRole(u.id, u.role === 'admin' ? 'resident' : 'admin')}
+                                  disabled={promotingUserId === u.id}
+                                  className="text-xs text-blue-500 hover:text-blue-700 transition-colors disabled:opacity-40"
+                                >
+                                  {promotingUserId === u.id
+                                    ? '…'
+                                    : u.role === 'admin'
+                                    ? 'Demote'
+                                    : 'Make admin'}
+                                </button>
+                              )}
                               {u.role === 'admin' && (
                                 <button
                                   onClick={() => setCoordinator(u.id, !u.isCoordinator)}
@@ -2188,13 +2194,15 @@ export default function AdminPage() {
                                   {coordinatingUserId === u.id ? '…' : u.isCoordinator ? 'Remove coordinator' : 'Make coordinator'}
                                 </button>
                               )}
-                              <button
-                                onClick={() => removeUser(u.id)}
-                                disabled={removingUserId === u.id}
-                                className="text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
-                              >
-                                {removingUserId === u.id ? 'Removing…' : 'Remove'}
-                              </button>
+                              {u.id !== user?.id && (
+                                <button
+                                  onClick={() => removeUser(u.id)}
+                                  disabled={removingUserId === u.id}
+                                  className="text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
+                                >
+                                  {removingUserId === u.id ? 'Removing…' : 'Remove'}
+                                </button>
+                              )}
                             </div>
                           )}
                         </td>
@@ -2206,7 +2214,7 @@ export default function AdminPage() {
             </>
           )}
           <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
-            The <span className="font-medium text-amber-700">coordinator</span> badge designates the admin whose email appears as the contact on the public home page. Only one coordinator can be set at a time. Assign it to an admin user above.
+            The <span className="font-medium text-amber-700">coordinator</span> receives inquiries submitted via the contact form on the public home page. Their email address is never publicly visible. Only one coordinator can be set at a time, and only admin users can be designated.
           </div>
         </div>
       )}
