@@ -18,14 +18,43 @@ function formatShiftDate(d: string) {
 }
 
 function LoggedOutLanding() {
-  const [coordinatorEmail, setCoordinatorEmail] = useState<string | null>(null)
+  const [hasCoordinator, setHasCoordinator] = useState(false)
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [message, setMessage] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sent, setSent] = useState(false)
+  const [contactError, setContactError] = useState('')
 
   useEffect(() => {
     fetch('/api/coordinator')
       .then((r) => r.json())
-      .then((d) => setCoordinatorEmail(d.email ?? null))
+      .then((d) => setHasCoordinator(!!d.hasCoordinator))
       .catch(() => {})
   }, [])
+
+  async function sendMessage(e: React.FormEvent) {
+    e.preventDefault()
+    setSending(true)
+    setContactError('')
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, message }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        setContactError(d.error ?? 'Failed to send message')
+      } else {
+        setSent(true)
+      }
+    } catch {
+      setContactError('Something went wrong. Please try again.')
+    } finally {
+      setSending(false)
+    }
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-16 sm:py-24 w-full">
@@ -41,7 +70,7 @@ function LoggedOutLanding() {
         </p>
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="grid sm:grid-cols-2 gap-4 items-start">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col">
           <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center mb-4">
             <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -57,28 +86,57 @@ function LoggedOutLanding() {
           </Link>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
           <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center mb-4">
             <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
             </svg>
           </div>
           <h2 className="text-base font-semibold text-slate-800 mb-1.5">Imaging Clinics</h2>
-          <p className="text-sm text-slate-500 leading-relaxed flex-1">
-            Interested in on-site contrast reaction monitoring coverage from UBC Radiology Clinical Associates? Get in touch with our coordinator.
+          <p className="text-sm text-slate-500 leading-relaxed mb-4">
+            Interested in on-site contrast reaction monitoring coverage from UBC Radiology Clinical Associates? Send us a message.
           </p>
-          <div className="mt-4">
-            {coordinatorEmail ? (
-              <a
-                href={`mailto:${coordinatorEmail}`}
-                className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
+
+          {!hasCoordinator ? (
+            <p className="text-sm text-slate-400">Contact information coming soon</p>
+          ) : sent ? (
+            <p className="text-sm text-green-600 font-medium">Message sent — we'll be in touch shortly.</p>
+          ) : (
+            <form onSubmit={sendMessage} className="space-y-2.5">
+              <input
+                type="text"
+                placeholder="Your name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <input
+                type="email"
+                placeholder="Your email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <textarea
+                placeholder="Your message"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                required
+                rows={3}
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              />
+              {contactError && <p className="text-xs text-red-500">{contactError}</p>}
+              <button
+                type="submit"
+                disabled={sending}
+                className="w-full bg-blue-600 text-white text-sm font-medium py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
-                Contact us →
-              </a>
-            ) : (
-              <span className="text-sm text-slate-400">Contact information coming soon</span>
-            )}
-          </div>
+                {sending ? 'Sending…' : 'Send message'}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>
