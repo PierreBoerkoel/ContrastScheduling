@@ -222,6 +222,7 @@ export default function ProfilePage() {
   const clinicAbbrMap = Object.fromEntries(clinics.map((c) => [c.name, c.abbreviation]))
   const clinicAbbr = (clinic: string) => clinicAbbrMap[clinic] ?? clinic
   const clinicEntityMap = Object.fromEntries(clinics.map((c) => [c.name, c.billingEntityCodes]))
+  const clinicBillingModeMap = Object.fromEntries(clinics.map((c) => [c.name, c.billingMode]))
 
   // Re-render every 60 s so isShiftEnded() stays current without a page refresh
   const [, forceUpdate] = useState(0)
@@ -480,9 +481,19 @@ export default function ProfilePage() {
       shiftId: `${s.id}::${s.startTime}`,
       date: s.date,
       clinic: s.clinic,
+      billingMode: clinicBillingModeMap[s.clinic] ?? 'simple',
       startTime: s.startTime!,
       endTime: s.endTime!,
     }))
+
+  const ctClinic = clinics.find((c) => c.billingMode === 'bcca_ct')
+  const ctShiftsByDate: Record<string, { startTime?: string; endTime: string }> = ctClinic
+    ? Object.fromEntries(
+        shifts
+          .filter((s) => s.clinic === ctClinic.name && s.endTime)
+          .map((s) => [s.date, { startTime: s.startTime ?? undefined, endTime: s.endTime! }])
+      )
+    : {}
 
   // Combined for the calendar view (all my coverage, split-aware)
   const myCalendarShifts = [...upcoming, ...completed]
@@ -549,7 +560,7 @@ export default function ProfilePage() {
         `"${fmtDate(r.date)}","${r.clinic}",${r.entity},"${r.description}",${fmt(r.hours)},${fmt(r.rate)},${fmt(r.amount)}`
       ).join('\n')
       const footer = `\n,,,,,,${fmt(total)}`
-      const note = rows.some((r) => r.clinic === 'BC Cancer Agency MRI/PET')
+      const note = inRange.some((s) => s.billingMode === 'mrct_pet_combined')
         ? '\n"Note: BC Cancer Agency MRI/PET amounts use MRI-only mode for Sundays and MRI + PET mode otherwise. Use the Invoice Generator to adjust for shifts with a different billing mode."'
         : ''
 
@@ -1189,7 +1200,7 @@ export default function ProfilePage() {
               <div className="px-5 py-4 border-b border-slate-100 bg-blue-50">
                 <InvoiceGenerator
                   completed={invoiceableCompleted}
-                  allShifts={shifts}
+                  ctShiftsByDate={ctShiftsByDate}
                   from={invoiceFrom}
                   onMissingProfile={() => {
                     setShowInvoiceGenerator(false)
@@ -1197,7 +1208,7 @@ export default function ProfilePage() {
                   }}
                   clinicEntityMap={clinicEntityMap}
                   clinicAbbrMap={clinicAbbrMap}
-                  petEndTime={clinics.find((c) => c.name === 'BC Cancer Agency MRI/PET')?.petEndTime ?? undefined}
+                  petEndTime={clinics.find((c) => c.billingMode === 'mrct_pet_combined')?.petEndTime ?? undefined}
                 />
               </div>
             )}

@@ -36,8 +36,8 @@ export type MriPetMode =
   | 'ct-pet'           // MRI down, CT + PET running: $50/hr CT + $25/hr PET concurrent, then $75/hr for whichever continues alone
   | 'mri-ends-early'   // MRI ends before PET: concurrent until MRI end, then PET standalone until PET end
 
-export function defaultMriPetMode(shift: { clinic: string; date: string }): MriPetMode {
-  if (shift.clinic !== 'BC Cancer Agency MRI/PET') return 'normal'
+export function defaultMriPetMode(shift: { billingMode: string; date: string }): MriPetMode {
+  if (shift.billingMode !== 'mrct_pet_combined') return 'normal'
   const isSunday = new Intl.DateTimeFormat('en-CA', { weekday: 'long', timeZone: 'America/Vancouver' })
     .format(new Date(shift.date + 'T12:00:00Z')) === 'Sunday'
   return isSunday ? 'pet-down' : 'normal'
@@ -47,6 +47,7 @@ export interface CompletedShiftForInvoice {
   shiftId: string
   date: string           // YYYY-MM-DD
   clinic: string
+  billingMode: string    // 'mrct_pet_combined' | 'bcca_ct' | 'simple'
   startTime: string      // HH:MM — resident's actual coverage start
   endTime: string        // HH:MM — resident's actual coverage end
 }
@@ -112,15 +113,6 @@ export function deriveInitials(fullName: string): string {
   return (parts.length > 1 ? first + last : first).toUpperCase()
 }
 
-// Which billing entities a clinic contributes to (hardcoded for existing complex-billing clinics)
-export function clinicEntities(clinic: string): string[] {
-  if (clinic === 'BC Cancer Agency CT') return ['MRCT']
-  if (clinic === 'BC Cancer Agency MRI/PET') return ['MRCT', 'PET']
-  if (clinic === 'UBC Hospital') return ['UBC']
-  if (clinic === "BC Women's Hospital") return ['BCWH']
-  return []
-}
-
 // ── Time helpers ──────────────────────────────────────────────────────────────
 
 function mins(t: string): number {
@@ -174,15 +166,15 @@ export function calculateLineItems(
   mriEndTime?: string,
 ): Record<string, BillingLineItem[]> {
   const result: Record<string, BillingLineItem[]> = { MRCT: [], PET: [] }
-  const { date, clinic, startTime: sS, endTime: sE } = shift
+  const { date, startTime: sS, endTime: sE } = shift
   const PET_CUTOFF = petEndTime ?? PET_END
 
-  if (clinic === 'BC Cancer Agency CT') {
+  if (shift.billingMode === 'bcca_ct') {
     result.MRCT.push(item(date, sS, sE, 'CT contrast coverage', rates.MRCT_ct))
     return result
   }
 
-  if (clinic === 'BC Cancer Agency MRI/PET') {
+  if (shift.billingMode === 'mrct_pet_combined') {
     const petEnd = mins(sE) > mins(PET_CUTOFF) ? PET_CUTOFF : sE
     const defaultCt = ctPeriod(date)
     const ct = (ctEndTime && mode === 'ct-also')

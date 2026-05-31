@@ -32,7 +32,7 @@ const EXCLUDED_REASON: Partial<Record<MriPetMode, string>> = {
 
 interface Props {
   completed: CompletedShiftForInvoice[]
-  allShifts: { date: string; clinic: string; startTime?: string; endTime?: string }[]
+  ctShiftsByDate: Record<string, { startTime?: string; endTime: string }>
   from: { name: string; address: string; phone: string; email: string }
   onMissingProfile: () => void
   clinicEntityMap: Record<string, string[]>
@@ -60,16 +60,10 @@ function currentYearMonth(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
-export default function InvoiceGenerator({ completed, allShifts, from, onMissingProfile, clinicEntityMap, clinicAbbrMap, petEndTime }: Props) {
-  // date → start/end times of the companion BC Cancer Agency CT shift
-  const ctShiftByDate = Object.fromEntries(
-    allShifts
-      .filter((s) => s.clinic === 'BC Cancer Agency CT' && s.endTime)
-      .map((s) => [s.date, { startTime: s.startTime, endTime: s.endTime! }])
-  )
-  const ctEndTimeByDate = Object.fromEntries(Object.entries(ctShiftByDate).map(([d, v]) => [d, v.endTime]))
+export default function InvoiceGenerator({ completed, ctShiftsByDate, from, onMissingProfile, clinicEntityMap, clinicAbbrMap, petEndTime }: Props) {
+  const ctEndTimeByDate = Object.fromEntries(Object.entries(ctShiftsByDate).map(([d, v]) => [d, v.endTime]))
   const ctStartTimeByDate = Object.fromEntries(
-    Object.entries(ctShiftByDate).filter(([, v]) => v.startTime).map(([d, v]) => [d, v.startTime!])
+    Object.entries(ctShiftsByDate).filter(([, v]) => v.startTime).map(([d, v]) => [d, v.startTime!])
   )
   const now = new Date()
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
@@ -213,7 +207,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
     const excludedMode = EXCLUDED_MODES[activeEntity]
     const shifts = eligibleShifts.filter((s) =>
       selected.has(s.shiftId) &&
-      !(s.clinic === 'BC Cancer Agency MRI/PET' && excludedMode && (modes[s.shiftId] ?? defaultMriPetMode(s)) === excludedMode)
+      !(s.billingMode === 'mrct_pet_combined' && excludedMode && (modes[s.shiftId] ?? defaultMriPetMode(s)) === excludedMode)
     )
     if (shifts.length === 0) {
       setError('Select at least one shift.')
@@ -296,7 +290,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
   const tabExcludedMode = EXCLUDED_MODES[activeEntity]
   const selectedCount = eligibleShifts.filter((s) =>
     selected.has(s.shiftId) &&
-    !(s.clinic === 'BC Cancer Agency MRI/PET' && tabExcludedMode && (modes[s.shiftId] ?? defaultMriPetMode(s)) === tabExcludedMode)
+    !(s.billingMode === 'mrct_pet_combined' && tabExcludedMode && (modes[s.shiftId] ?? defaultMriPetMode(s)) === tabExcludedMode)
   ).length
 
   if (eligibleEntityTabs.length === 0 && entities.length > 0) {
@@ -356,7 +350,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
       ) : (
         <div className="space-y-2">
           {eligibleShifts.map((shift) => {
-            const isMriPet = shift.clinic === 'BC Cancer Agency MRI/PET'
+            const isMriPet = shift.billingMode === 'mrct_pet_combined'
             const currentMode: MriPetMode = modes[shift.shiftId] ?? defaultMriPetMode(shift)
             const excludedMode = EXCLUDED_MODES[activeEntity]
             const isExcluded = isMriPet && !!excludedMode && currentMode === excludedMode
@@ -440,7 +434,7 @@ export default function InvoiceGenerator({ completed, allShifts, from, onMissing
                     )}
                     {(currentMode === 'ct-pet' || currentMode === 'ct-also') && (
                       <p className="text-xs text-slate-500">
-                        {ctShiftByDate[shift.date]
+                        {ctShiftsByDate[shift.date]
                           ? <>
                               CT shift: <span className="font-medium">
                                 {ctStartTimeByDate[shift.date] ? formatTime(ctStartTimeByDate[shift.date]) + ' – ' : ''}

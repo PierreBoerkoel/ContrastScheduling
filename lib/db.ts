@@ -40,7 +40,7 @@ export async function initDb(): Promise<void> {
   `
   type ClinicSeedRow = [string, string, number[], string | null, string | null, string | null, string | null, string, number]
   const clinicSeeds: ClinicSeedRow[] = [
-    ['BC Cancer Agency CT',      'BCCA CT',      [6],              '17:00', '19:00', '08:00', '16:00', 'simple',            1],
+    ['BC Cancer Agency CT',      'BCCA CT',      [6],              '17:00', '19:00', '08:00', '16:00', 'bcca_ct',           1],
     ['BC Cancer Agency MRI/PET', 'BCCA MRI/PET', [0,1,2,3,4,5,6], '17:00', '22:00', '08:00', '21:00', 'mrct_pet_combined', 2],
     ['INITIO Medical Imaging',   'INITIO',       [0,1,2,3,4,5,6], '17:30', '21:30', '08:00', '16:00', 'simple',            3],
     ['UBC Hospital',             'UBC',          [1,2,3,4,5],     '17:30', '22:30', null,    null,    'simple',            4],
@@ -180,6 +180,7 @@ export async function initDb(): Promise<void> {
   await sql`ALTER TABLE clinics ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`
   await sql`ALTER TABLE clinics ADD COLUMN IF NOT EXISTS pet_end_time TEXT`
   await sql`UPDATE clinics SET pet_end_time = '21:00' WHERE name = 'BC Cancer Agency MRI/PET' AND pet_end_time IS NULL`
+  await sql`UPDATE clinics SET billing_mode = 'bcca_ct' WHERE billing_mode = 'simple' AND name = 'BC Cancer Agency CT'`
 
   // Ensure period_id FKs have ON DELETE CASCADE
   await sql`
