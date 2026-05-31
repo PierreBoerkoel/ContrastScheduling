@@ -787,10 +787,10 @@ export default function ProfilePage() {
 
       {/* ── Shift Preferences ── */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-        <div className="flex items-start justify-between mb-1">
+        <div className="flex items-start justify-between mb-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-700">Shift Preferences</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Rank the shifts you'd prefer to work</p>
+            <p className="text-xs text-slate-400 mt-0.5">Rank the shifts you&apos;d prefer to work</p>
           </div>
           {!editingPrefs && (
             <button
@@ -800,7 +800,7 @@ export default function ProfilePage() {
                 setEditingPrefs(true)
                 setPrefsError('')
               }}
-              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-0.5 transition-colors"
+              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2.5 py-1 transition-colors shrink-0"
             >
               {(weekdayRanking.length > 0 || weekendRanking.length > 0) ? 'Edit' : 'Set up'}
             </button>
@@ -808,86 +808,80 @@ export default function ProfilePage() {
         </div>
 
         {editingPrefs ? (
-          <div className="mt-3 space-y-4">
-            <div className="grid grid-cols-2 gap-6">
-              {/* Weekday ranking */}
-              <div>
-                <p className="text-xs font-semibold text-slate-500 mb-2">Weekday</p>
-                <div className="space-y-0.5">
-                  {weekdayRanking.map((clinic, idx) => (
-                    <div key={clinic} className="flex items-center gap-1 py-1 border-b border-slate-100">
-                      <span className="text-xs text-slate-400 w-4 shrink-0 text-right">{idx + 1}.</span>
-                      <span className="flex-1 text-xs text-slate-700 truncate ml-1">{clinicAbbr(clinic)}</span>
-                      <button
-                        disabled={idx === 0}
-                        onClick={() => setWeekdayRanking((r) => { const n = [...r]; [n[idx - 1], n[idx]] = [n[idx], n[idx - 1]]; return n })}
-                        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 px-0.5 leading-none"
-                      >↑</button>
-                      <button
-                        disabled={idx === weekdayRanking.length - 1}
-                        onClick={() => setWeekdayRanking((r) => { const n = [...r]; [n[idx], n[idx + 1]] = [n[idx + 1], n[idx]]; return n })}
-                        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 px-0.5 leading-none"
-                      >↓</button>
-                      <button
-                        onClick={() => setWeekdayRanking((r) => r.filter((_, i) => i !== idx))}
-                        className="text-slate-300 hover:text-red-500 px-0.5 ml-0.5 leading-none"
-                      >×</button>
+          <div className="space-y-5">
+            {(
+              [
+                { label: 'Weekday', ranking: weekdayRanking, setRanking: setWeekdayRanking },
+                { label: 'Weekend', ranking: weekendRanking, setRanking: setWeekendRanking },
+              ] as const
+            ).map(({ label, ranking, setRanking }) => {
+              const unranked = clinicNames.filter((c) => !ranking.includes(c))
+              return (
+                <div key={label}>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{label}</p>
+                  <div className="space-y-1">
+                    {ranking.map((clinic, idx) => (
+                      <div key={clinic} className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2">
+                        <span className="text-xs text-slate-400 w-4 shrink-0 text-right tabular-nums">{idx + 1}</span>
+                        <span className="flex-1 text-sm text-slate-700">{clinicAbbr(clinic)}</span>
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            disabled={idx === 0}
+                            onClick={() => setRanking((r) => { const n = [...r]; [n[idx - 1], n[idx]] = [n[idx], n[idx - 1]]; return n })}
+                            className="p-1 rounded text-slate-400 hover:text-slate-700 disabled:opacity-20 transition-colors"
+                            aria-label="Move up"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
+                            </svg>
+                          </button>
+                          <button
+                            disabled={idx === ranking.length - 1}
+                            onClick={() => setRanking((r) => { const n = [...r]; [n[idx], n[idx + 1]] = [n[idx + 1], n[idx]]; return n })}
+                            className="p-1 rounded text-slate-400 hover:text-slate-700 disabled:opacity-20 transition-colors"
+                            aria-label="Move down"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => setRanking((r) => r.filter((_, i) => i !== idx))}
+                            className="p-1 rounded text-slate-400 hover:text-red-500 transition-colors ml-0.5"
+                            aria-label="Remove"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {unranked.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-dashed border-slate-200">
+                      <p className="text-xs text-slate-400 mb-1.5">Not ranked — click to add</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {unranked.map((clinic) => (
+                          <button
+                            key={clinic}
+                            onClick={() => setRanking((r) => [...r, clinic])}
+                            className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 bg-white border border-slate-200 hover:border-blue-300 rounded-full px-3 py-1 transition-colors"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                            </svg>
+                            {clinicAbbr(clinic)}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                  {clinicNames.filter((c) => !weekdayRanking.includes(c)).map((clinic) => (
-                    <div key={clinic} className="flex items-center gap-1 py-1">
-                      <span className="w-4 shrink-0" />
-                      <span className="flex-1 text-xs text-slate-400 truncate ml-1">{clinicAbbr(clinic)}</span>
-                      <button
-                        onClick={() => setWeekdayRanking((r) => [...r, clinic])}
-                        className="text-slate-300 hover:text-blue-500 px-1 text-base leading-none"
-                        title={`Add to weekday ranking`}
-                      >+</button>
-                    </div>
-                  ))}
+                  )}
                 </div>
-              </div>
+              )
+            })}
 
-              {/* Weekend ranking */}
-              <div>
-                <p className="text-xs font-semibold text-slate-500 mb-2">Weekend</p>
-                <div className="space-y-0.5">
-                  {weekendRanking.map((clinic, idx) => (
-                    <div key={clinic} className="flex items-center gap-1 py-1 border-b border-slate-100">
-                      <span className="text-xs text-slate-400 w-4 shrink-0 text-right">{idx + 1}.</span>
-                      <span className="flex-1 text-xs text-slate-700 truncate ml-1">{clinicAbbr(clinic)}</span>
-                      <button
-                        disabled={idx === 0}
-                        onClick={() => setWeekendRanking((r) => { const n = [...r]; [n[idx - 1], n[idx]] = [n[idx], n[idx - 1]]; return n })}
-                        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 px-0.5 leading-none"
-                      >↑</button>
-                      <button
-                        disabled={idx === weekendRanking.length - 1}
-                        onClick={() => setWeekendRanking((r) => { const n = [...r]; [n[idx], n[idx + 1]] = [n[idx + 1], n[idx]]; return n })}
-                        className="text-slate-300 hover:text-slate-600 disabled:opacity-30 px-0.5 leading-none"
-                      >↓</button>
-                      <button
-                        onClick={() => setWeekendRanking((r) => r.filter((_, i) => i !== idx))}
-                        className="text-slate-300 hover:text-red-500 px-0.5 ml-0.5 leading-none"
-                      >×</button>
-                    </div>
-                  ))}
-                  {clinicNames.filter((c) => !weekendRanking.includes(c)).map((clinic) => (
-                    <div key={clinic} className="flex items-center gap-1 py-1">
-                      <span className="w-4 shrink-0" />
-                      <span className="flex-1 text-xs text-slate-400 truncate ml-1">{clinicAbbr(clinic)}</span>
-                      <button
-                        onClick={() => setWeekendRanking((r) => [...r, clinic])}
-                        className="text-slate-300 hover:text-blue-500 px-1 text-base leading-none"
-                        title={`Add to weekend ranking`}
-                      >+</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
               <button
                 onClick={savePrefs}
                 disabled={prefsSaving}
@@ -897,7 +891,7 @@ export default function ProfilePage() {
               </button>
               <button
                 onClick={() => { setWeekdayRanking(weekdayRankingSnapshot.current); setWeekendRanking(weekendRankingSnapshot.current); setEditingPrefs(false); setPrefsError('') }}
-                className="text-sm text-slate-500 hover:text-slate-700 px-2 py-1.5"
+                className="text-sm text-slate-500 hover:text-slate-700 px-2 py-1.5 transition-colors"
               >
                 Cancel
               </button>
@@ -905,44 +899,40 @@ export default function ProfilePage() {
             </div>
           </div>
         ) : (weekdayRanking.length > 0 || weekendRanking.length > 0) ? (
-          <div className="mt-3 grid grid-cols-2 gap-6">
-            <div>
-              <p className="text-xs font-semibold text-slate-500 mb-1.5">Weekday</p>
-              {weekdayRanking.length > 0 ? (
+          <div className="space-y-4">
+            {weekdayRanking.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Weekday</p>
                 <ol className="space-y-1">
                   {weekdayRanking.map((clinic, idx) => (
-                    <li key={clinic} className="flex items-center gap-1.5 text-xs text-slate-600">
-                      <span className="text-slate-400 w-4 text-right shrink-0">{idx + 1}.</span>
-                      <span>{clinicAbbr(clinic)}</span>
+                    <li key={clinic} className="flex items-center gap-2 text-sm text-slate-700">
+                      <span className="text-xs text-slate-400 w-4 text-right shrink-0 tabular-nums">{idx + 1}</span>
+                      <span className="bg-slate-50 rounded-lg px-3 py-1.5 flex-1">{clinicAbbr(clinic)}</span>
                     </li>
                   ))}
                 </ol>
-              ) : (
-                <p className="text-xs text-slate-400 italic">No preference</p>
-              )}
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-500 mb-1.5">Weekend</p>
-              {weekendRanking.length > 0 ? (
+              </div>
+            )}
+            {weekendRanking.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Weekend</p>
                 <ol className="space-y-1">
                   {weekendRanking.map((clinic, idx) => (
-                    <li key={clinic} className="flex items-center gap-1.5 text-xs text-slate-600">
-                      <span className="text-slate-400 w-4 text-right shrink-0">{idx + 1}.</span>
-                      <span>{clinicAbbr(clinic)}</span>
+                    <li key={clinic} className="flex items-center gap-2 text-sm text-slate-700">
+                      <span className="text-xs text-slate-400 w-4 text-right shrink-0 tabular-nums">{idx + 1}</span>
+                      <span className="bg-slate-50 rounded-lg px-3 py-1.5 flex-1">{clinicAbbr(clinic)}</span>
                     </li>
                   ))}
                 </ol>
-              ) : (
-                <p className="text-xs text-slate-400 italic">No preference</p>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         ) : (
-          <p className="text-sm text-slate-400 mt-2">No preferences set.</p>
+          <p className="text-sm text-slate-400">No preferences set.</p>
         )}
 
-        <p className="text-xs text-slate-500 mt-4 leading-relaxed">
-          Scheduling works by random draw — all available residents have equal odds of being selected regardless of their rankings. When selected, you&apos;re placed at your top-ranked shift still available that day. If preferences aren&apos;t set, you&apos;re placed randomly among your remaining available options.
+        <p className="text-xs text-slate-400 mt-4 leading-relaxed">
+          Scheduling is a random draw — when selected, you&apos;re placed at your top-ranked available shift that day. Without preferences, placement is random.
         </p>
       </div>
 
