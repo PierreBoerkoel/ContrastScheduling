@@ -265,7 +265,6 @@ export default function AdminPage() {
   const clinicDefaultsRef = useRef<Clinic[]>([])
   const clinicNames = clinicDefaults.map((c) => c.name)
   const clinicAbbr = Object.fromEntries(clinicDefaults.map((c) => [c.name, c.abbreviation]))
-  const [expandedClinics, setExpandedClinics] = useState<Set<string>>(new Set())
   const [editingClinic, setEditingClinic] = useState<string | null>(null)
   const [clinicEdit, setClinicEdit] = useState<{
     name: string
@@ -2507,22 +2506,17 @@ export default function AdminPage() {
           {/* Active clinic cards */}
           {clinicDefaults.map((def) => {
             const clinic = def.name
-            const isExpanded = expandedClinics.has(clinic)
             const isEditing = editingClinic === clinic
             const isComplex = def.billingEntityCodes.some((code) => COMPLEX_ENTITY_RATES[code] !== undefined)
             const hasWeekdays = (def.activeDays ?? []).some((d) => d >= 1 && d <= 5)
             const hasWeekends = (def.activeDays ?? []).some((d) => d === 0 || d === 6)
             const editHasWeekdays = isEditing ? [...clinicEdit.activeDays].some((d) => d >= 1 && d <= 5) : false
             const editHasWeekends = isEditing ? [...clinicEdit.activeDays].some((d) => d === 0 || d === 6) : false
-            const simpleRateCode = !isComplex && def.billingEntityCodes.length === 1 ? def.billingEntityCodes[0] : null
-            const simpleRate = simpleRateCode !== null ? billingRates[`${simpleRateCode}_rate`] : undefined
+
             return (
-              <div key={clinic} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                {/* Clickable header row */}
-                <button
-                  onClick={() => setExpandedClinics((prev) => { const next = new Set(prev); isExpanded ? next.delete(clinic) : next.add(clinic); return next })}
-                  className="w-full px-5 py-4 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors"
-                >
+              <div key={clinic} className={`bg-white rounded-xl border shadow-sm overflow-hidden ${isEditing ? 'border-blue-200' : 'border-slate-200'}`}>
+                {/* Header row */}
+                <div className="px-5 py-4 flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-slate-800">{clinic}</span>
@@ -2549,15 +2543,44 @@ export default function AdminPage() {
                       )}
                     </div>
                   </div>
-                  <svg className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
+                  {!isEditing && (
+                    <button
+                      onClick={() => {
+                        setClinicEditError('')
+                        setClinicEdit({
+                          name: def.name,
+                          abbreviation: def.abbreviation,
+                          activeDays: new Set(def.activeDays ?? []),
+                          weekdayStart: def.weekdayStart ?? '',
+                          weekdayEnd: def.weekdayEnd ?? '',
+                          weekendStart: def.weekendStart ?? '',
+                          weekendEnd: def.weekendEnd ?? '',
+                          petEndTime: def.petEndTime ?? '',
+                          rates: Object.fromEntries(
+                            def.billingEntityCodes.flatMap((code) => {
+                              const rows = COMPLEX_ENTITY_RATES[code]
+                              if (rows) return rows.map((r) => [r.key, billingRates[r.key] !== undefined ? String(billingRates[r.key]) : ''])
+                              return [[`${code}_rate`, billingRates[`${code}_rate`] !== undefined ? String(billingRates[`${code}_rate`]) : '']]
+                            })
+                          ),
+                          contacts: Object.fromEntries(
+                            def.billingEntityCodes.map((code) => {
+                              const c = billingContacts.find((x) => x.entity === code)
+                              return [code, { contactName: c?.contactName ?? '', org: c?.org ?? '', address: c?.address ?? '', email: c?.email ?? '' }]
+                            })
+                          ),
+                        })
+                        setEditingClinic(clinic)
+                      }}
+                      className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2.5 py-1 transition-colors shrink-0"
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
 
-                {isExpanded && (
+                {isEditing && (
                   <div className="border-t border-slate-100">
-                    {isEditing ? (
-                      /* ── Edit mode ── */
                       <div className="px-5 py-4 space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
@@ -2711,9 +2734,6 @@ export default function AdminPage() {
                                     return existing ? prev.map((x) => x.entity === entityCode ? record : x) : [...prev, record]
                                   })
                                 }
-                                if (newName !== def.name) {
-                                  setExpandedClinics((prev) => { const next = new Set(prev); next.delete(def.name); next.add(newName); return next })
-                                }
                                 setEditingClinic(null)
                               } finally {
                                 setSavingClinic(false)
@@ -2734,7 +2754,6 @@ export default function AdminPage() {
                                     setClinicDefaults((prev) => prev.filter((d) => d.id !== def.id))
                                     setArchivedClinics((prev) => [...prev, { ...def, archivedAt: new Date().toISOString() }])
                                     setEditingClinic(null); setArchivingClinic(null)
-                                    setExpandedClinics((prev) => { const next = new Set(prev); next.delete(clinic); return next })
                                   } else {
                                     setClinicEditError('Failed to archive')
                                   }
@@ -2754,7 +2773,6 @@ export default function AdminPage() {
                                   if (res.ok) {
                                     setClinicDefaults((prev) => prev.filter((d) => d.id !== def.id))
                                     setEditingClinic(null); setDeletingClinic(null)
-                                    setExpandedClinics((prev) => { const next = new Set(prev); next.delete(clinic); return next })
                                   } else {
                                     const data = await res.json().catch(() => ({}))
                                     setClinicEditError((data as { error?: string }).error ?? 'Failed to delete')
@@ -2776,78 +2794,6 @@ export default function AdminPage() {
                           {clinicEditError && <span className="text-xs text-red-500">{clinicEditError}</span>}
                         </div>
                       </div>
-                    ) : (
-                      /* ── Read-only view ── */
-                      <div className="px-5 py-4 space-y-4">
-                        <div className="flex justify-end">
-                          <button
-                            onClick={() => {
-                              setClinicEditError('')
-                              setClinicEdit({
-                                name: def.name,
-                                abbreviation: def.abbreviation,
-                                activeDays: new Set(def.activeDays ?? []),
-                                weekdayStart: def.weekdayStart ?? '',
-                                weekdayEnd: def.weekdayEnd ?? '',
-                                weekendStart: def.weekendStart ?? '',
-                                weekendEnd: def.weekendEnd ?? '',
-                                petEndTime: def.petEndTime ?? '',
-                                rates: Object.fromEntries(
-                                  def.billingEntityCodes.flatMap((code) => {
-                                    const rows = COMPLEX_ENTITY_RATES[code]
-                                    if (rows) return rows.map((r) => [r.key, billingRates[r.key] !== undefined ? String(billingRates[r.key]) : ''])
-                                    return [[`${code}_rate`, billingRates[`${code}_rate`] !== undefined ? String(billingRates[`${code}_rate`]) : '']]
-                                  })
-                                ),
-                                contacts: Object.fromEntries(
-                                  def.billingEntityCodes.map((code) => {
-                                    const c = billingContacts.find((x) => x.entity === code)
-                                    return [code, { contactName: c?.contactName ?? '', org: c?.org ?? '', address: c?.address ?? '', email: c?.email ?? '' }]
-                                  })
-                                ),
-                              })
-                              setEditingClinic(clinic)
-                            }}
-                            className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-0.5 transition-colors"
-                          >
-                            Edit
-                          </button>
-                        </div>
-                        {def.billingEntityCodes.map((entityCode) => {
-                          const complexRows = COMPLEX_ENTITY_RATES[entityCode]
-                          const contact = billingContacts.find((c) => c.entity === entityCode)
-                          const displayName = ENTITY_DISPLAY[entityCode] ?? billingEntities.find((e) => e.code === entityCode)?.label ?? entityCode
-                          return (
-                            <div key={entityCode} className={isComplex ? 'rounded-lg border border-slate-200 overflow-hidden' : ''}>
-                              {isComplex && (
-                                <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
-                                  <span className="text-xs font-semibold text-slate-600">{displayName}</span>
-                                </div>
-                              )}
-                              <div className={isComplex ? 'px-4 py-3 space-y-3' : 'space-y-2'}>
-                                {complexRows ? (
-                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
-                                    {complexRows.map((row) => {
-                                      const val = billingRates[row.key]
-                                      return <span key={row.key}>{row.label}: <span className="font-medium text-slate-800">{val !== undefined ? `$${val.toFixed(0)}/hr` : '—'}</span></span>
-                                    })}
-                                  </div>
-                                ) : (
-                                  <div className="text-xs text-slate-600">Rate: <span className="font-medium text-slate-800">{billingRates[`${entityCode}_rate`] !== undefined ? `$${billingRates[`${entityCode}_rate`].toFixed(0)}/hr` : '—'}</span></div>
-                                )}
-                                <div className="text-xs text-slate-500 space-y-0.5">
-                                  {contact?.contactName && <div className="font-medium text-slate-700">{contact.contactName}</div>}
-                                  {contact?.org && <div>{contact.org}</div>}
-                                  {contact?.address && contact.address.split('\n').map((l, i) => <div key={i}>{l}</div>)}
-                                  {contact?.email && <div>{contact.email}</div>}
-                                  {!contact && <div className="italic text-slate-300">No billing contact</div>}
-                                </div>
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
