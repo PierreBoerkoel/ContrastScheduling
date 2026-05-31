@@ -14,20 +14,22 @@ const MRI_PET_MODE_LABELS: Partial<Record<MriPetMode, string>> = {
   'normal': 'MRI + PET',
   'ct-also': 'MRI + PET + CT',
   'ct-pet': 'CT + PET',
+  'mri-ct': 'MRI + CT',
   'pet-down': 'MRI',
   'mri-down': 'PET only',
   'mri-ends-early': 'MRI ended early',
 }
 
 // Modes hidden per entity tab because they produce no billable items for that entity
-const EXCLUDED_MODES: Partial<Record<string, MriPetMode>> = {
-  MRCT: 'mri-down',
-  PET: 'pet-down',
+const EXCLUDED_MODES: Partial<Record<string, MriPetMode[]>> = {
+  MRCT: ['mri-down'],
+  PET: ['pet-down', 'mri-ct'],
 }
 
 const EXCLUDED_REASON: Partial<Record<MriPetMode, string>> = {
   'mri-down': 'PET only — no MRI/CT billing',
   'pet-down': 'MRI only — no PET billing',
+  'mri-ct': 'MRI + CT only — no PET billing',
 }
 
 interface Props {
@@ -204,10 +206,10 @@ export default function InvoiceGenerator({ completed, ctShiftsByDate, from, onMi
       return
     }
 
-    const excludedMode = EXCLUDED_MODES[activeEntity]
+    const excludedModes = EXCLUDED_MODES[activeEntity]
     const shifts = eligibleShifts.filter((s) =>
       selected.has(s.shiftId) &&
-      !(s.billingMode === 'mrct_pet_combined' && excludedMode && (modes[s.shiftId] ?? defaultMriPetMode(s)) === excludedMode)
+      !(s.billingMode === 'mrct_pet_combined' && excludedModes?.length && excludedModes.includes(modes[s.shiftId] ?? defaultMriPetMode(s)))
     )
     if (shifts.length === 0) {
       setError('Select at least one shift.')
@@ -287,10 +289,10 @@ export default function InvoiceGenerator({ completed, ctShiftsByDate, from, onMi
   }
 
   const contact = dbContacts[activeEntity]
-  const tabExcludedMode = EXCLUDED_MODES[activeEntity]
+  const tabExcludedModes = EXCLUDED_MODES[activeEntity]
   const selectedCount = eligibleShifts.filter((s) =>
     selected.has(s.shiftId) &&
-    !(s.billingMode === 'mrct_pet_combined' && tabExcludedMode && (modes[s.shiftId] ?? defaultMriPetMode(s)) === tabExcludedMode)
+    !(s.billingMode === 'mrct_pet_combined' && tabExcludedModes?.length && tabExcludedModes.includes(modes[s.shiftId] ?? defaultMriPetMode(s)))
   ).length
 
   if (eligibleEntityTabs.length === 0 && entities.length > 0) {
@@ -352,15 +354,15 @@ export default function InvoiceGenerator({ completed, ctShiftsByDate, from, onMi
           {eligibleShifts.map((shift) => {
             const isMriPet = shift.billingMode === 'mrct_pet_combined'
             const currentMode: MriPetMode = modes[shift.shiftId] ?? defaultMriPetMode(shift)
-            const excludedMode = EXCLUDED_MODES[activeEntity]
-            const isExcluded = isMriPet && !!excludedMode && currentMode === excludedMode
+            const excludedModes = EXCLUDED_MODES[activeEntity]
+            const isExcluded = isMriPet && !!excludedModes?.length && excludedModes.includes(currentMode)
             const isSelected = selected.has(shift.shiftId)
             const timeLabel = shift.startTime && shift.endTime
               ? ` · ${formatTime(shift.startTime)}–${formatTime(shift.endTime)}`
               : ''
             const priorInvoices = (invoicedShifts.get(shift.shiftId) ?? []).filter((inv) => inv.entity === activeEntity)
             const availableModes = (Object.entries(MRI_PET_MODE_LABELS) as [MriPetMode, string][])
-              .filter(([k]) => k !== excludedMode)
+              .filter(([k]) => !excludedModes?.includes(k))
 
             if (isExcluded) {
               return (

@@ -4,6 +4,7 @@ export interface BillingRates {
   MRCT_base: number        // MRI with PET active
   MRCT_standalone: number  // MRI-only (PET down or after PET hours)
   MRCT_ct: number          // CT coverage
+  MRCT_mri_ct: number      // MRI + CT concurrent (no PET)
   PET_base: number         // PET with MRI active
   PET_standalone: number   // PET-only (MRI down)
 }
@@ -12,6 +13,7 @@ export const DEFAULT_RATES: BillingRates = {
   MRCT_base: 50,
   MRCT_standalone: 75,
   MRCT_ct: 75,
+  MRCT_mri_ct: 100,
   PET_base: 25,
   PET_standalone: 75,
 }
@@ -21,6 +23,7 @@ export function ratesToBillingRates(raw: Record<string, number>): BillingRates {
     MRCT_base:       raw['MRCT_base']       ?? DEFAULT_RATES.MRCT_base,
     MRCT_standalone: raw['MRCT_standalone'] ?? DEFAULT_RATES.MRCT_standalone,
     MRCT_ct:         raw['MRCT_ct']         ?? DEFAULT_RATES.MRCT_ct,
+    MRCT_mri_ct:     raw['MRCT_mri_ct']     ?? DEFAULT_RATES.MRCT_mri_ct,
     PET_base:        raw['PET_base']        ?? DEFAULT_RATES.PET_base,
     PET_standalone:  raw['PET_standalone']  ?? DEFAULT_RATES.PET_standalone,
   }
@@ -35,6 +38,7 @@ export type MriPetMode =
   | 'pet-down'         // PET down, MRI standalone: $75/hr MRCT full shift
   | 'ct-pet'           // MRI down, CT + PET running: $50/hr CT + $25/hr PET concurrent, then $75/hr for whichever continues alone
   | 'mri-ends-early'   // MRI ends before PET: concurrent until MRI end, then PET standalone until PET end
+  | 'mri-ct'           // MRI + CT (no PET): $100/hr MRCT during overlap, $75/hr MRCT for MRI-only segments
 
 export function defaultMriPetMode(shift: { billingMode: string; date: string }): MriPetMode {
   if (shift.billingMode !== 'mrct_pet_combined') return 'normal'
@@ -249,6 +253,17 @@ export function calculateLineItems(
         }
         if (ctAfterPet) result.MRCT.push(item(date, ctAfterPet.start, ctAfterPet.end, 'CT contrast coverage', rates.MRCT_ct))
         if (petAlone) result.PET.push(item(date, petAlone.start, petAlone.end, 'PET contrast coverage', rates.PET_standalone))
+        break
+      }
+
+      case 'mri-ct': {
+        if (!ctEndTime) break
+        const ctSeg = overlapInterval(sS, sE, ct.start, ct.end)
+        const beforeCt = overlapInterval(sS, sE, sS, ct.start)
+        const afterCt = overlapInterval(sS, sE, ct.end, sE)
+        if (ctSeg) result.MRCT.push(item(date, ctSeg.start, ctSeg.end, 'MRI + CT contrast coverage', rates.MRCT_mri_ct))
+        if (beforeCt) result.MRCT.push(item(date, beforeCt.start, beforeCt.end, 'MRI contrast coverage', rates.MRCT_standalone))
+        if (afterCt) result.MRCT.push(item(date, afterCt.start, afterCt.end, 'MRI contrast coverage', rates.MRCT_standalone))
         break
       }
     }

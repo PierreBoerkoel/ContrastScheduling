@@ -27,8 +27,9 @@ const ENTITY_DISPLAY: Record<string, string> = {
 const COMPLEX_ENTITY_RATES: Record<string, { key: string; label: string }[]> = {
   MRCT: [
     { key: 'MRCT_base',       label: 'MRI + PET (normal)' },
-    { key: 'MRCT_standalone', label: 'MRI standalone / MRI + CT' },
-    { key: 'MRCT_ct',         label: 'CT-only coverage' },
+    { key: 'MRCT_standalone', label: 'MRI only' },
+    { key: 'MRCT_ct',         label: 'CT only' },
+    { key: 'MRCT_mri_ct',     label: 'MRI + CT (no PET)' },
   ],
   PET: [
     { key: 'PET_base',        label: 'PET + MRI (normal)' },
