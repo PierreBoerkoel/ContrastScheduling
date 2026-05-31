@@ -350,6 +350,13 @@ export async function initDb(): Promise<void> {
       email   TEXT NOT NULL DEFAULT ''
     )
   `
+  await sql`
+    CREATE TABLE IF NOT EXISTS calendar_tokens (
+      user_id    TEXT PRIMARY KEY,
+      token      TEXT NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
 
   // ── Invoice sequences (migrate from resident_name PK to user_id PK) ───────
   await sql`
@@ -1425,4 +1432,147 @@ export async function getAllResidentContacts(): Promise<Record<string, ResidentC
   return Object.fromEntries(
     rows.map((r) => [r.user_id as string, { address: r.address as string, phone: r.phone as string, email: r.email as string }])
   )
+}
+
+// ── Calendar tokens ───────────────────────────────────────────────────────────
+
+export async function getOrCreateCalendarToken(userId: string): Promise<string> {
+  await ensureDb()
+  const { rows } = await sql`
+    INSERT INTO calendar_tokens (user_id)
+    VALUES (${userId})
+    ON CONFLICT (user_id) DO NOTHING
+    RETURNING token
+  `
+  if (rows.length > 0) return rows[0].token as string
+  const { rows: existing } = await sql`SELECT token FROM calendar_tokens WHERE user_id = ${userId}`
+  return existing[0].token as string
+}
+
+export async function getUserIdByCalendarToken(token: string): Promise<string | null> {
+  await ensureDb()
+  const { rows } = await sql`SELECT user_id FROM calendar_tokens WHERE token = ${token}`
+  return rows.length > 0 ? (rows[0].user_id as string) : null
+}
+
+export interface CalendarShiftSegment {
+  shiftId: string
+  date: string       // YYYY-MM-DD
+  startTime: string  // HH:MM
+  endTime: string    // HH:MM
+  clinicName: string
+  updatedAt: string  // ISO timestamp for LAST-MODIFIED
+}
+
+export async function getCalendarShiftsForUser(userId: string): Promise<CalendarShiftSegment[]> {
+  await ensureDb()
+
+  // Base assignments in published periods
+  const { rows: assigned } = await sql`
+    SELECT s.id, s.date, s.start_time, s.end_time, c.name AS clinic_name,
+           GREATEST(p.published_at, p.updated_at) AS updated_at
+    FROM shift_assignments sa
+    JOIN shifts s ON s.id = sa.shift_id
+    JOIN clinics c ON c.id = s.clinic_id
+    JOIN scheduling_periods p ON p.id = sa.period_id
+    WHERE sa.user_id = ${userId} AND sa.is_draft = false
+      AND p.published_at IS NOT NULL AND p.deleted_at IS NULL
+  `
+
+  // Shifts given away via accepted swaps
+  const { rows: swappedOut } = await sql`
+    SELECT requestor_shift_id AS shift_id FROM swap_requests
+    WHERE requestor_user_id = ${userId} AND status = 'accepted'
+  `
+  const swappedOutIds = new Set(swappedOut.map((r) => r.shift_id as string))
+
+  // Shifts received via accepted swaps
+  const { rows: swappedIn } = await sql`
+    SELECT s.id, s.date, s.start_time, s.end_time, c.name AS clinic_name,
+           GREATEST(p.published_at, p.updated_at) AS updated_at
+    FROM swap_requests sr
+    JOIN shifts s ON s.id = sr.requestor_shift_id
+    JOIN clinics c ON c.id = s.clinic_id
+    JOIN scheduling_periods p ON p.id = sr.period_id
+    WHERE sr.acceptor_user_id = ${userId} AND sr.status = 'accepted'
+      AND p.published_at IS NOT NULL AND p.deleted_at IS NULL
+  `
+
+  // Segments received via accepted splits (user is split acceptor)
+  const { rows: splitSegments } = await sql`
+    SELECT s.id AS shift_id, s.date, ss.offered_start AS start_time, ss.offered_end AS end_time,
+           c.name AS clinic_name, GREATEST(p.published_at, p.updated_at) AS updated_at
+    FROM shift_splits ss
+    JOIN shifts s ON s.id = ss.shift_id
+    JOIN clinics c ON c.id = s.clinic_id
+    JOIN scheduling_periods p ON p.id = ss.period_id
+    WHERE ss.acceptor_user_id = ${userId} AND ss.status = 'accepted'
+      AND p.published_at IS NOT NULL AND p.deleted_at IS NULL
+  `
+
+  // For each directly-held shift, get accepted splits where user gave coverage away
+  const heldShifts = assigned
+    .filter((r) => !swappedOutIds.has(r.id as string))
+    .concat(swappedIn)
+
+  const heldIds = heldShifts.map((r) => r.id as string)
+  const givenAwaySplits: Array<{ shiftId: string; start: string; end: string }> = []
+
+  if (heldIds.length > 0) {
+    const heldIdSet = new Set(heldIds)
+    const { rows: splitRows } = await sql`
+      SELECT shift_id, offered_start, offered_end FROM shift_splits
+      WHERE offeror_user_id = ${userId} AND status = 'accepted'
+    `
+    for (const r of splitRows) {
+      if (heldIdSet.has(r.shift_id as string)) {
+        givenAwaySplits.push({ shiftId: r.shift_id as string, start: r.offered_start as string, end: r.offered_end as string })
+      }
+    }
+  }
+
+  const segments: CalendarShiftSegment[] = []
+
+  // Compute remaining coverage for held shifts after subtracting given-away splits
+  for (const shift of heldShifts) {
+    const shiftId = shift.id as string
+    const date = shift.date as string
+    const clinicName = shift.clinic_name as string
+    const updatedAt = (shift.updated_at as Date | null)?.toISOString() ?? new Date().toISOString()
+    const sStart = shift.start_time as string | null
+    const sEnd = shift.end_time as string | null
+    if (!sStart || !sEnd) continue
+
+    const given = givenAwaySplits
+      .filter((sp) => sp.shiftId === shiftId)
+      .sort((a, b) => a.start.localeCompare(b.start))
+
+    if (given.length === 0) {
+      segments.push({ shiftId, date, startTime: sStart, endTime: sEnd, clinicName, updatedAt })
+      continue
+    }
+
+    let pos = sStart
+    for (const gap of given) {
+      if (pos < gap.start) segments.push({ shiftId: `${shiftId}-${pos}`, date, startTime: pos, endTime: gap.start, clinicName, updatedAt })
+      pos = gap.end
+    }
+    if (pos < sEnd) segments.push({ shiftId: `${shiftId}-${pos}`, date, startTime: pos, endTime: sEnd, clinicName, updatedAt })
+  }
+
+  // Add received split segments
+  for (const r of splitSegments) {
+    const date = r.date as string
+    const updatedAt = (r.updated_at as Date | null)?.toISOString() ?? new Date().toISOString()
+    segments.push({
+      shiftId: `${r.shift_id as string}-split-${r.start_time as string}`,
+      date,
+      startTime: r.start_time as string,
+      endTime: r.end_time as string,
+      clinicName: r.clinic_name as string,
+      updatedAt,
+    })
+  }
+
+  return segments.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime))
 }

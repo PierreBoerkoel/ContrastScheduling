@@ -185,6 +185,9 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [showGoogleLinks, setShowGoogleLinks] = useState(false)
 
+  const [calendarToken, setCalendarToken] = useState<string | null>(null)
+  const [calendarCopied, setCalendarCopied] = useState(false)
+
   const [editingContact, setEditingContact] = useState(false)
   const [contactFirstName, setContactFirstName] = useState('')
   const [contactLastName, setContactLastName] = useState('')
@@ -242,12 +245,14 @@ export default function ProfilePage() {
       fetch('/api/splits').then((r) => r.json()),
       fetch('/api/admin/clinic-defaults?includeArchived=true').then((r) => r.json()),
       fetch('/api/profile/contact').then((r) => r.json()),
-    ]).then(([shiftList, periodList, splitList, clinicList, contactData]) => {
+      fetch('/api/calendar/token').then((r) => r.json()),
+    ]).then(([shiftList, periodList, splitList, clinicList, contactData, calData]) => {
       setShifts(Array.isArray(shiftList) ? shiftList : [])
       setPeriods(Array.isArray(periodList) ? periodList : [])
       setAllSplits(Array.isArray(splitList) ? splitList : [])
       if (Array.isArray(clinicList)) setClinics(clinicList)
       if (contactData && !contactData.error) setSavedContact(contactData)
+      if (calData?.token) setCalendarToken(calData.token)
       setLoading(false)
     })
   }, [])
@@ -935,6 +940,34 @@ export default function ProfilePage() {
           Scheduling is a random draw — when selected, you&apos;re placed at your top-ranked available shift that day. Without preferences, placement is random.
         </p>
       </div>
+
+      {/* ── Calendar Subscription ── */}
+      {calendarToken && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h2 className="text-sm font-semibold text-slate-700 mb-0.5">Calendar Subscription</h2>
+          <p className="text-xs text-slate-400 mb-4">Subscribe to your shifts in Google Calendar, Outlook, or Apple Calendar. Updates automatically when the schedule changes.</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 min-w-0 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-600 truncate select-all">
+              {`${typeof window !== 'undefined' ? window.location.origin : ''}/api/calendar/${calendarToken}`}
+            </code>
+            <button
+              onClick={() => {
+                const url = `${window.location.origin}/api/calendar/${calendarToken}`
+                navigator.clipboard.writeText(url).then(() => {
+                  setCalendarCopied(true)
+                  setTimeout(() => setCalendarCopied(false), 2000)
+                })
+              }}
+              className="shrink-0 text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2.5 py-1 transition-colors"
+            >
+              {calendarCopied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <p className="text-xs text-slate-400 mt-3 leading-relaxed">
+            <span className="font-medium text-slate-500">Google Calendar:</span> Other calendars → From URL · <span className="font-medium text-slate-500">Outlook:</span> Add calendar → Subscribe from web · <span className="font-medium text-slate-500">Apple Calendar:</span> File → New Calendar Subscription
+          </p>
+        </div>
+      )}
 
       {publishedAssignments.length === 0 && completed.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm">
