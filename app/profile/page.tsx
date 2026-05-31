@@ -592,7 +592,7 @@ export default function ProfilePage() {
           {!editingContact && (
             <button
               onClick={startEditContact}
-              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-0.5 transition-colors"
+              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2.5 py-1 transition-colors shrink-0"
             >
               {hasContactInfo ? 'Edit' : 'Add'}
             </button>
@@ -702,7 +702,7 @@ export default function ProfilePage() {
                 setEditingDefaults(true)
                 setDefaultsError('')
               }}
-              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2 py-0.5 transition-colors"
+              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2.5 py-1 transition-colors shrink-0"
             >
               {Object.keys(shiftDefaults).length > 0 ? 'Edit' : 'Set up'}
             </button>
