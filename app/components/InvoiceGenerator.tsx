@@ -239,12 +239,12 @@ export default function InvoiceGenerator({ completed, ctShiftsByDate, from, onMi
           ),
           ctEndTimes: Object.fromEntries(
             shifts
-              .filter((s) => (effectiveModes[s.shiftId] === 'ct-pet' || effectiveModes[s.shiftId] === 'ct-also') && ctEndTimeByDate[s.date])
+              .filter((s) => (effectiveModes[s.shiftId] === 'ct-pet' || effectiveModes[s.shiftId] === 'ct-also' || effectiveModes[s.shiftId] === 'mri-ct') && ctEndTimeByDate[s.date])
               .map((s) => [s.shiftId, ctEndTimeByDate[s.date]])
           ),
           ctStartTimes: Object.fromEntries(
             shifts
-              .filter((s) => effectiveModes[s.shiftId] === 'ct-also' && ctStartTimeByDate[s.date])
+              .filter((s) => (effectiveModes[s.shiftId] === 'ct-also' || effectiveModes[s.shiftId] === 'mri-ct') && ctStartTimeByDate[s.date])
               .map((s) => [s.shiftId, ctStartTimeByDate[s.date]])
           ),
           format,
