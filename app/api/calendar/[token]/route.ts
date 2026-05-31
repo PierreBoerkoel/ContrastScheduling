@@ -19,12 +19,26 @@ function escapeIcal(s: string): string {
 
 export async function GET(_req: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
-  const userId = await getUserIdByCalendarToken(token)
+
+  let userId: string | null
+  try {
+    userId = await getUserIdByCalendarToken(token)
+  } catch (e) {
+    console.error('calendar token lookup failed:', e)
+    return new NextResponse('Service unavailable', { status: 503 })
+  }
+
   if (!userId) {
     return new NextResponse('Not found', { status: 404 })
   }
 
-  const segments = await getCalendarShiftsForUser(userId)
+  let segments: Awaited<ReturnType<typeof getCalendarShiftsForUser>>
+  try {
+    segments = await getCalendarShiftsForUser(userId)
+  } catch (e) {
+    console.error('getCalendarShiftsForUser failed:', e)
+    return new NextResponse('Service unavailable', { status: 503 })
+  }
   const now = icalUtcNow()
 
   const events = segments.map((seg) => {
