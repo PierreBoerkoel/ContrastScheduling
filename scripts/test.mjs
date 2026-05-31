@@ -418,6 +418,162 @@ assert(
   'offer spanning full owned window passes validation'
 )
 
+// ── Inline billing helpers mirroring lib/invoices.ts ─────────────────────────
+function billingMins(t) {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+function billingOverlap(aS, aE, bS, bE) {
+  const start = billingMins(aS) >= billingMins(bS) ? aS : bS
+  const end   = billingMins(aE) <= billingMins(bE) ? aE : bE
+  return billingMins(start) >= billingMins(end) ? null : { start, end }
+}
+function billingHours(s, e) { return (billingMins(e) - billingMins(s)) / 60 }
+function billingItem(date, s, e, desc, rate) {
+  const hrs = Math.round(billingHours(s, e) * 100) / 100
+  return { date, startTime: s, endTime: e, description: desc, hours: hrs, ratePerHour: rate, amount: Math.round(hrs * rate * 100) / 100 }
+}
+function billingCtPeriod(date) {
+  const d = new Date(date + 'T00:00:00Z').getUTCDay()
+  return (d === 0 || d === 6) ? { start: '08:00', end: '16:00' } : { start: '17:00', end: '19:00' }
+}
+const DEFAULT_BILLING_RATES = {
+  MRCT_base: 50, MRCT_standalone: 75, MRCT_ct: 75, MRCT_mri_ct: 100, PET_base: 25, PET_standalone: 75,
+}
+function defaultMriPetMode(shift) {
+  if (shift.billingMode !== 'mrct_pet_combined') return 'normal'
+  const isSunday = new Intl.DateTimeFormat('en-CA', { weekday: 'long', timeZone: 'America/Vancouver' })
+    .format(new Date(shift.date + 'T12:00:00Z')) === 'Sunday'
+  return isSunday ? 'pet-down' : 'normal'
+}
+function calculateLineItems(shift, mode, rates = DEFAULT_BILLING_RATES, ctEndTime, ctStartTime, simpleEntityRates, petEndTime) {
+  const result = { MRCT: [], PET: [] }
+  const { date, startTime: sS, endTime: sE } = shift
+  const PET_CUTOFF = petEndTime ?? '21:00'
+
+  if (shift.billingMode === 'bcca_ct') {
+    result.MRCT.push(billingItem(date, sS, sE, 'CT contrast coverage', rates.MRCT_ct))
+    return result
+  }
+  if (shift.billingMode === 'mrct_pet_combined') {
+    const petEnd = billingMins(sE) > billingMins(PET_CUTOFF) ? PET_CUTOFF : sE
+    const defaultCt = billingCtPeriod(date)
+    const ct = (ctEndTime && mode === 'ct-also')
+      ? { start: ctStartTime ?? defaultCt.start, end: ctEndTime }
+      : defaultCt
+
+    switch (mode ?? 'normal') {
+      case 'normal': {
+        const inPet    = billingOverlap(sS, sE, sS, petEnd)
+        const afterPet = billingOverlap(sS, sE, PET_CUTOFF, sE)
+        if (inPet)    result.MRCT.push(billingItem(date, inPet.start,    inPet.end,    'MRI contrast coverage', rates.MRCT_base))
+        if (afterPet) result.MRCT.push(billingItem(date, afterPet.start, afterPet.end, 'MRI contrast coverage', rates.MRCT_standalone))
+        if (inPet)    result.PET.push(billingItem(date,  inPet.start,    inPet.end,    'PET contrast coverage', rates.PET_base))
+        break
+      }
+      case 'pet-down': {
+        result.MRCT.push(billingItem(date, sS, sE, 'MRI contrast coverage', rates.MRCT_standalone))
+        break
+      }
+      case 'mri-ct': {
+        if (!ctEndTime) break
+        const ctSeg    = billingOverlap(sS, sE, ct.start, ct.end)
+        const beforeCt = billingOverlap(sS, sE, sS, ct.start)
+        const afterCt  = billingOverlap(sS, sE, ct.end, sE)
+        if (ctSeg)    result.MRCT.push(billingItem(date, ctSeg.start,    ctSeg.end,    'MRI + CT contrast coverage', rates.MRCT_mri_ct))
+        if (beforeCt) result.MRCT.push(billingItem(date, beforeCt.start, beforeCt.end, 'MRI contrast coverage',      rates.MRCT_standalone))
+        if (afterCt)  result.MRCT.push(billingItem(date, afterCt.start,  afterCt.end,  'MRI contrast coverage',      rates.MRCT_standalone))
+        break
+      }
+    }
+    return result
+  }
+  if (simpleEntityRates) {
+    for (const [code, rate] of Object.entries(simpleEntityRates)) {
+      result[code] = [billingItem(date, sS, sE, 'Contrast Reaction Monitoring', rate)]
+    }
+  }
+  return result
+}
+
+section('1.28 defaultMriPetMode — Sunday → pet-down, weekday → normal, non-combined → normal')
+// 2026-07-19 is a Sunday in Vancouver
+assert(defaultMriPetMode({ billingMode: 'mrct_pet_combined', date: '2026-07-19' }) === 'pet-down', 'Sunday mrct_pet_combined → pet-down')
+assert(defaultMriPetMode({ billingMode: 'mrct_pet_combined', date: '2026-07-20' }) === 'normal',   'Monday mrct_pet_combined → normal')
+assert(defaultMriPetMode({ billingMode: 'mrct_pet_combined', date: '2026-07-18' }) === 'normal',   'Saturday mrct_pet_combined → normal (not Sunday)')
+assert(defaultMriPetMode({ billingMode: 'bcca_ct',           date: '2026-07-19' }) === 'normal',   'Sunday bcca_ct → normal (not combined)')
+assert(defaultMriPetMode({ billingMode: 'simple',            date: '2026-07-19' }) === 'normal',   'Sunday simple → normal')
+
+section('1.29 calculateLineItems — mri-ct: full shift spans CT window (Sunday)')
+// 2026-07-19 Sunday: CT window 08:00–16:00
+const mriCtBasic = calculateLineItems(
+  { date: '2026-07-19', startTime: '08:00', endTime: '21:00', billingMode: 'mrct_pet_combined' },
+  'mri-ct', DEFAULT_BILLING_RATES, '16:00'
+)
+assert(mriCtBasic.PET.length === 0, 'mri-ct: no PET line items')
+assert(mriCtBasic.MRCT.length === 2, 'mri-ct: two MRCT segments (overlap + after-CT)')
+assert(mriCtBasic.MRCT[0].startTime === '08:00' && mriCtBasic.MRCT[0].endTime === '16:00', 'mri-ct: CT overlap segment 08:00–16:00')
+assert(mriCtBasic.MRCT[0].description === 'MRI + CT contrast coverage', 'mri-ct: CT overlap description')
+assert(mriCtBasic.MRCT[0].ratePerHour === 100, 'mri-ct: CT overlap rate $100/hr')
+assert(mriCtBasic.MRCT[0].hours === 8 && mriCtBasic.MRCT[0].amount === 800, 'mri-ct: CT overlap 8 hrs = $800')
+assert(mriCtBasic.MRCT[1].startTime === '16:00' && mriCtBasic.MRCT[1].endTime === '21:00', 'mri-ct: MRI-only segment 16:00–21:00')
+assert(mriCtBasic.MRCT[1].description === 'MRI contrast coverage', 'mri-ct: MRI-only description')
+assert(mriCtBasic.MRCT[1].ratePerHour === 75, 'mri-ct: MRI-only rate $75/hr')
+assert(mriCtBasic.MRCT[1].hours === 5 && mriCtBasic.MRCT[1].amount === 375, 'mri-ct: MRI-only 5 hrs = $375')
+
+section('1.30 calculateLineItems — mri-ct: no ctEndTime → no line items')
+const mriCtNoTime = calculateLineItems(
+  { date: '2026-07-19', startTime: '08:00', endTime: '21:00', billingMode: 'mrct_pet_combined' },
+  'mri-ct', DEFAULT_BILLING_RATES, undefined
+)
+assert(mriCtNoTime.MRCT.length === 0, 'mri-ct without ctEndTime: MRCT empty')
+assert(mriCtNoTime.PET.length === 0,  'mri-ct without ctEndTime: PET empty')
+
+section('1.31 calculateLineItems — mri-ct: shift ends before CT window closes')
+// Shift 08:00–12:00 on a Sunday; CT window is 08:00–16:00 but shift ends at 12:00
+const mriCtShortShift = calculateLineItems(
+  { date: '2026-07-19', startTime: '08:00', endTime: '12:00', billingMode: 'mrct_pet_combined' },
+  'mri-ct', DEFAULT_BILLING_RATES, '16:00'
+)
+assert(mriCtShortShift.MRCT.length === 1, 'mri-ct short shift: only CT overlap segment (shift ends within CT window)')
+assert(mriCtShortShift.MRCT[0].startTime === '08:00' && mriCtShortShift.MRCT[0].endTime === '12:00', 'mri-ct short shift: segment is full shift window')
+assert(mriCtShortShift.MRCT[0].ratePerHour === 100, 'mri-ct short shift: billed at $100/hr (still in CT window)')
+assert(mriCtShortShift.MRCT[0].amount === 400, 'mri-ct short shift: 4 hrs × $100 = $400')
+
+section('1.32 calculateLineItems — normal mode: both MRCT and PET billed')
+const normalResult = calculateLineItems(
+  { date: '2026-07-20', startTime: '08:00', endTime: '21:00', billingMode: 'mrct_pet_combined' },
+  'normal', DEFAULT_BILLING_RATES
+)
+assert(normalResult.MRCT.length === 1, 'normal: one MRCT segment (full shift within PET hours)')
+assert(normalResult.MRCT[0].ratePerHour === 50,  'normal: MRCT rate $50/hr')
+assert(normalResult.MRCT[0].hours === 13,         'normal: 13 hrs MRCT')
+assert(normalResult.PET.length === 1,             'normal: one PET segment')
+assert(normalResult.PET[0].ratePerHour === 25,   'normal: PET rate $25/hr')
+assert(normalResult.PET[0].hours === 13,          'normal: 13 hrs PET')
+
+section('1.33 calculateLineItems — pet-down: MRCT standalone, no PET')
+const petDownResult = calculateLineItems(
+  { date: '2026-07-19', startTime: '08:00', endTime: '21:00', billingMode: 'mrct_pet_combined' },
+  'pet-down', DEFAULT_BILLING_RATES
+)
+assert(petDownResult.MRCT.length === 1,              'pet-down: one MRCT segment')
+assert(petDownResult.MRCT[0].ratePerHour === 75,     'pet-down: MRCT rate $75/hr (standalone)')
+assert(petDownResult.MRCT[0].hours === 13,           'pet-down: 13 hrs')
+assert(petDownResult.MRCT[0].amount === 975,         'pet-down: 13 × $75 = $975')
+assert(petDownResult.PET.length === 0,               'pet-down: no PET items')
+
+section('1.34 calculateLineItems — bcca_ct: full shift billed as CT coverage')
+const ctResult = calculateLineItems(
+  { date: '2026-07-20', startTime: '08:00', endTime: '13:00', billingMode: 'bcca_ct' },
+  null, DEFAULT_BILLING_RATES
+)
+assert(ctResult.MRCT.length === 1,                          'bcca_ct: one MRCT segment')
+assert(ctResult.MRCT[0].description === 'CT contrast coverage', 'bcca_ct: description is CT contrast coverage')
+assert(ctResult.MRCT[0].ratePerHour === 75,                 'bcca_ct: rate $75/hr')
+assert(ctResult.MRCT[0].hours === 5 && ctResult.MRCT[0].amount === 375, 'bcca_ct: 5 hrs × $75 = $375')
+assert(ctResult.PET.length === 0,                           'bcca_ct: no PET items')
+
 // ════════════════════════════════════════════════════════════════════════════
 // SECTION 2 — DB layer
 // ════════════════════════════════════════════════════════════════════════════
