@@ -434,7 +434,7 @@ export default function InvoiceGenerator({ completed, ctShiftsByDate, from, onMi
                         <span className="text-xs text-slate-400">PET continues to {petEndTime ?? '21:00'}</span>
                       </div>
                     )}
-                    {(currentMode === 'ct-pet' || currentMode === 'ct-also') && (
+                    {(currentMode === 'ct-pet' || currentMode === 'ct-also' || currentMode === 'mri-ct') && (
                       <p className="text-xs text-slate-500">
                         {ctShiftsByDate[shift.date]
                           ? <>
