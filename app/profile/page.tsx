@@ -96,27 +96,6 @@ function formatCompactTime(startTime?: string, endTime?: string): string {
     : `${fmt(startTime)}a–${fmt(endTime)}p`
 }
 
-function googleCalendarUrl(shift: Shift) {
-  const dateBase = shift.date.replace(/-/g, '')
-  if (shift.startTime && shift.endTime) {
-    const startTs = `${dateBase}T${shift.startTime.replace(':', '')}00`
-    const endTs = `${dateBase}T${shift.endTime.replace(':', '')}00`
-    const params = new URLSearchParams({
-      action: 'TEMPLATE',
-      text: `Contrast Call – ${shift.clinic}`,
-      dates: `${startTs}/${endTs}`,
-      details: `Contrast coverage call shift at ${shift.clinic}\n${formatTimeRange(shift.startTime, shift.endTime)}`,
-    })
-    return `https://calendar.google.com/calendar/render?${params}`
-  }
-  const params = new URLSearchParams({
-    action: 'TEMPLATE',
-    text: `Contrast Call – ${shift.clinic}`,
-    dates: `${dateBase}/${nextDayStr(shift.date)}`,
-    details: 'Contrast coverage call shift',
-  })
-  return `https://calendar.google.com/calendar/render?${params}`
-}
 
 function generateICS(shifts: Shift[]): string {
   const lines = [
@@ -183,8 +162,6 @@ export default function ProfilePage() {
   const [periods, setPeriods] = useState<SchedulingPeriod[]>([])
   const [allSplits, setAllSplits] = useState<ShiftSplit[]>([])
   const [loading, setLoading] = useState(true)
-  const [showGoogleLinks, setShowGoogleLinks] = useState(false)
-
   const [calendarToken, setCalendarToken] = useState<string | null>(null)
   const [calendarCopied, setCalendarCopied] = useState(false)
 
@@ -941,34 +918,6 @@ export default function ProfilePage() {
         </p>
       </div>
 
-      {/* ── Calendar Subscription ── */}
-      {calendarToken && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-          <h2 className="text-sm font-semibold text-slate-700 mb-0.5">Calendar Subscription</h2>
-          <p className="text-xs text-slate-400 mb-4">Subscribe to your shifts in Google Calendar, Outlook, or Apple Calendar. Updates automatically when the schedule changes.</p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 min-w-0 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-600 truncate select-all">
-              {`${typeof window !== 'undefined' ? window.location.origin : ''}/api/calendar/${calendarToken}`}
-            </code>
-            <button
-              onClick={() => {
-                const url = `${window.location.origin}/api/calendar/${calendarToken}`
-                navigator.clipboard.writeText(url).then(() => {
-                  setCalendarCopied(true)
-                  setTimeout(() => setCalendarCopied(false), 2000)
-                })
-              }}
-              className="shrink-0 text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2.5 py-1 transition-colors"
-            >
-              {calendarCopied ? 'Copied!' : 'Copy'}
-            </button>
-          </div>
-          <p className="text-xs text-slate-400 mt-3 leading-relaxed">
-            <span className="font-medium text-slate-500">Google Calendar:</span> Other calendars → From URL · <span className="font-medium text-slate-500">Outlook:</span> Add calendar → Subscribe from web · <span className="font-medium text-slate-500">Apple Calendar:</span> File → New Calendar Subscription
-          </p>
-        </div>
-      )}
-
       {publishedAssignments.length === 0 && completed.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 text-center text-slate-400 text-sm">
           No schedule has been published yet. Check back after the admin publishes the schedule.
@@ -1052,7 +1001,7 @@ export default function ProfilePage() {
             </div>
 
             {upcoming.length > 0 && (
-              <div className="mt-4 flex justify-end gap-2">
+              <div className="mt-4 flex justify-end">
                 <button
                   onClick={() => downloadICS(upcoming)}
                   className="flex items-center gap-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors"
@@ -1062,33 +1011,26 @@ export default function ProfilePage() {
                   </svg>
                   Download .ics
                 </button>
-                <button
-                  onClick={() => setShowGoogleLinks((v) => !v)}
-                  className="flex items-center gap-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  Google Calendar
-                </button>
               </div>
             )}
 
-            {showGoogleLinks && upcoming.length > 0 && (
-              <div className="mt-3 border-t border-slate-100 pt-3 space-y-1.5">
-                <p className="text-xs text-slate-400 mb-2">Click a shift to add it to Google Calendar:</p>
-                {upcoming.map((s) => (
-                  <a
-                    key={s.id}
-                    href={googleCalendarUrl(s)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 hover:bg-blue-50 hover:border-blue-200 transition-colors group"
-                  >
-                    <span className="text-sm text-slate-700">{formatDateShort(s.date)}</span>
-                    <span className="text-xs text-blue-600 group-hover:text-blue-700">{clinicAbbr(s.clinic)} →</span>
-                  </a>
-                ))}
+            {calendarToken && (
+              <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
+                <code className="flex-1 min-w-0 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-500 truncate select-all">
+                  {`${typeof window !== 'undefined' ? window.location.origin : ''}/api/calendar/${calendarToken}`}
+                </code>
+                <button
+                  onClick={() => {
+                    const url = `${window.location.origin}/api/calendar/${calendarToken}`
+                    navigator.clipboard.writeText(url).then(() => {
+                      setCalendarCopied(true)
+                      setTimeout(() => setCalendarCopied(false), 2000)
+                    })
+                  }}
+                  className="shrink-0 text-xs text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-2.5 py-1 transition-colors"
+                >
+                  {calendarCopied ? 'Copied!' : 'Copy URL'}
+                </button>
               </div>
             )}
           </div>
