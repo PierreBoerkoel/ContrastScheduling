@@ -267,6 +267,7 @@ export async function initDb(): Promise<void> {
     ['MRCT',   'base',       50],
     ['MRCT',   'standalone', 75],
     ['MRCT',   'ct',         75],
+    ['MRCT',   'mri_ct',    100],
     ['PET',    'base',       25],
     ['PET',    'standalone', 75],
     ['UBC',    'rate',       75],
@@ -280,6 +281,13 @@ export async function initDb(): Promise<void> {
       ON CONFLICT DO NOTHING
     `
   }
+  // Seed MRCT mri_ct rate for existing DBs
+  await sql`
+    INSERT INTO billing_rates (entity_id, rate_key, rate)
+    SELECT id, 'mri_ct', 100 FROM billing_entities WHERE code = 'MRCT'
+    ON CONFLICT DO NOTHING
+  `
+
   // Remove legacy rate_key='MR' rows — seeds now insert rate_key='rate'
   await sql`
     DELETE FROM billing_rates br
@@ -1322,9 +1330,9 @@ export async function setBillingRate(key: string, value: number): Promise<void> 
   const entityCode = key.slice(0, sep)
   const rateKey = key.slice(sep + 1)
   await sql`
-    UPDATE billing_rates br SET rate = ${value}
-    FROM billing_entities be
-    WHERE be.id = br.entity_id AND be.code = ${entityCode} AND br.rate_key = ${rateKey}
+    INSERT INTO billing_rates (entity_id, rate_key, rate)
+    SELECT id, ${rateKey}, ${value} FROM billing_entities WHERE code = ${entityCode}
+    ON CONFLICT (entity_id, rate_key) DO UPDATE SET rate = EXCLUDED.rate
   `
 }
 
