@@ -136,6 +136,8 @@ export default function AvailabilityPage() {
     return acc
   }, {})
   const sortedDates = Object.keys(byDate).sort()
+  const selectedInBlock = visibleShifts.filter((s) => selected.has(s.id)).length
+  const allBlockSelected = visibleShifts.length > 0 && visibleShifts.every((s) => selected.has(s.id))
 
   function toggleAllOnDay(date: string) {
     const shiftsOnDay = byDate[date] ?? []
@@ -149,6 +151,14 @@ export default function AvailabilityPage() {
       }
       return next
     })
+  }
+
+  function selectAllShifts() {
+    setSelected((prev) => { const next = new Set(prev); visibleShifts.forEach((s) => next.add(s.id)); return next })
+  }
+
+  function clearAllShifts() {
+    setSelected((prev) => { const next = new Set(prev); visibleShifts.forEach((s) => next.delete(s.id)); return next })
   }
 
   async function handleSubmit() {
@@ -227,7 +237,7 @@ export default function AvailabilityPage() {
 
           {selectedBlockPublished && hasExistingSubmission && (
             <div className="mb-4 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm text-slate-600">
-              This block has been scheduled. Your past availability submission is shown below.
+              This block has been scheduled — your selections are locked and shown below for reference.
             </div>
           )}
 
@@ -248,6 +258,31 @@ export default function AvailabilityPage() {
             </div>
           ) : (
             <>
+              {/* Count + select/clear all */}
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm text-slate-500">
+                  {selectedInBlock} of {visibleShifts.length} shift{visibleShifts.length !== 1 ? 's' : ''} selected
+                </span>
+                {!selectedBlockPublished && (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={selectAllShifts}
+                      disabled={allBlockSelected}
+                      className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-30 transition-colors"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      onClick={clearAllShifts}
+                      disabled={selectedInBlock === 0}
+                      className="text-xs text-slate-400 hover:text-slate-600 disabled:opacity-30 transition-colors"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Mobile: card-per-date layout */}
               <div className="sm:hidden space-y-3">
                 {sortedDates.map((date) => {
@@ -348,7 +383,7 @@ export default function AvailabilityPage() {
                                     className="w-4 h-4 accent-blue-600 cursor-pointer disabled:cursor-default disabled:opacity-50"
                                   />
                                   {formatTimeRange(shift.startTime, shift.endTime) && (
-                                    <span className="text-[10px] leading-tight text-slate-400 whitespace-nowrap">
+                                    <span className="text-xs text-slate-400 whitespace-nowrap">
                                       {formatTimeRange(shift.startTime, shift.endTime)}
                                     </span>
                                   )}
@@ -363,53 +398,47 @@ export default function AvailabilityPage() {
                 </table>
               </div>
 
-              {!selectedBlockPublished && (
-                <div className="mt-5 bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
-                  <label className="block text-sm text-slate-600 mb-2">
-                    <span className="sm:hidden">Max shifts this block:</span>
-                    <span className="hidden sm:inline">Maximum number of shifts I can work this block:</span>
-                  </label>
-                  <div className="flex items-center gap-2">
+              <div className="mt-5 space-y-3">
+                {!selectedBlockPublished && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="text-sm text-slate-500 whitespace-nowrap">Cap my assignments at</label>
                     <input
                       type="number"
                       min={1}
                       max={visibleShifts.length || undefined}
                       value={maxShifts}
                       onChange={(e) => setMaxShifts(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value, 10)))}
-                      placeholder="No limit"
-                      className="w-24 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="—"
+                      className="w-16 border border-slate-300 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                    <span className="text-sm text-slate-500">shifts</span>
                     {maxShifts !== '' && (
-                      <button
-                        onClick={() => setMaxShifts('')}
-                        className="text-xs text-slate-400 hover:text-slate-600"
-                      >
+                      <button onClick={() => setMaxShifts('')} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
                         Clear
                       </button>
                     )}
+                    <span className="text-xs text-slate-400 hidden sm:inline">The scheduler won&apos;t assign you more than this number.</span>
                   </div>
-                </div>
-              )}
+                )}
 
-              <div className="mt-4 flex items-center gap-4 flex-wrap">
-                <button
-                  onClick={handleSubmit}
-                  disabled={submitting || !effectivePeriodId || selectedBlockPublished}
-                  className="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  {submitting ? 'Submitting…' : submissions.some((s) => s.periodId === effectivePeriodId && s.userId === myUserId) ? 'Update Availability' : 'Submit Availability'}
-                </button>
-                {(() => {
-                  const existing = submissions.find(
-                    (s) => s.periodId === effectivePeriodId && s.userId === myUserId
-                  )
-                  return existing ? (
-                    <span className="text-xs text-slate-400">
-                      Last submitted {new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(existing.submittedAt))}
-                    </span>
-                  ) : null
-                })()}
-                {error && <span className="text-sm text-red-500">{error}</span>}
+                <div className="flex items-center gap-4 flex-wrap">
+                  <button
+                    onClick={handleSubmit}
+                    disabled={submitting || !effectivePeriodId || selectedBlockPublished}
+                    className="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {submitting ? 'Submitting…' : submissions.some((s) => s.periodId === effectivePeriodId && s.userId === myUserId) ? 'Update Availability' : 'Submit Availability'}
+                  </button>
+                  {(() => {
+                    const existing = submissions.find((s) => s.periodId === effectivePeriodId && s.userId === myUserId)
+                    return existing ? (
+                      <span className="text-xs text-slate-400">
+                        Last submitted {new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(existing.submittedAt))}
+                      </span>
+                    ) : null
+                  })()}
+                  {error && <span className="text-sm text-red-500">{error}</span>}
+                </div>
               </div>
             </>
           )}
